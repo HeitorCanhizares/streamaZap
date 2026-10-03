@@ -11,6 +11,7 @@ from fractions import Fraction
 
 import av
 import numpy as np
+from av.video.reformatter import VideoReformatter
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,8 @@ class VideoEncoder:
         self._input_size: tuple[int, int] | None = None
         self._pix_fmt = "yuv420p"
         self._pts = 0
+        # Reaproveita o contexto do swscale; frame.reformat() criaria um novo a cada quadro.
+        self._reformatter = VideoReformatter()
 
     def _candidates(self) -> list[str]:
         if self.preference == ENCODER_AUTO:
@@ -99,8 +102,10 @@ class VideoEncoder:
             self.close()
             self._open(width, height)
             force_keyframe = True
-        frame = av.VideoFrame.from_ndarray(bgra, format="bgra")
-        frame = frame.reformat(width=self._ctx.width, height=self._ctx.height, format=self._pix_fmt)
+        # from_numpy_buffer usa o array sem copiar (from_ndarray faria duas cópias do quadro);
+        # a conversão abaixo já gera um quadro novo, então o array não precisa sobreviver a ela.
+        frame = av.VideoFrame.from_numpy_buffer(np.ascontiguousarray(bgra), format="bgra")
+        frame = self._reformatter.reformat(frame, width=self._ctx.width, height=self._ctx.height, format=self._pix_fmt)
         frame.pts = self._pts
         frame.time_base = self._ctx.time_base
         self._pts += 1
@@ -117,8 +122,12 @@ class VideoDecoder:
     def __init__(self):
         self._ctx = av.CodecContext.create("h264", "r")
         self._ctx.thread_type = "SLICE"  # threads por quadro adicionariam atraso
+        self._reformatter = VideoReformatter()
 
-    def decode(self, data: bytes) -> list[np.ndarray]:
-        """Retorna quadros RGB24 (altura, largura, 3)."""
-        frames = self._ctx.decode(av.Packet(data))
-        return [f.to_ndarray(format="rgb24") for f in frames]
+    def decode(self, data: bytes) -> list[av.VideoFrame]:
+        """Quadros ainda em YUV: só o que for exibido precisa passar por `to_image`."""
+        return self._ctx.decode(av.Packet(data))
+
+    def to_image(self, frame: av.VideoFrame) -> np.ndarray:
+        """BGRA (altura, largura, 4): é o QImage.Format_RGB32, que o Qt desenha sem converter."""
+        return self._reformatter.reformat(frame, format="bgra").to_ndarray()

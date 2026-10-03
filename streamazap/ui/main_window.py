@@ -41,6 +41,7 @@ class _Signals(QObject):
     update_available = Signal(object)
     firewall_status = Signal(object)
     join_progress = Signal(str)
+    vpns = Signal(list)
 
 
 class MainWindow(QMainWindow):
@@ -132,6 +133,7 @@ class MainWindow(QMainWindow):
         self.signals.update_available.connect(self._on_update)
         self.signals.firewall_status.connect(self._on_firewall_status)
         self.signals.join_progress.connect(self.statusBar().showMessage)
+        self.signals.vpns.connect(self._on_vpns)
 
         self._vpns: list[str] = []
         self._vpn_timer = QTimer(self)
@@ -208,10 +210,19 @@ class MainWindow(QMainWindow):
         self.peers_label.setText("<br>".join(lines))
 
     def _check_vpns(self) -> None:
-        try:
-            self._vpns = netutil.other_vpns()
-        except Exception:  # noqa: BLE001 - só um aviso
-            self._vpns = []
+        # Percorre todos os processos do PC: fora da thread da interface, que também desenha o
+        # vídeo das janelas de sala (este timer continua rodando enquanto você assiste).
+        def work():
+            try:
+                vpns = netutil.other_vpns()
+            except Exception:  # noqa: BLE001 - só um aviso
+                vpns = []
+            self.signals.vpns.emit(vpns)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_vpns(self, vpns: list) -> None:
+        self._vpns = vpns
 
     def connectivity_hint(self, addresses: list[str]) -> str:
         """Explicação específica quando sabemos que o outro lado não recebe nossos pacotes."""

@@ -65,7 +65,7 @@ def test_viewer_receives_video_and_chat(host):
     viewer.start()
     try:
         assert wait_for(lambda: len(frames) >= 5)
-        assert frames[-1].shape == (240, 320, 3)
+        assert frames[-1].shape == (240, 320, 4)
         assert host.viewer_names() == ["Amigo"]
         viewer.send_chat("oi")
         assert wait_for(lambda: ("Amigo", "oi") in chats)
@@ -88,10 +88,10 @@ def test_edit_stream_live_keeps_viewer_connected(host):
     viewer.connect()
     viewer.start()
     try:
-        assert wait_for(lambda: frames and frames[-1].shape == (240, 320, 3))
+        assert wait_for(lambda: frames and frames[-1].shape == (240, 320, 4))
         new = HostSettings(**{**host.settings.__dict__, "source": VideoSource("window", 2, "outra"), "room_name": "Nova"})
         host.apply_settings(new)
-        assert wait_for(lambda: frames[-1].shape == (180, 160, 3))
+        assert wait_for(lambda: frames[-1].shape == (180, 160, 4))
         assert host.settings.room_name == "Nova"
         assert host.viewer_names() == ["Amigo"]
     finally:
@@ -119,7 +119,7 @@ def test_participant_stream_listed_and_watchable(host):
         watch = StreamViewer(stream["addresses"], stream["port"], "Bia", "123", delay_ms=0, media=True, on_frame=frames.append)
         watch.connect()
         watch.start()
-        assert wait_for(lambda: frames and frames[-1].shape == (180, 160, 3))
+        assert wait_for(lambda: frames and frames[-1].shape == (180, 160, 4))
         assert wait_for(lambda: not next(v for v in host._authed() if v.name == "Bia").media)
         watch.stop()
         room.stop()
@@ -271,7 +271,7 @@ def test_reverse_connection_to_participant_via_room(host):
         watch.connect()
         watch.start()
         assert watch.used_callback
-        assert wait_for(lambda: frames and frames[-1].shape == (180, 160, 3))
+        assert wait_for(lambda: frames and frames[-1].shape == (180, 160, 4))
         watch.stop()
     finally:
         bia_room.stop()

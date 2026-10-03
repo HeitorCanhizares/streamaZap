@@ -327,7 +327,9 @@ class StreamViewer:
         """Roda até a conexão acabar. Retorna (encerrado pelo host?, motivo)."""
         video = VideoDecoder()
         audio = AudioDecoder()
-        playout = VideoPlayout(video.decode, self.on_frame, self._request_keyframe, self.clock)
+        playout = VideoPlayout(
+            video.decode, lambda frame: self.on_frame(video.to_image(frame)), self._request_keyframe, self.clock
+        )
         self._playout = playout
         self.player.clear()
         playout.start()

@@ -65,14 +65,17 @@ def _root_pid(proc) -> int:
         return proc.pid
 
 
-def list_audio_apps() -> list[AudioApp]:
-    """Aplicativos com janela visível, agrupados por executável."""
+def list_audio_apps(windows: list | None = None) -> list[AudioApp]:
+    """Aplicativos com janela visível, agrupados por executável.
+
+    `windows`: resultado de list_windows() se o chamador já tiver (evita enumerar de novo).
+    """
     import psutil
 
     from streamazap.capture.screen import list_windows
 
     groups: dict[str, tuple[set[int], str]] = {}
-    for window in list_windows():
+    for window in list_windows() if windows is None else windows:
         if window.pid is None or not window.process_name:
             continue
         try:

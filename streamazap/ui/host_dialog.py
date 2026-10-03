@@ -157,7 +157,8 @@ class HostDialog(QDialog):
         self.sources.blockSignals(True)
         self.sources.clear()
         row = 0
-        for index, source in enumerate(list_monitors() + list_windows()):
+        windows = list_windows()
+        for index, source in enumerate(list_monitors() + windows):
             prefix = "🖥  " if source.kind == "monitor" else "🗔  "
             item = QListWidgetItem(prefix + source.label)
             item.setData(Qt.ItemDataRole.UserRole, source)
@@ -165,11 +166,11 @@ class HostDialog(QDialog):
             if selected is not None and (source.kind, source.ident) == (selected.kind, selected.ident):
                 row = index
         self.sources.blockSignals(False)
-        self._load_apps()
+        self._load_apps(windows)
         if self.sources.count():
             self.sources.setCurrentRow(row)
 
-    def _load_apps(self) -> None:
+    def _load_apps(self, windows: list) -> None:
         checked = {
             self.audio_apps.item(i).data(Qt.ItemDataRole.UserRole).name
             for i in range(self.audio_apps.count())
@@ -180,7 +181,7 @@ class HostDialog(QDialog):
         self.audio_apps.blockSignals(True)
         self.audio_apps.clear()
         if audio_supported():
-            for app in list_audio_apps():
+            for app in list_audio_apps(windows):
                 item = QListWidgetItem(app.label)
                 item.setData(Qt.ItemDataRole.UserRole, app)
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)

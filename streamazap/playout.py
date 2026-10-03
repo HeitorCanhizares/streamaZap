@@ -10,7 +10,8 @@ calculado pelo mesmo `MediaClock`. Assim o ritmo segue o do host, a variação
 da rede fica invisível e som e imagem ficam alinhados entre si.
 
 Os pacotes de vídeo ficam na fila ainda comprimidos (pouca memória) e são
-decodificados na hora de exibir.
+decodificados na hora de exibir. Quando vários vencem juntos, todos são
+decodificados (referências do H.264), mas só o último vai para `on_frame`.
 """
 
 from __future__ import annotations
@@ -20,8 +21,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-
-import numpy as np
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -84,8 +84,8 @@ class MediaClock:
 class VideoPlayout:
     def __init__(
         self,
-        decode: Callable[[bytes], list[np.ndarray]],
-        on_frame: Callable[[np.ndarray], None],
+        decode: Callable[[bytes], list],
+        on_frame: Callable[[Any], None],
         on_decode_error: Callable[[], None],
         clock: MediaClock,
     ):

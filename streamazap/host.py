@@ -272,8 +272,10 @@ class StreamHost:
         bye = protocol.encode_json(protocol.BYE, {"reason": reason})
         for viewer in viewers:
             viewer.send(protocol.BYE, bye)
+        # Os envios correm em paralelo: o prazo é um só, não 0,5 s por espectador.
+        deadline = time.monotonic() + 0.5
         for viewer in viewers:
-            viewer.flush(0.5)
+            viewer.flush(max(0.0, deadline - time.monotonic()))
             viewer.close()
 
     def apply_settings(self, new: HostSettings) -> None:
@@ -633,8 +635,10 @@ class StreamHost:
                 delay = next_tick - time.perf_counter()
                 if delay > 0:
                     stop.wait(delay)
-                else:
-                    next_tick = time.perf_counter()  # captura lenta: não acumula atraso
+                elif delay < -interval:
+                    # Mais de um quadro atrasado (captura lenta): recomeça sem acumular atraso.
+                    # Um atraso menor é compensado no próximo quadro, mantendo a média de fps.
+                    next_tick = time.perf_counter()
         except Exception as exc:  # noqa: BLE001 - reportado na interface
             log.exception("loop de vídeo falhou")
             if not stop.is_set():

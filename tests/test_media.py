@@ -19,7 +19,19 @@ def test_video_roundtrip_and_forced_keyframe():
         packets += encoder.encode(frame, force_keyframe=(i == 4))
     assert packets[0][1] and packets[4][1] and not packets[1][1]
     decoded = [f for packet, _ in packets for f in decoder.decode(packet)]
-    assert decoded[-1].shape == (360, 480, 3)
+    image = decoder.to_image(decoded[-1])
+    assert image.shape == (360, 480, 4)
+    assert abs(int(image[180, 240, 0]) - 128) < 8 and image[180, 240, 3] == 255  # cinza; alfa opaco p/ o RGB32
+
+
+def test_encoder_follows_window_resize():
+    encoder = VideoEncoder(0, 30, 1_000_000, "libx264")
+    decoder = VideoDecoder()
+    for size in [(240, 320), (180, 160), (241, 321)]:  # ímpar: saída arredonda para par
+        packets = encoder.encode(np.full((*size, 4), 200, np.uint8))
+        assert packets[0][1]  # recomeça com keyframe
+        frames = [f for packet, _ in packets for f in decoder.decode(packet)]
+        assert decoder.to_image(frames[-1]).shape == (size[0] - size[0] % 2, size[1] - size[1] % 2, 4)
 
 
 def test_audio_roundtrip():

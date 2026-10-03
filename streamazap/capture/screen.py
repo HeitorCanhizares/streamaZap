@@ -273,9 +273,8 @@ if IS_WINDOWS:
             self.array = np.ctypeslib.as_array(buf).reshape(height, width, 4)
 
         def snapshot(self) -> np.ndarray:
-            frame = self.array.copy()
-            frame[:, :, 3] = 255
-            return frame
+            # O alfa (lixo do GDI) não importa: a conversão para YUV no codificador o descarta.
+            return self.array.copy()
 
         def close(self) -> None:
             _win_api.gdi32.SelectObject(self.hdc, self._old)

@@ -55,11 +55,12 @@ class VideoWidget(QWidget):
         self.placeholder = placeholder
         self.update()
 
-    def set_frame(self, rgb: np.ndarray) -> None:
-        rgb = np.ascontiguousarray(rgb)
-        height, width = rgb.shape[:2]
-        self._array = rgb  # o QImage não copia os dados
-        self._image = QImage(rgb.data, width, height, width * 3, QImage.Format.Format_RGB888)
+    def set_frame(self, bgra: np.ndarray) -> None:
+        bgra = np.ascontiguousarray(bgra)
+        height, width = bgra.shape[:2]
+        self._array = bgra  # o QImage não copia os dados
+        # RGB32 é o formato nativo do Qt: escalar RGB888 a cada quadro custa 2-3x mais.
+        self._image = QImage(bgra.data, width, height, width * 4, QImage.Format.Format_RGB32)
         self.update()
 
     def paintEvent(self, event) -> None:

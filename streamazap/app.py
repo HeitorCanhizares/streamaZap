@@ -39,6 +39,14 @@ def main() -> int:
         import ctypes
 
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("StreamaZap.App")
+        # O ritmo da captura e da exibição dos quadros usa esperas com timeout (Event/Condition.wait),
+        # que no Windows arredondam para o tick de 15,6 ms: a 30/60 fps os quadros saem desiguais.
+        # 1 ms vale só para este processo (Windows 10 2004+).
+        ctypes.windll.winmm.timeBeginPeriod(1)
     window = MainWindow()
     window.show()
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        if sys.platform == "win32":
+            ctypes.windll.winmm.timeEndPeriod(1)
