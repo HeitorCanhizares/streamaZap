@@ -84,6 +84,12 @@ class DiagnosticsDialog(QDialog):
             net.append("⚠️ Radmin VPN não detectado")
         if browser.error:
             net.append(f"⚠️ {browser.error}")
+        for vpn in netutil.other_vpns():
+            net.append(
+                f"⚠️ {vpn} detectado: se o kill switch (“bloquear conexões fora da VPN”) estiver ligado, ele bloqueia "
+                "o Radmin mesmo com o Firewall liberado. Teste com ele fechado; para usar junto, desligue o kill switch "
+                "e exclua o Radmin VPN e o StreamaZap no Split Tunneling."
+            )
 
         fw: list[str] = []
         s = self.status

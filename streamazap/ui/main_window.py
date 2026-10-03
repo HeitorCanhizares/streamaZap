@@ -133,6 +133,11 @@ class MainWindow(QMainWindow):
         self.signals.firewall_status.connect(self._on_firewall_status)
         self.signals.join_progress.connect(self.statusBar().showMessage)
 
+        self._vpns: list[str] = []
+        self._vpn_timer = QTimer(self)
+        self._vpn_timer.timeout.connect(self._check_vpns)
+        self._vpn_timer.start(15000)
+        self._check_vpns()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(1000)
@@ -171,6 +176,11 @@ class MainWindow(QMainWindow):
         others = [i.ip for i in interfaces if not i.is_radmin]
         if others:
             text += f" · Rede local: {', '.join(others)}"
+        if self._vpns:
+            text += (
+                f"<br><span style='color:#c87f0a'>⚠️ {', '.join(self._vpns)} detectado — o kill switch dele bloqueia o "
+                "Radmin (veja 🩺 Diagnóstico).</span>"
+            )
         self.network_label.setText(text)
         self._refresh_peers(bool(radmin))
 
@@ -196,6 +206,12 @@ class MainWindow(QMainWindow):
         if peers and lines:
             lines.insert(0, "<b>Online com StreamaZap:</b>")
         self.peers_label.setText("<br>".join(lines))
+
+    def _check_vpns(self) -> None:
+        try:
+            self._vpns = netutil.other_vpns()
+        except Exception:  # noqa: BLE001 - só um aviso
+            self._vpns = []
 
     def connectivity_hint(self, addresses: list[str]) -> str:
         """Explicação específica quando sabemos que o outro lado não recebe nossos pacotes."""

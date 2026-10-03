@@ -62,3 +62,46 @@ def broadcast_targets(interfaces: list[Interface] | None = None) -> list[str]:
     targets = [i.broadcast for i in interfaces if i.broadcast]
     targets.append("255.255.255.255")
     return list(dict.fromkeys(targets))
+
+
+# VPNs com "kill switch" bloqueiam tudo que não passa pelo túnel delas — inclusive o
+# Radmin (a faixa 26.x não conta como "rede local"). Isso fica abaixo do Firewall do
+# Windows, então a verificação de regras não enxerga.
+_OTHER_VPNS = {
+    "proton": "Proton VPN",
+    "nordlynx": "NordVPN",
+    "nordvpn": "NordVPN",
+    "expressvpn": "ExpressVPN",
+    "surfshark": "Surfshark",
+    "windscribe": "Windscribe",
+    "mullvad": "Mullvad",
+    "cyberghost": "CyberGhost",
+    "pia": "Private Internet Access",
+    "privateinternetaccess": "Private Internet Access",
+    "hotspot shield": "Hotspot Shield",
+    "hamachi": "Hamachi",
+    "zerotier": "ZeroTier",
+    "wireguard": "WireGuard",
+    "openvpn": "OpenVPN",
+    "tap-windows": "OpenVPN (TAP)",
+}
+
+
+def other_vpns() -> list[str]:
+    """VPNs (além do Radmin) com adaptador de rede ou programa em execução."""
+    found = set()
+    names = list(psutil.net_if_addrs())
+    try:
+        names += [proc.info["name"] or "" for proc in psutil.process_iter(["name"])]
+    except psutil.Error:
+        pass
+    for name in names:
+        lowered = name.lower().replace("_", " ")
+        if "radmin" in lowered:
+            continue
+        for key, label in _OTHER_VPNS.items():
+            if key == "pia" and not lowered.startswith("pia"):
+                continue
+            if key in lowered:
+                found.add(label)
+    return sorted(found)

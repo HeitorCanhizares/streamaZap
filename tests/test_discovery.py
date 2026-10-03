@@ -89,3 +89,12 @@ def test_presence_between_two_live_browsers():
     finally:
         a.stop()
         b.stop()
+
+
+def test_detects_other_vpns(monkeypatch):
+    import types
+
+    monkeypatch.setattr(netutil.psutil, "net_if_addrs", lambda: {"Radmin VPN": [], "ProtonVPN TUN": [], "Ethernet": []})
+    procs = [types.SimpleNamespace(info={"name": n}) for n in ["ProtonVPN.Client.exe", "pia-service.exe", "explorer.exe", "RvRvpnGui.exe"]]
+    monkeypatch.setattr(netutil.psutil, "process_iter", lambda attrs: procs)
+    assert netutil.other_vpns() == ["Private Internet Access", "Proton VPN"]
