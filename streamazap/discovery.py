@@ -56,8 +56,8 @@ def build_announcement(room_id: str, name: str, host_name: str, port: int, viewe
     )
 
 
-def build_callback_request(room_id: str, port: int) -> bytes:
-    return _message("callback", room=room_id, port=port)
+def build_callback_request(room_id: str, port: int, token: str) -> bytes:
+    return _message("callback", room=room_id, port=port, token=token)
 
 
 def parse_message(data: bytes) -> dict | None:
@@ -102,7 +102,7 @@ class Announcer:
         self._on_callback = on_callback
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="announcer", daemon=True)
-        self._recent_callbacks: dict[tuple[str, int], float] = {}
+        self._recent_callbacks: dict[str, float] = {}
 
     def start(self) -> None:
         self._thread.start()
@@ -114,10 +114,12 @@ class Announcer:
         msg = parse_message(data)
         if msg is None or msg["type"] != "callback" or msg.get("room") != self.room_id:
             return
-        key = (ip, msg["port"])
+        # O pedido chega repetido (várias tentativas e, com várias placas de rede, por
+        # vários IPs); o token identifica o pedido para atender uma vez só.
+        key = str(msg.get("token") or f"{ip}:{msg['port']}")
         now = time.monotonic()
-        if now - self._recent_callbacks.get(key, 0) < 5:
-            return  # o espectador manda o pedido algumas vezes; atende uma só
+        if key in self._recent_callbacks:
+            return
         self._recent_callbacks = {k: t for k, t in self._recent_callbacks.items() if now - t < 30}
         self._recent_callbacks[key] = now
         self._on_callback(ip, msg["port"])
@@ -150,7 +152,7 @@ class Announcer:
 
 def request_callback(room: Room, port: int, attempts: int = 3) -> None:
     """Pede ao host da sala que conecte em nós na porta TCP `port`."""
-    payload = build_callback_request(room.room_id, port)
+    payload = build_callback_request(room.room_id, port, uuid.uuid4().hex)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         for attempt in range(attempts):
             for ip, udp_port in room.callback_ports.items():
