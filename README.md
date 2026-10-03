@@ -96,7 +96,7 @@ Atalhos do player: **F11** ou duplo clique = tela cheia, **Esc** = sai da tela c
 | Parte | Tecnologia |
 |---|---|
 | Interface | PySide6 (Qt) |
-| Captura de tela/janela | GDI `BitBlt` / `PrintWindow` (Windows), `mss` (outros sistemas) |
+| Captura de tela/janela | Desktop Duplication (DXGI), com `BitBlt` de reserva, para monitores; `PrintWindow` para janelas (Windows); `mss` (outros sistemas) |
 | Captura de som por app | WASAPI *process loopback* (Windows 10 2004+) via `ctypes` |
 | Vídeo | H.264 via PyAV/FFmpeg (NVENC / QSV / AMF / x264), baixa latência, sem B-frames |
 | Áudio | Opus 48 kHz estéreo, quadros de 20 ms |

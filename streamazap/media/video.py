@@ -13,16 +13,9 @@ import av
 import numpy as np
 from av.video.reformatter import VideoReformatter
 
-log = logging.getLogger(__name__)
+from streamazap.config import ENCODER_AUTO
 
-ENCODER_AUTO = "auto"
-ENCODER_CHOICES = [
-    (ENCODER_AUTO, "Automático (GPU se disponível)"),
-    ("h264_nvenc", "NVIDIA (NVENC)"),
-    ("h264_qsv", "Intel (QuickSync)"),
-    ("h264_amf", "AMD (AMF)"),
-    ("libx264", "CPU (x264)"),
-]
+log = logging.getLogger(__name__)
 
 _ENCODER_OPTIONS = {
     "h264_nvenc": ("yuv420p", {"preset": "p3", "tune": "ll", "zerolatency": "1", "rc": "cbr", "forced-idr": "1"}),

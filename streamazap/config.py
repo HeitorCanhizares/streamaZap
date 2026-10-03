@@ -43,6 +43,17 @@ AUDIO_CHANNELS = 2
 AUDIO_FRAME_SAMPLES = 960
 AUDIO_BITRATE = 128_000
 
+# Codificadores de vídeo exibidos na interface. Ficam aqui, e não em media/video.py, para a
+# interface não carregar o PyAV (FFmpeg) ao abrir: ele só é importado ao transmitir/assistir.
+ENCODER_AUTO = "auto"
+ENCODER_CHOICES = [
+    (ENCODER_AUTO, "Automático (GPU se disponível)"),
+    ("h264_nvenc", "NVIDIA (NVENC)"),
+    ("h264_qsv", "Intel (QuickSync)"),
+    ("h264_amf", "AMD (AMF)"),
+    ("libx264", "CPU (x264)"),
+]
+
 # Presets de qualidade exibidos na interface: (rótulo, altura máxima, fps, bitrate).
 QUALITY_PRESETS = [
     ("720p 30fps (leve, ideal p/ Radmin)", 720, 30, 2_500_000),

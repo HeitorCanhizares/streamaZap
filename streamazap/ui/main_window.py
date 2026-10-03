@@ -55,6 +55,7 @@ class MainWindow(QMainWindow):
         self.browser.start()
         self._windows: list = []
         self._joining = False
+        self._rooms_shown: list | None = None
 
         self.nick = QLineEdit(self.settings.value("nickname", socket.gethostname()))
         self.nick.setMaximumWidth(220)
@@ -149,23 +150,16 @@ class MainWindow(QMainWindow):
 
     # -- lista de salas ----------------------------------------------------------
     def refresh(self) -> None:
-        selected = self.rooms.currentItem()
-        selected_id = selected.data(0, Qt.ItemDataRole.UserRole).room_id if selected else None
-        self.rooms.clear()
-        for room in self.browser.rooms():
-            lock = "🔒" if room.locked else ""
-            if not room.compatible:
-                lock = f"⚠️ versão {room.app_version or 'antiga'}"
-            item = QTreeWidgetItem([room.name, room.host_name, str(room.viewers), lock, ", ".join(room.addresses)])
-            item.setData(0, Qt.ItemDataRole.UserRole, room)
-            if not room.compatible:
-                item.setToolTip(0, "Sala de outra versão do StreamaZap — atualizem para a mesma versão")
-                for column in range(5):
-                    item.setForeground(column, Qt.GlobalColor.gray)
-            self.rooms.addTopLevelItem(item)
-            if room.room_id == selected_id:
-                self.rooms.setCurrentItem(item)
-        self.empty_hint.setVisible(self.rooms.topLevelItemCount() == 0)
+        rooms = self.browser.rooms()
+        # Roda a cada 1 s na thread da interface: só refaz a lista quando algo mudou
+        # (refazer sempre também perdia a rolagem e o destaque do mouse).
+        shown = [
+            (id(r), r.room_id, r.name, r.host_name, r.port, r.viewers, r.locked, r.version, r.app_version, tuple(r.addresses))
+            for r in rooms
+        ]
+        if shown != self._rooms_shown:
+            self._rooms_shown = shown
+            self._fill_rooms(rooms)
 
         interfaces = netutil.ipv4_interfaces()
         radmin = [i.ip for i in interfaces if i.is_radmin]
@@ -184,9 +178,28 @@ class MainWindow(QMainWindow):
                 "Radmin (veja 🩺 Diagnóstico).</span>"
             )
         self.network_label.setText(text)
-        self._refresh_peers(bool(radmin))
+        self._refresh_peers(bool(radmin), rooms)
 
-    def _refresh_peers(self, radmin_connected: bool) -> None:
+    def _fill_rooms(self, rooms: list[Room]) -> None:
+        selected = self.rooms.currentItem()
+        selected_id = selected.data(0, Qt.ItemDataRole.UserRole).room_id if selected else None
+        self.rooms.clear()
+        for room in rooms:
+            lock = "🔒" if room.locked else ""
+            if not room.compatible:
+                lock = f"⚠️ versão {room.app_version or 'antiga'}"
+            item = QTreeWidgetItem([room.name, room.host_name, str(room.viewers), lock, ", ".join(room.addresses)])
+            item.setData(0, Qt.ItemDataRole.UserRole, room)
+            if not room.compatible:
+                item.setToolTip(0, "Sala de outra versão do StreamaZap — atualizem para a mesma versão")
+                for column in range(5):
+                    item.setForeground(column, Qt.GlobalColor.gray)
+            self.rooms.addTopLevelItem(item)
+            if room.room_id == selected_id:
+                self.rooms.setCurrentItem(item)
+        self.empty_hint.setVisible(self.rooms.topLevelItemCount() == 0)
+
+    def _refresh_peers(self, radmin_connected: bool, rooms: list[Room]) -> None:
         """Quem mais está com o StreamaZap aberto e se a comunicação funciona nos dois sentidos."""
         peers = self.browser.peers()
         lines = []
@@ -200,7 +213,7 @@ class MainWindow(QMainWindow):
                     "(ou liberar o StreamaZap no antivírus).</span>"
                 )
         waiting = time.monotonic() - self.browser.started_at > 20
-        if not peers and not self.browser.rooms() and radmin_connected and waiting:
+        if not peers and not rooms and radmin_connected and waiting:
             lines.append(
                 "<span style='color:#c87f0a'>Nenhum StreamaZap da rede está chegando no seu PC. Se seus amigos estão com "
                 "o app aberto e você não vê ninguém, o seu PC está bloqueando conexões de entrada: abra 🩺 Diagnóstico.</span>"
@@ -337,7 +350,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() != HostDialog.DialogCode.Accepted:
             return
         host = StreamHost(dialog.result_settings())
-        window = HostWindow(host)
+        window = HostWindow(host, firewall_status=self.firewall)
         try:
             host.start()
         except Exception as exc:  # noqa: BLE001

@@ -19,15 +19,17 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
 
 from streamazap import __version__, config, netutil, protocol
 from streamazap.capture.audio import AUDIO_NONE, AudioApp, AudioCaptureGroup
 from streamazap.capture.screen import VideoSource, create_capturer
 from streamazap.discovery import Announcer
-from streamazap.media.audio import AudioEncoder
-from streamazap.media.video import ENCODER_AUTO, VideoEncoder
 from streamazap.playout import SlidingMin
 from streamazap.updater import RELEASES_URL
+
+if TYPE_CHECKING:
+    from streamazap.media.audio import AudioEncoder
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +46,7 @@ class HostSettings:
     max_height: int = 720
     fps: int = 30
     bitrate: int = 2_500_000
-    encoder: str = ENCODER_AUTO
+    encoder: str = config.ENCODER_AUTO
     audio_mode: str = AUDIO_NONE
     audio_apps: list[AudioApp] = field(default_factory=list)
     adaptive: bool = True
@@ -543,6 +545,8 @@ class StreamHost:
             self._audio = None
             return
         if self._audio_encoder is None:
+            from streamazap.media.audio import AudioEncoder  # PyAV só é carregado ao transmitir
+
             self._audio_encoder = AudioEncoder()
         self._audio = AudioCaptureGroup(self.settings.audio_mode, self.settings.audio_apps, self._on_audio_frame)
         self._audio.start()
@@ -575,19 +579,25 @@ class StreamHost:
         self._start_video()
 
     def _video_loop(self, s: HostSettings, stop: threading.Event) -> None:
+        from streamazap.media.video import VideoEncoder  # PyAV só é carregado ao transmitir
+
         encoder = VideoEncoder(s.max_height, s.fps, s.bitrate, s.encoder)
         controller = BitrateController(s.bitrate, s.adaptive)
         capturer = None
         interval = 1.0 / s.fps
         last_frame = None
-        frames = sent_bytes = 0
+        frames = sent_bytes = grabs = 0
+        grab_seconds = 0.0
         stats_time = time.monotonic()
         next_tick = time.perf_counter()
         try:
             capturer = self._capturer_factory(s.source)
             while not stop.is_set():
                 next_tick += interval
+                grab_start = time.perf_counter()
                 frame = capturer.grab()
+                grab_seconds += time.perf_counter() - grab_start
+                grabs += 1
                 if frame is None:
                     # Janela minimizada: só reenvia o último quadro se alguém pediu keyframe.
                     frame = last_frame if self._force_keyframe.is_set() else None
@@ -626,10 +636,13 @@ class StreamHost:
                             "lag": lag,
                             "encoder": encoder.codec_name,
                             "size": encoder.size,
+                            "capture": getattr(capturer, "backend", None),
+                            "capture_ms": grab_seconds * 1000 / grabs if grabs else 0.0,
                             "audio_errors": self._audio.errors() if self._audio else [],
                         }
                     )
-                    frames = sent_bytes = 0
+                    frames = sent_bytes = grabs = 0
+                    grab_seconds = 0.0
                     stats_time = now
 
                 delay = next_tick - time.perf_counter()

@@ -11,8 +11,6 @@ from collections.abc import Callable
 import numpy as np
 
 from streamazap import __version__, config, protocol
-from streamazap.media.audio import AudioDecoder
-from streamazap.media.video import VideoDecoder
 from streamazap.player import AudioPlayer
 from streamazap.playout import MediaClock, VideoPlayout
 
@@ -325,6 +323,9 @@ class StreamViewer:
 
     def _session(self) -> tuple[bool, str]:
         """Roda até a conexão acabar. Retorna (encerrado pelo host?, motivo)."""
+        from streamazap.media.audio import AudioDecoder  # PyAV só é carregado ao assistir
+        from streamazap.media.video import VideoDecoder
+
         video = VideoDecoder()
         audio = AudioDecoder()
         playout = VideoPlayout(

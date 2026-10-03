@@ -34,7 +34,9 @@ class _WatchSignals(QObject):
 class HostWindow(QMainWindow):
     finished = Signal()
 
-    def __init__(self, host: StreamHost, parent=None):
+    def __init__(self, host: StreamHost, parent=None, firewall_status: firewall.FirewallStatus | None = None):
+        """`firewall_status`: resultado que a tela inicial já tem (evita rodar o PowerShell de novo
+        bem quando a captura e o codificador estão começando)."""
         super().__init__(parent)
         self.host = host
         self._children: list = []
@@ -111,7 +113,10 @@ class HostWindow(QMainWindow):
         self.bridge.stats.connect(self._on_stats)
         self.bridge.error.connect(self._on_error)
         self._update_header()
-        self._check_firewall()
+        if firewall_status is None:
+            self._check_firewall()
+        else:
+            self._on_firewall_status(firewall_status)
 
     # -- firewall: quem transmite precisa aceitar conexões de entrada ----------------
     def _check_firewall(self) -> None:
@@ -184,6 +189,8 @@ class HostWindow(QMainWindow):
         size = stats.get("size")
         resolution = f"{size[0]}x{size[1]}" if size else "—"
         text = f"{resolution} · {stats['fps']:.0f} fps · {stats['kbps']:.0f} kbps · {stats.get('encoder') or '—'}"
+        if stats.get("capture"):
+            text += f" · captura {stats.get('capture_ms', 0):.0f} ms ({stats['capture']})"
         if stats.get("target_kbps", 0) < stats.get("base_kbps", 0):
             text += (
                 f"<br><span style='color:#c87f0a'>Qualidade reduzida para {stats['target_kbps']} kbps "

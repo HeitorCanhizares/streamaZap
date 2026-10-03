@@ -1,14 +1,18 @@
 """Captura de vídeo: monitor inteiro ou uma janela específica.
 
-No Windows usamos GDI (BitBlt / PrintWindow) via ctypes, o que permite capturar
-janelas mesmo quando estão atrás de outras e desenhar o cursor do mouse.
+No Windows o monitor é capturado pela Desktop Duplication API (DXGI), com o GDI
+(BitBlt) de reserva; janelas usam PrintWindow, que as captura mesmo atrás de
+outras. O cursor do mouse é desenhado por cima via GDI, tudo por ctypes.
 Em outros sistemas há apenas captura de monitor via `mss`.
 """
 
 from __future__ import annotations
 
 import ctypes
+import logging
 import os
+import time
+import uuid
 from dataclasses import dataclass
 
 import numpy as np
@@ -19,6 +23,8 @@ try:
     import psutil
 except ImportError:  # pragma: no cover
     psutil = None
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -66,12 +72,18 @@ def create_capturer(source: VideoSource):
             raise RuntimeError("Captura de janela só é suportada no Windows")
         return _win.WindowCapturer(source.ident)
     if IS_WINDOWS:
-        return _win.MonitorCapturer(*source.rect)
+        try:
+            return _win.DxgiMonitorCapturer(*source.rect)
+        except OSError as exc:  # sessão remota, driver, monitor girado...
+            log.info("Desktop Duplication indisponível (%s); capturando o monitor por BitBlt", exc)
+            return _win.MonitorCapturer(*source.rect)
     return MssCapturer(source.ident)
 
 
 class MssCapturer:
     """Captura de monitor portátil (Linux/macOS)."""
+
+    backend = "mss"
 
     def __init__(self, index: int):
         self._index = index
@@ -282,6 +294,8 @@ if IS_WINDOWS:
             _win_api.gdi32.DeleteDC(self.hdc)
 
     class _WinMonitorCapturer:
+        backend = "BitBlt"
+
         def __init__(self, left: int, top: int, width: int, height: int):
             self.left, self.top = left, top
             self._dib = _DibBuffer(width, height)
@@ -301,7 +315,291 @@ if IS_WINDOWS:
         def close(self) -> None:
             self._dib.close()
 
+    # --- Desktop Duplication (DXGI + Direct3D 11), vtables COM chamadas direto -------
+
+    _HRESULT = ctypes.HRESULT  # levanta OSError em falha
+    _DXGI_ERROR_ACCESS_LOST = 0x887A0026 - (1 << 32)
+    _DXGI_ERROR_WAIT_TIMEOUT = 0x887A0027 - (1 << 32)
+    _DXGI_FORMAT_B8G8R8A8_UNORM = 87
+    _D3D11_USAGE_STAGING = 3
+    _D3D11_CPU_ACCESS_READ = 0x20000
+    _D3D11_MAP_READ = 1
+    _D3D11_SDK_VERSION = 7
+
+    def _iid(text: str):
+        return (ctypes.c_ubyte * 16).from_buffer_copy(uuid.UUID(text).bytes_le)
+
+    _IID_IDXGIFactory1 = _iid("770aae78-f26f-4dba-a829-253c83d1b387")
+    _IID_IDXGIOutput1 = _iid("00cddea8-939b-4b83-a340-a685226666cc")
+    _IID_ID3D11Texture2D = _iid("6f15aaf2-d208-4e89-9ab4-489535d34f9c")
+
+    class _DXGI_OUTPUT_DESC(ctypes.Structure):
+        _fields_ = [
+            ("DeviceName", wintypes.WCHAR * 32),
+            ("DesktopCoordinates", wintypes.RECT),
+            ("AttachedToDesktop", wintypes.BOOL),
+            ("Rotation", wintypes.UINT),
+            ("Monitor", wintypes.HANDLE),
+        ]
+
+    class _DXGI_OUTDUPL_DESC(ctypes.Structure):
+        _fields_ = [
+            ("Width", wintypes.UINT),  # DXGI_MODE_DESC
+            ("Height", wintypes.UINT),
+            ("RefreshNumerator", wintypes.UINT),
+            ("RefreshDenominator", wintypes.UINT),
+            ("Format", wintypes.UINT),
+            ("ScanlineOrdering", wintypes.UINT),
+            ("Scaling", wintypes.UINT),
+            ("Rotation", wintypes.UINT),
+            ("DesktopImageInSystemMemory", wintypes.BOOL),
+        ]
+
+    class _DXGI_OUTDUPL_FRAME_INFO(ctypes.Structure):
+        _fields_ = [
+            ("LastPresentTime", ctypes.c_longlong),
+            ("LastMouseUpdateTime", ctypes.c_longlong),
+            ("AccumulatedFrames", wintypes.UINT),
+            ("RectsCoalesced", wintypes.BOOL),
+            ("ProtectedContentMaskedOut", wintypes.BOOL),
+            ("PointerPosition", wintypes.POINT),
+            ("PointerVisible", wintypes.BOOL),
+            ("TotalMetadataBufferSize", wintypes.UINT),
+            ("PointerShapeBufferSize", wintypes.UINT),
+        ]
+
+    class _D3D11_TEXTURE2D_DESC(ctypes.Structure):
+        _fields_ = [
+            ("Width", wintypes.UINT),
+            ("Height", wintypes.UINT),
+            ("MipLevels", wintypes.UINT),
+            ("ArraySize", wintypes.UINT),
+            ("Format", wintypes.UINT),
+            ("SampleCount", wintypes.UINT),
+            ("SampleQuality", wintypes.UINT),
+            ("Usage", wintypes.UINT),
+            ("BindFlags", wintypes.UINT),
+            ("CPUAccessFlags", wintypes.UINT),
+            ("MiscFlags", wintypes.UINT),
+        ]
+
+    class _D3D11_MAPPED_SUBRESOURCE(ctypes.Structure):
+        _fields_ = [("pData", ctypes.c_void_p), ("RowPitch", wintypes.UINT), ("DepthPitch", wintypes.UINT)]
+
+    def _com(ptr, index: int, restype, *argtypes):
+        """Método `index` da vtable do objeto COM `ptr`."""
+        vtable = ctypes.cast(ptr, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+        func = ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)(vtable[index])
+        return lambda *args: func(ptr, *args)
+
+    def _com_release(ptr) -> None:
+        if ptr:
+            _com(ptr, 2, wintypes.ULONG)()
+
+    def _com_query(ptr, iid) -> ctypes.c_void_p:
+        out = ctypes.c_void_p()
+        _com(ptr, 0, _HRESULT, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))(ctypes.byref(iid), ctypes.byref(out))
+        return out
+
+    class _DxgiMonitorCapturer:
+        """Captura de monitor pela Desktop Duplication API.
+
+        O BitBlt da tela faz o DWM copiar a imagem da GPU para a CPU a cada quadro e costuma
+        ser o passo mais lento da transmissão. Aqui a GPU entrega a imagem já composta, e só
+        quando algo muda. O cursor não vem na imagem: é desenhado por cima com o código do GDI.
+        Qualquer falha cai para o BitBlt (perder o acesso, ex.: aviso do UAC, é temporário).
+        """
+
+        @property
+        def backend(self) -> str:
+            return "BitBlt" if self._broken or not self._dupl else "DXGI"
+
+        def __init__(self, left: int, top: int, width: int, height: int):
+            self._gdi = _WinMonitorCapturer(left, top, width, height)  # reserva e dono do DIB
+            self._device = ctypes.c_void_p()
+            self._context = ctypes.c_void_p()
+            self._output = ctypes.c_void_p()  # IDXGIOutput1
+            self._dupl = ctypes.c_void_p()
+            self._staging = ctypes.c_void_p()
+            self._staged = False  # o staging já tem uma imagem da GPU
+            self._broken = False
+            self._retry_at = 0.0
+            try:
+                self._open()
+            except BaseException:
+                self.close()
+                raise
+
+        def _open(self) -> None:
+            dxgi, d3d11 = ctypes.WinDLL("dxgi"), ctypes.WinDLL("d3d11")
+            dxgi.CreateDXGIFactory1.restype = _HRESULT
+            dxgi.CreateDXGIFactory1.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+            d3d11.D3D11CreateDevice.restype = _HRESULT
+            d3d11.D3D11CreateDevice.argtypes = [
+                ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.UINT, ctypes.c_void_p, wintypes.UINT,
+                wintypes.UINT, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p),
+            ]
+            factory = ctypes.c_void_p()
+            dxgi.CreateDXGIFactory1(ctypes.byref(_IID_IDXGIFactory1), ctypes.byref(factory))
+            try:
+                adapter, output = self._find_output(factory)
+            finally:
+                _com_release(factory)
+            try:
+                # O dispositivo precisa ser da placa que controla o monitor (notebooks com 2 GPUs).
+                d3d11.D3D11CreateDevice(
+                    adapter, 0, None, 0, None, 0, _D3D11_SDK_VERSION,
+                    ctypes.byref(self._device), None, ctypes.byref(self._context),
+                )
+                self._output = _com_query(output, _IID_IDXGIOutput1)
+            finally:
+                _com_release(output)
+                _com_release(adapter)
+            ctx = self._context
+            self._copy_resource = _com(ctx, 47, None, ctypes.c_void_p, ctypes.c_void_p)
+            self._map = _com(ctx, 14, _HRESULT, ctypes.c_void_p, wintypes.UINT, ctypes.c_int, wintypes.UINT,
+                             ctypes.POINTER(_D3D11_MAPPED_SUBRESOURCE))
+            self._unmap = _com(ctx, 15, None, ctypes.c_void_p, wintypes.UINT)
+            self._duplicate()
+
+        def _find_output(self, factory):
+            g = self._gdi
+            target = (g.left, g.top, g.left + g._dib.width, g.top + g._dib.height)
+            enum_adapters = _com(factory, 12, ctypes.c_long, wintypes.UINT, ctypes.POINTER(ctypes.c_void_p))
+            for i in range(16):
+                adapter = ctypes.c_void_p()
+                if enum_adapters(i, ctypes.byref(adapter)) < 0:
+                    break
+                enum_outputs = _com(adapter, 7, ctypes.c_long, wintypes.UINT, ctypes.POINTER(ctypes.c_void_p))
+                for j in range(16):
+                    output = ctypes.c_void_p()
+                    if enum_outputs(j, ctypes.byref(output)) < 0:
+                        break
+                    r = self._output_desc(output).DesktopCoordinates
+                    if (r.left, r.top, r.right, r.bottom) == target:
+                        return adapter, output
+                    _com_release(output)
+                _com_release(adapter)
+            raise OSError(f"monitor {target} não encontrado entre as saídas DXGI")
+
+        @staticmethod
+        def _output_desc(output) -> _DXGI_OUTPUT_DESC:
+            desc = _DXGI_OUTPUT_DESC()
+            _com(output, 7, _HRESULT, ctypes.POINTER(_DXGI_OUTPUT_DESC))(ctypes.byref(desc))
+            return desc
+
+        def _duplicate(self) -> None:
+            """(Re)cria a duplicação; acompanha mudança de resolução do monitor."""
+            self._release_duplication()
+            try:
+                self._setup_duplication()
+            except BaseException:
+                self._release_duplication()  # nunca fica uma duplicação pela metade
+                raise
+
+        def _setup_duplication(self) -> None:
+            dupl = ctypes.c_void_p()
+            _com(self._output, 22, _HRESULT, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p))(
+                self._device, ctypes.byref(dupl)
+            )
+            self._dupl = dupl
+            desc = _DXGI_OUTDUPL_DESC()
+            _com(dupl, 7, None, ctypes.POINTER(_DXGI_OUTDUPL_DESC))(ctypes.byref(desc))
+            if desc.Rotation > 1:  # 0 = não informado, 1 = normal
+                raise OSError("monitor girado")
+            r = self._output_desc(self._output).DesktopCoordinates
+            rect = (r.left, r.top, desc.Width, desc.Height)
+            g = self._gdi
+            if rect != (g.left, g.top, g._dib.width, g._dib.height):
+                self._gdi = _WinMonitorCapturer(*rect)
+                g.close()
+            texture = _D3D11_TEXTURE2D_DESC(
+                Width=desc.Width, Height=desc.Height, MipLevels=1, ArraySize=1, Format=_DXGI_FORMAT_B8G8R8A8_UNORM,
+                SampleCount=1, Usage=_D3D11_USAGE_STAGING, CPUAccessFlags=_D3D11_CPU_ACCESS_READ,
+            )
+            _com(self._device, 5, _HRESULT, ctypes.POINTER(_D3D11_TEXTURE2D_DESC), ctypes.c_void_p,
+                 ctypes.POINTER(ctypes.c_void_p))(ctypes.byref(texture), None, ctypes.byref(self._staging))
+            self._acquire = _com(dupl, 8, ctypes.c_long, wintypes.UINT, ctypes.POINTER(_DXGI_OUTDUPL_FRAME_INFO),
+                                 ctypes.POINTER(ctypes.c_void_p))
+            self._release_frame = _com(dupl, 14, ctypes.c_long)
+
+        def _release_duplication(self) -> None:
+            _com_release(self._staging)
+            _com_release(self._dupl)
+            self._staging, self._dupl = ctypes.c_void_p(), ctypes.c_void_p()
+            self._staged = False
+
+        def grab(self) -> np.ndarray | None:
+            if not self._broken:
+                try:
+                    frame = self._grab_dxgi()
+                except OSError as exc:
+                    log.warning("captura DXGI falhou (%s); usando BitBlt", exc)
+                    self._broken = True
+                    self._release_duplication()
+                else:
+                    if frame is not None:
+                        return frame
+            return self._gdi.grab()
+
+        def _grab_dxgi(self) -> np.ndarray | None:
+            """Quadro pela GPU, ou None para usar o BitBlt desta vez."""
+            if not self._dupl:
+                if time.monotonic() < self._retry_at:
+                    return None
+                try:
+                    self._duplicate()
+                except OSError as exc:  # ex.: área de trabalho segura do UAC aberta
+                    log.debug("Desktop Duplication indisponível por enquanto: %s", exc)
+                    self._retry_at = time.monotonic() + 1.0
+                    return None
+            info = _DXGI_OUTDUPL_FRAME_INFO()
+            resource = ctypes.c_void_p()
+            hr = self._acquire(0, ctypes.byref(info), ctypes.byref(resource))
+            dib = self._gdi._dib
+            if hr == _DXGI_ERROR_WAIT_TIMEOUT:
+                # Nada mudou, nem o mouse: o DIB já tem a tela atual (a não ser que nunca
+                # tenha chegado imagem da GPU, como na tela parada logo após começar).
+                return dib.snapshot() if self._staged else None
+            if hr == _DXGI_ERROR_ACCESS_LOST:  # troca de resolução, UAC, jogo em tela cheia
+                self._release_duplication()
+                return None
+            if hr < 0:
+                raise OSError(f"AcquireNextFrame: HRESULT 0x{hr & 0xFFFFFFFF:08X}")
+            try:
+                if info.LastPresentTime:  # imagem nova (0 = só o mouse mexeu)
+                    texture = _com_query(resource, _IID_ID3D11Texture2D)
+                    try:
+                        self._copy_resource(self._staging, texture)
+                    finally:
+                        _com_release(texture)
+                    self._staged = True
+            finally:
+                _com_release(resource)
+                self._release_frame()
+            if not self._staged:
+                return None
+            mapped = _D3D11_MAPPED_SUBRESOURCE()
+            self._map(self._staging, 0, _D3D11_MAP_READ, 0, ctypes.byref(mapped))
+            try:
+                height, row = dib.height, dib.width * 4
+                src = (ctypes.c_uint8 * (mapped.RowPitch * height)).from_address(mapped.pData)
+                np.copyto(dib.array.reshape(height, row), np.frombuffer(src, np.uint8).reshape(height, mapped.RowPitch)[:, :row])
+            finally:
+                self._unmap(self._staging, 0)
+            _win_api.draw_cursor(dib.hdc, self._gdi.left, self._gdi.top)
+            return dib.snapshot()
+
+        def close(self) -> None:
+            self._release_duplication()
+            for name in ("_output", "_context", "_device"):
+                _com_release(getattr(self, name))
+                setattr(self, name, ctypes.c_void_p())
+            self._gdi.close()
+
     class _WinWindowCapturer:
+        backend = "PrintWindow"
+
         def __init__(self, hwnd: int):
             self.hwnd = hwnd
             self._dib: _DibBuffer | None = None
@@ -337,6 +635,7 @@ if IS_WINDOWS:
         list_windows = staticmethod(_win_api.list_windows)
         window_pid = staticmethod(_win_api.window_pid)
         MonitorCapturer = _WinMonitorCapturer
+        DxgiMonitorCapturer = _DxgiMonitorCapturer
         WindowCapturer = _WinWindowCapturer
 
     _win = _WinNamespace()

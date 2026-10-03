@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import threading
+import time
 from dataclasses import dataclass
 
 import psutil
@@ -33,7 +35,27 @@ def broadcast_address(ip: str, netmask: str) -> str | None:
     return str(network.broadcast_address)
 
 
-def ipv4_interfaces() -> list[Interface]:
+# A tela inicial (1 s), o anúncio da sala (1,5 s) e a presença (2 s) consultam as interfaces
+# o tempo todo, e cada consulta lista todos os adaptadores do Windows: guardamos por pouco tempo.
+INTERFACES_MAX_AGE = 2.0
+_interfaces_cache: tuple[float, list[Interface]] | None = None
+_interfaces_lock = threading.Lock()
+
+
+def ipv4_interfaces(max_age: float = INTERFACES_MAX_AGE) -> list[Interface]:
+    """Interfaces IPv4 ativas, Radmin primeiro (resultado de até `max_age` segundos atrás)."""
+    global _interfaces_cache
+    now = time.monotonic()
+    with _interfaces_lock:
+        if _interfaces_cache is not None and now - _interfaces_cache[0] < max_age:
+            return list(_interfaces_cache[1])
+    result = _query_interfaces()
+    with _interfaces_lock:
+        _interfaces_cache = (now, result)
+    return list(result)
+
+
+def _query_interfaces() -> list[Interface]:
     result = []
     stats = psutil.net_if_stats()
     for name, addrs in psutil.net_if_addrs().items():

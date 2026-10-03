@@ -32,7 +32,6 @@ from streamazap import config
 from streamazap.capture.audio import AUDIO_APPS, AUDIO_NONE, AUDIO_SYSTEM, audio_supported, list_audio_apps
 from streamazap.capture.screen import list_monitors, list_windows
 from streamazap.host import HostSettings
-from streamazap.media.video import ENCODER_CHOICES
 
 MODE_CREATE = "create"
 MODE_EDIT = "edit"
@@ -115,9 +114,9 @@ class HostDialog(QDialog):
             self.quality.addItem(label)
         self.quality.setCurrentIndex(self._initial_quality_index())
         self.encoder = QComboBox()
-        for key, label in ENCODER_CHOICES:
+        for key, label in config.ENCODER_CHOICES:
             self.encoder.addItem(label, key)
-        encoder_value = current.encoder if current else settings.value("encoder", ENCODER_CHOICES[0][0])
+        encoder_value = current.encoder if current else settings.value("encoder", config.ENCODER_AUTO)
         self.encoder.setCurrentIndex(max(self.encoder.findData(encoder_value), 0))
         self.adaptive = QCheckBox("Qualidade adaptável — reduz sozinha se alguém estiver com a conexão lenta")
         self.adaptive.setChecked(current.adaptive if current else settings.value("adaptive", True, type=bool))

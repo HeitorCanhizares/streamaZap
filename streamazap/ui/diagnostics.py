@@ -23,6 +23,7 @@ class DiagnosticsDialog(QDialog):
         self.setWindowTitle("Diagnóstico de rede")
         self.resize(720, 620)
         self.status: firewall.FirewallStatus | None = None
+        self.vpns: list[str] = list(getattr(main_window, "_vpns", []))  # até a verificação terminar
         self.signals = _Signals()
         self.signals.firewall.connect(self._on_firewall)
 
@@ -54,9 +55,18 @@ class DiagnosticsDialog(QDialog):
     def check(self) -> None:
         self.recheck.setEnabled(False)
         self.render("Verificando o firewall…")
-        threading.Thread(target=lambda: self.signals.firewall.emit(firewall.check()), daemon=True).start()
+        threading.Thread(target=self._probe, daemon=True).start()
 
-    def _on_firewall(self, status: firewall.FirewallStatus) -> None:
+    def _probe(self) -> None:
+        """Numa thread: o PowerShell do firewall e a varredura de processos (VPNs) são lentos."""
+        try:
+            vpns = netutil.other_vpns()
+        except Exception:  # noqa: BLE001 - só um aviso
+            vpns = []
+        self.signals.firewall.emit((firewall.check(), vpns))
+
+    def _on_firewall(self, result: tuple[firewall.FirewallStatus, list[str]]) -> None:
+        status, self.vpns = result
         self.status = status
         self.recheck.setEnabled(True)
         self.fix.setText("🛡️  Corrigir firewall")
@@ -71,20 +81,20 @@ class DiagnosticsDialog(QDialog):
 
         def work():
             firewall.fix()
-            self.signals.firewall.emit(firewall.check())
+            self._probe()
 
         threading.Thread(target=work, daemon=True).start()
 
     # -- conteúdo ------------------------------------------------------------------
     def sections(self) -> list[tuple[str, list[str]]]:
         browser = self.main.browser
-        interfaces = netutil.ipv4_interfaces()
+        interfaces = netutil.ipv4_interfaces(max_age=0)
         net = [f"{i.name}: {i.ip}{' (Radmin)' if i.is_radmin else ''}" for i in interfaces] or ["nenhuma interface IPv4"]
         if not any(i.is_radmin for i in interfaces):
             net.append("⚠️ Radmin VPN não detectado")
         if browser.error:
             net.append(f"⚠️ {browser.error}")
-        for vpn in netutil.other_vpns():
+        for vpn in self.vpns:
             net.append(
                 f"⚠️ {vpn} detectado: se o kill switch (“bloquear conexões fora da VPN”) estiver ligado, ele bloqueia "
                 "o Radmin mesmo com o Firewall liberado. Teste com ele fechado; para usar junto, desligue o kill switch "

@@ -89,21 +89,24 @@ def decode_json(payload: bytes) -> dict:
     return data
 
 
-def _recv_exact(sock: socket.socket, size: int) -> bytes:
-    buf = bytearray()
-    while len(buf) < size:
-        chunk = sock.recv(min(size - len(buf), 1 << 20))
-        if not chunk:
+def _recv_exact(sock: socket.socket, size: int) -> bytearray:
+    """Recebe direto no buffer final (sem juntar pedaços nem copiar no fim)."""
+    buf = bytearray(size)
+    view = memoryview(buf)
+    received = 0
+    while received < size:
+        count = sock.recv_into(view[received:], min(size - received, 1 << 20))
+        if not count:
             raise ConnectionError("conexão encerrada")
-        buf += chunk
-    return bytes(buf)
+        received += count
+    return buf
 
 
-def recv_message(sock: socket.socket) -> tuple[int, bytes]:
+def recv_message(sock: socket.socket) -> tuple[int, bytearray]:
     msg_type, size = HEADER.unpack(_recv_exact(sock, HEADER.size))
     if size > MAX_MESSAGE:
         raise ProtocolError(f"mensagem grande demais ({size} bytes)")
-    return msg_type, _recv_exact(sock, size) if size else b""
+    return msg_type, _recv_exact(sock, size) if size else bytearray()
 
 
 def auth_token(password: str, nonce: str) -> str:
