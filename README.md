@@ -64,6 +64,21 @@ de **bloqueio**) ou o **firewall do antivírus**.
   o host conecta no amigo (aparece "🔁 conexão reversa" no player).
 - **Todos precisam estar na mesma versão.** Salas de outra versão aparecem com ⚠️ na lista.
 
+### Só funciona em um sentido (você vê a sala dele, mas ele não vê nada)
+
+A tela inicial mostra quem está com o StreamaZap aberto e se cada um **recebe os seus
+pacotes**. "⚠️ não está recebendo nada do seu PC" = a entrada do PC **dele** está bloqueada.
+Causas comuns, no PC bloqueado:
+
+1. Firewall do Windows com **“Bloquear todas as conexões de entrada, incluindo as da lista de
+   aplicativos permitidos”** — ignora qualquer liberação. O **🩺 Diagnóstico** detecta e o
+   **Corrigir firewall** desliga.
+2. Antivírus com firewall próprio (alguns nem aparecem para o Windows): liberar o StreamaZap nele.
+3. Radmin: veja se a conexão com o amigo é direta e use o *Ping* do próprio Radmin.
+
+Teste rápido: desligar o Firewall do Windows por 1 minuto no PC bloqueado. Se passar a
+funcionar, é o firewall. O botão **📋 Copiar relatório** do Diagnóstico junta tudo para enviar.
+
 ### Amigo em outro país travando
 
 - No Radmin, veja se a conexão com o amigo é **direta** (e não "relay"/retransmitida): relay

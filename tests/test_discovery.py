@@ -53,3 +53,39 @@ def test_broadcast_targets_include_radmin():
     ]
     assert interfaces[1].is_radmin
     assert netutil.broadcast_targets(interfaces) == ["192.168.1.255", "26.255.255.255", "255.255.255.255"]
+
+
+def test_presence_detects_one_way_connectivity():
+    from streamazap.discovery import build_presence
+
+    me = RoomBrowser(name="Eu")
+    other_id = "amigo"
+    # O amigo manda presença dizendo que NÃO ouve ninguém (a entrada dele está bloqueada).
+    me.handle_datagram(build_presence(other_id, "Amigo", []), "26.1.1.1")
+    peer = me.peer_at("26.1.1.1")
+    assert peer.name == "Amigo" and not peer.hears_me
+    # Quando ele passa a receber nossos pacotes, a presença dele nos inclui.
+    me.handle_datagram(build_presence(other_id, "Amigo", [me.instance_id]), "26.1.1.1")
+    assert me.peer_at("26.1.1.1").hears_me
+    # Nosso próprio broadcast voltando é ignorado.
+    me.handle_datagram(me.presence_payload(), "26.9.9.9")
+    assert [p.name for p in me.peers()] == ["Amigo"]
+    # A presença que mandamos lista quem nós ouvimos.
+    assert other_id in json.loads(me.presence_payload())["hears"]
+
+
+def test_presence_between_two_live_browsers():
+    import time
+
+    a, b = RoomBrowser(port=48778, name="A"), RoomBrowser(port=48778, name="B")
+    a.start()
+    b.start()
+    try:
+        end = time.time() + 8
+        while time.time() < end and not (a.peers() and b.peers() and a.peers()[0].hears_me and b.peers()[0].hears_me):
+            time.sleep(0.2)
+        assert a.peers()[0].name == "B" and a.peers()[0].hears_me
+        assert b.peers()[0].name == "A" and b.peers()[0].hears_me
+    finally:
+        a.stop()
+        b.stop()

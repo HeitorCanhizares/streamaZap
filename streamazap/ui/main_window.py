@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import html
 import socket
 import threading
+import time
 
 from PySide6.QtCore import QObject, QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -48,23 +50,26 @@ class MainWindow(QMainWindow):
         self.resize(760, 480)
         self.settings = QSettings(APP_NAME, APP_NAME)
         self.signals = _Signals()
-        self.browser = RoomBrowser()
+        self.browser = RoomBrowser(name=self.settings.value("nickname", socket.gethostname()))
         self.browser.start()
         self._windows: list = []
         self._joining = False
 
         self.nick = QLineEdit(self.settings.value("nickname", socket.gethostname()))
         self.nick.setMaximumWidth(220)
-        self.nick.editingFinished.connect(lambda: self.settings.setValue("nickname", self.nick.text().strip()))
+        self.nick.editingFinished.connect(self._nickname)
         create = QPushButton("➕  Criar sala")
         create.setStyleSheet("font-weight:bold;padding:6px 14px")
         create.clicked.connect(self.create_room)
+        diagnostics = QPushButton("🩺 Diagnóstico")
+        diagnostics.clicked.connect(self.show_diagnostics)
         manual = QPushButton("Entrar por IP…")
         manual.clicked.connect(self.join_manual)
         top = QHBoxLayout()
         top.addWidget(QLabel("Seu nome:"))
         top.addWidget(self.nick)
         top.addStretch()
+        top.addWidget(diagnostics)
         top.addWidget(manual)
         top.addWidget(create)
 
@@ -107,6 +112,9 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.network_label, 1)
         bottom.addWidget(join)
         layout.addLayout(bottom)
+        self.peers_label = QLabel()
+        self.peers_label.setWordWrap(True)
+        layout.addWidget(self.peers_label)
         layout.addWidget(self.firewall_row)
         self.auto_update = QCheckBox("Atualizar automaticamente ao abrir")
         self.auto_update.setChecked(self.settings.value("auto_update", True, type=bool))
@@ -164,6 +172,48 @@ class MainWindow(QMainWindow):
         if others:
             text += f" · Rede local: {', '.join(others)}"
         self.network_label.setText(text)
+        self._refresh_peers(bool(radmin))
+
+    def _refresh_peers(self, radmin_connected: bool) -> None:
+        """Quem mais está com o StreamaZap aberto e se a comunicação funciona nos dois sentidos."""
+        peers = self.browser.peers()
+        lines = []
+        for peer in peers:
+            if peer.hears_me:
+                lines.append(f"✅ <b>{html.escape(peer.name)}</b> ({peer.ip}) — conexão nos dois sentidos")
+            else:
+                lines.append(
+                    f"<span style='color:#c0392b'>⚠️ <b>{html.escape(peer.name)}</b> ({peer.ip}) não está recebendo nada "
+                    "do seu PC. O bloqueio está no PC dele: ele deve abrir 🩺 Diagnóstico e clicar em “Corrigir firewall” "
+                    "(ou liberar o StreamaZap no antivírus).</span>"
+                )
+        waiting = time.monotonic() - self.browser.started_at > 20
+        if not peers and not self.browser.rooms() and radmin_connected and waiting:
+            lines.append(
+                "<span style='color:#c87f0a'>Nenhum StreamaZap da rede está chegando no seu PC. Se seus amigos estão com "
+                "o app aberto e você não vê ninguém, o seu PC está bloqueando conexões de entrada: abra 🩺 Diagnóstico.</span>"
+            )
+        if peers and lines:
+            lines.insert(0, "<b>Online com StreamaZap:</b>")
+        self.peers_label.setText("<br>".join(lines))
+
+    def connectivity_hint(self, addresses: list[str]) -> str:
+        """Explicação específica quando sabemos que o outro lado não recebe nossos pacotes."""
+        for address in addresses:
+            peer = self.browser.peer_at(address)
+            if peer is not None and not peer.hears_me:
+                return (
+                    f"\n\n{peer.name} não está recebendo NADA do seu PC (nem a descoberta de salas), mas você recebe "
+                    "dele: a entrada do PC dele está bloqueada. No PC dele: abrir o StreamaZap → 🩺 Diagnóstico → "
+                    "“Corrigir firewall”, ou liberar o StreamaZap no antivírus, ou desligar “Bloquear todas as conexões "
+                    "de entrada” no Firewall do Windows."
+                )
+        return ""
+
+    def show_diagnostics(self) -> None:
+        from streamazap.ui.diagnostics import DiagnosticsDialog
+
+        DiagnosticsDialog(self).exec()
 
     def _join_selected(self) -> None:
         item = self.rooms.currentItem()
@@ -176,6 +226,7 @@ class MainWindow(QMainWindow):
     def _nickname(self) -> str:
         name = self.nick.text().strip() or socket.gethostname()
         self.settings.setValue("nickname", name)
+        self.browser.name = name
         return name
 
     def join_room(self, room: Room) -> None:
@@ -234,7 +285,7 @@ class MainWindow(QMainWindow):
             try:
                 viewer.connect()
             except JoinError as exc:
-                self.signals.join_failed.emit(str(exc))
+                self.signals.join_failed.emit(str(exc) + self.connectivity_hint(addresses))
             else:
                 self.signals.joined.emit(viewer)
 
@@ -283,7 +334,7 @@ class MainWindow(QMainWindow):
         text = status.describe()
         self.firewall_row.setVisible(bool(text))
         self.firewall_label.setText(f"⚠️ {text}" if text else "")
-        self.firewall_fix.setVisible(status.blocked or not status.allowed)
+        self.firewall_fix.setVisible(status.needs_fix)
         self.firewall_fix.setEnabled(True)
         self.firewall_fix.setText("🛡️  Corrigir firewall")
 

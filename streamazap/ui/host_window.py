@@ -123,7 +123,7 @@ class HostWindow(QMainWindow):
         self.firewall_label.setText(
             f"⚠️ {text}. Seus amigos vão ver a sala, mas a conexão pode dar “tempo esgotado”." if text else ""
         )
-        self.firewall_fix.setVisible(status.blocked or not status.allowed)
+        self.firewall_fix.setVisible(status.needs_fix)
         self.firewall_fix.setEnabled(True)
         self.firewall_fix.setText("🛡️  Corrigir firewall")
 

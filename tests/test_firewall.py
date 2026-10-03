@@ -22,3 +22,11 @@ def test_not_supported_outside_frozen_windows():
 def test_scripts_quote_program_path():
     script = firewall.CHECK_SCRIPT.format(program=firewall._ps_quote(r"C:\Program Files\It's\StreamaZap.exe"))
     assert r"'C:\Program Files\It''s\StreamaZap.exe'" in script
+
+
+def test_parse_shielded_profile_and_radmin_category():
+    status = firewall.parse_check_output(
+        '{"block":0,"allow":1,"shield":"Public","radmin":"Public","thirdParty":[],"rules":[],"profiles":[]}'
+    )
+    assert status.shielded_profiles == ["Public"] and status.radmin_category == "Public"
+    assert status.needs_fix and "Pública" in status.describe()

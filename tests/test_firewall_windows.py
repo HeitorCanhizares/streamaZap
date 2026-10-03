@@ -48,3 +48,28 @@ def test_missing_rule_then_fix():
     assert not firewall.check(PROGRAM).allowed
     assert firewall.fix(PROGRAM, elevate=False)
     assert firewall.check(PROGRAM).ok
+
+
+def _allow_inbound_rules(profile: str) -> str:
+    out = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", f"(Get-NetFirewallProfile -Name {profile}).AllowInboundRules"],
+        capture_output=True, text=True,
+    )
+    return out.stdout.strip()
+
+
+def test_detects_block_all_inbound_and_fix_turns_it_off():
+    original = _allow_inbound_rules("Public")
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-Command", "Set-NetFirewallProfile -Name Public -Enabled True -AllowInboundRules False"], check=True)
+        netsh("add", "rule", "name=StreamaZap", "dir=in", "action=allow", f"program={PROGRAM}", "enable=yes", "profile=any")
+        status = firewall.check(PROGRAM)
+        assert status.allowed and "Public" in status.shielded_profiles and status.needs_fix
+        assert "Bloquear todas as conexões de entrada" in status.describe()
+
+        assert firewall.fix(PROGRAM, elevate=False)
+        status = firewall.check(PROGRAM)
+        assert not status.shielded_profiles and status.ok
+    finally:
+        value = original if original in ("True", "False", "NotConfigured") else "NotConfigured"
+        subprocess.run(["powershell", "-NoProfile", "-Command", f"Set-NetFirewallProfile -Name Public -AllowInboundRules {value}"])

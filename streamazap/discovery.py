@@ -56,6 +56,26 @@ def build_announcement(room_id: str, name: str, host_name: str, port: int, viewe
     )
 
 
+PRESENCE_INTERVAL = 2.0
+PEER_TIMEOUT = 8.0
+
+
+@dataclass
+class Peer:
+    """Outro StreamaZap aberto na rede (mesmo sem sala)."""
+
+    peer_id: str
+    name: str
+    ip: str
+    app_version: str = ""
+    hears_me: bool = False  # ele está recebendo os MEUS pacotes?
+    last_seen: float = 0.0
+
+
+def build_presence(instance_id: str, name: str, hears: list[str]) -> bytes:
+    return _message("presence", id=instance_id, name=name, hears=hears, appv=__version__)
+
+
 def build_callback_request(room_id: str, port: int, token: str) -> bytes:
     return _message("callback", room=room_id, port=port, token=token)
 
@@ -167,8 +187,12 @@ def request_callback(room: Room, port: int, attempts: int = 3) -> None:
 class RoomBrowser:
     """Escuta anúncios e mantém a lista de salas ativas."""
 
-    def __init__(self, port: int = config.DISCOVERY_PORT):
+    def __init__(self, port: int = config.DISCOVERY_PORT, name: str = ""):
         self._port = port
+        self.instance_id = uuid.uuid4().hex
+        self.name = name
+        self.started_at = time.monotonic()
+        self._peers: dict[str, Peer] = {}
         self._rooms: dict[str, Room] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -188,9 +212,41 @@ class RoomBrowser:
                 del self._rooms[room_id]
             return sorted(self._rooms.values(), key=lambda r: (not r.compatible, r.name.lower()))
 
+    def peers(self) -> list[Peer]:
+        now = time.monotonic()
+        with self._lock:
+            for peer_id in [p for p, peer in self._peers.items() if now - peer.last_seen > PEER_TIMEOUT]:
+                del self._peers[peer_id]
+            return sorted(self._peers.values(), key=lambda p: p.name.lower())
+
+    def peer_at(self, ip: str) -> Peer | None:
+        return next((p for p in self.peers() if p.ip == ip), None)
+
+    def presence_payload(self) -> bytes:
+        return build_presence(self.instance_id, self.name, [p.peer_id for p in self.peers()])
+
+    def _handle_presence(self, msg: dict, sender_ip: str) -> None:
+        peer_id = msg.get("id")
+        if not isinstance(peer_id, str) or peer_id == self.instance_id:
+            return  # nosso próprio broadcast voltando
+        hears = msg.get("hears") if isinstance(msg.get("hears"), list) else []
+        with self._lock:
+            peer = self._peers.get(peer_id) or Peer(peer_id, "", sender_ip)
+            peer.name = str(msg.get("name") or sender_ip)[:40]
+            peer.ip = sender_ip
+            peer.app_version = str(msg.get("appv") or "")[:20]
+            peer.hears_me = self.instance_id in hears
+            peer.last_seen = time.monotonic()
+            self._peers[peer_id] = peer
+
     def handle_datagram(self, data: bytes, sender_ip: str, sender_port: int = 0) -> None:
         msg = parse_message(data)
-        if msg is None or msg["type"] != "announce":
+        if msg is None:
+            return
+        if msg["type"] == "presence":
+            self._handle_presence(msg, sender_ip)
+            return
+        if msg["type"] != "announce":
             return
         with self._lock:
             room = self._rooms.get(msg["id"])
@@ -221,9 +277,19 @@ class RoomBrowser:
             log.error(self.error)
             sock.close()
             return
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.settimeout(0.5)
+        next_presence = 0.0
         try:
             while not self._stop.is_set():
+                if time.monotonic() >= next_presence:
+                    next_presence = time.monotonic() + PRESENCE_INTERVAL
+                    payload = self.presence_payload()
+                    for target in netutil.broadcast_targets():
+                        try:
+                            sock.sendto(payload, (target, self._port))
+                        except OSError as exc:
+                            log.debug("falha ao enviar presença para %s: %s", target, exc)
                 try:
                     data, (ip, port) = sock.recvfrom(4096)
                 except TimeoutError:

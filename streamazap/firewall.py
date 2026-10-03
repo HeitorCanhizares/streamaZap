@@ -29,11 +29,20 @@ class FirewallStatus:
     blocked: bool = False  # existe regra de bloqueio para o StreamaZap
     allowed: bool = False  # existe regra liberando (inclusive em rede pública)
     third_party: list[str] = field(default_factory=list)  # firewalls de antivírus
+    # Perfis com "Bloquear todas as conexões de entrada, incluindo as da lista de
+    # aplicativos permitidos": ignoram qualquer regra de liberação.
+    shielded_profiles: list[str] = field(default_factory=list)
+    radmin_category: str = ""  # Public/Private/DomainAuthenticated
+    details: dict = field(default_factory=dict)  # dados brutos (para o relatório de diagnóstico)
     error: str | None = None
 
     @property
+    def needs_fix(self) -> bool:
+        return self.supported and self.error is None and (self.blocked or not self.allowed or bool(self.shielded_profiles))
+
+    @property
     def ok(self) -> bool:
-        return not self.supported or (self.allowed and not self.blocked) or self.error is not None
+        return not self.needs_fix
 
     def describe(self) -> str:
         if not self.supported:
@@ -45,11 +54,20 @@ class FirewallStatus:
             problems.append("o Firewall do Windows está BLOQUEANDO o StreamaZap")
         elif not self.allowed:
             problems.append("o StreamaZap não está liberado no Firewall do Windows")
+        if self.shielded_profiles:
+            names = ", ".join(_PROFILE_NAMES.get(p, p) for p in self.shielded_profiles)
+            problems.append(
+                f"o Windows está com “Bloquear todas as conexões de entrada” ligado na rede {names} "
+                "(ninguém consegue conectar em você, mesmo com o StreamaZap liberado)"
+            )
         text = "; ".join(problems)
         if self.third_party:
             note = f"Antivírus com firewall próprio: {', '.join(self.third_party)} — libere o StreamaZap nele também"
             text = f"{text}. {note}" if text else note
         return text[:1].upper() + text[1:] if text else ""
+
+
+_PROFILE_NAMES = {"Public": "Pública", "Private": "Privada", "Domain": "Domínio"}
 
 
 def program_path() -> str | None:
@@ -95,7 +113,11 @@ $block = @($in | Where-Object {{ $_.Action -eq 0 }}).Count
 $allow = @($in | Where-Object {{ $_.Action -eq 1 -and (($_.Profiles -band 6) -eq 6) }}).Count
 $rules = @($mine | ForEach-Object {{ '{{0}}|dir={{1}}|acao={{2}}|perfis={{3}}|ativa={{4}}' -f $_.Name, $_.Direction, $_.Action, $_.Profiles, $_.Enabled }})
 $third = @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct | ForEach-Object {{ $_.displayName }})
-@{{ block = $block; allow = $allow; rules = $rules; thirdParty = $third; program = $p }} | ConvertTo-Json -Compress
+$profiles = @(Get-NetFirewallProfile)
+$shield = @($profiles | Where-Object {{ $_.Enabled -eq 'True' -and $_.AllowInboundRules -eq 'False' }} | ForEach-Object {{ $_.Name }})
+$profileInfo = @($profiles | ForEach-Object {{ '{{0}}|ativo={{1}}|entrada={{2}}|regras={{3}}' -f $_.Name, $_.Enabled, $_.DefaultInboundAction, $_.AllowInboundRules }})
+$radmin = @(Get-NetConnectionProfile | Where-Object {{ $_.InterfaceAlias -match 'Radmin' }} | ForEach-Object {{ $_.NetworkCategory.ToString() }})
+@{{ block = $block; allow = $allow; rules = $rules; thirdParty = $third; program = $p; shield = $shield; profiles = $profileInfo; radmin = $radmin }} | ConvertTo-Json -Compress
 """
 )
 
@@ -116,7 +138,10 @@ foreach ($dir in 1, 2) {{
     $r.Enabled = $true
     $fw.Rules.Add($r)
 }}
-"ok removidas=$removed" | Out-File -Encoding utf8 {result}
+# Desliga "Bloquear todas as conexões de entrada" (que ignora as regras de liberação).
+$shield = @(Get-NetFirewallProfile | Where-Object {{ $_.AllowInboundRules -eq 'False' }} | ForEach-Object {{ $_.Name }})
+if ($shield.Count -gt 0) {{ Set-NetFirewallProfile -Name $shield -AllowInboundRules True }}
+"ok removidas=$removed perfis_liberados=$($shield -join ',')" | Out-File -Encoding utf8 {result}
 }} catch {{ "erro: $_" | Out-File -Encoding utf8 {result} }}
 """
 )
@@ -124,13 +149,29 @@ foreach ($dir in 1, 2) {{
 
 def parse_check_output(output: str) -> FirewallStatus:
     data = json.loads(output.strip().splitlines()[-1])
-    log.info("firewall: programa=%s regras=%s", data.get("program"), data.get("rules"))
+    log.info(
+        "firewall: programa=%s regras=%s perfis=%s radmin=%s", data.get("program"), data.get("rules"), data.get("profiles"), data.get("radmin")
+    )
     third = data.get("thirdParty") or []
     if isinstance(third, str):
         third = [third]
     # O próprio Windows Defender às vezes aparece na lista; não é "terceiro".
     third = [name for name in third if name and "defender" not in name.lower() and "windows" not in name.lower()]
-    return FirewallStatus(True, blocked=int(data.get("block", 0)) > 0, allowed=int(data.get("allow", 0)) > 0, third_party=third)
+    shield = data.get("shield") or []
+    if isinstance(shield, str):
+        shield = [shield]
+    radmin = data.get("radmin") or []
+    if isinstance(radmin, str):
+        radmin = [radmin]
+    return FirewallStatus(
+        True,
+        blocked=int(data.get("block", 0)) > 0,
+        allowed=int(data.get("allow", 0)) > 0,
+        third_party=third,
+        shielded_profiles=list(shield),
+        radmin_category=radmin[0] if radmin else "",
+        details=data,
+    )
 
 
 def check(program: str | None = None) -> FirewallStatus:
@@ -143,7 +184,10 @@ def check(program: str | None = None) -> FirewallStatus:
     except Exception as exc:  # noqa: BLE001 - diagnóstico nunca pode derrubar o app
         log.warning("verificação do firewall falhou: %s", exc)
         return FirewallStatus(True, error=str(exc))
-    log.info("firewall: bloqueado=%s liberado=%s terceiros=%s", status.blocked, status.allowed, status.third_party)
+    log.info(
+        "firewall: bloqueado=%s liberado=%s bloqueia_tudo=%s terceiros=%s",
+        status.blocked, status.allowed, status.shielded_profiles, status.third_party,
+    )
     return status
 
 
