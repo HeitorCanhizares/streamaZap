@@ -18,7 +18,11 @@ Baixe o instalador mais recente em **[Releases](https://github.com/HeitorCanhiza
 - `StreamaZap-Setup-X.Y.Z.exe` — instalador (cria atalhos e já libera o app no Firewall do Windows);
 - `StreamaZap-X.Y.Z-portable.zip` — versão portátil, é só extrair e abrir `StreamaZap.exe`.
 
-O app avisa na tela inicial quando sai uma versão nova.
+**Atualização automática:** ao abrir, o app verifica se há versão nova nas Releases. Se
+houver, baixa o instalador (conferindo o SHA-256), instala em modo silencioso e reabre já
+atualizado — o Windows pede a permissão de administrador uma vez. Dá para desligar em
+*"Atualizar automaticamente ao abrir"* na tela inicial. Na versão portátil o app apenas
+mostra o link para baixar.
 
 **Requisitos:** Windows 10 versão 2004 ou mais recente (para capturar o som por aplicativo), 64 bits.
 

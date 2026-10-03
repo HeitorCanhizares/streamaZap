@@ -7,6 +7,8 @@ import threading
 
 from PySide6.QtCore import QObject, QSettings, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -27,13 +29,14 @@ from streamazap.discovery import RoomBrowser
 from streamazap.host import StreamHost
 from streamazap.ui.host_dialog import HostDialog
 from streamazap.ui.host_window import HostWindow
+from streamazap.ui.update_dialog import UpdateDialog
 from streamazap.ui.viewer_window import ViewerWindow
 
 
 class _Signals(QObject):
     joined = Signal(object)
     join_failed = Signal(str)
-    update_available = Signal(str, str)
+    update_available = Signal(object)
 
 
 class MainWindow(QMainWindow):
@@ -90,7 +93,13 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.network_label, 1)
         bottom.addWidget(join)
         layout.addLayout(bottom)
-        layout.addWidget(self.update_label)
+        self.auto_update = QCheckBox("Atualizar automaticamente ao abrir")
+        self.auto_update.setChecked(self.settings.value("auto_update", True, type=bool))
+        self.auto_update.toggled.connect(lambda on: self.settings.setValue("auto_update", on))
+        update_row = QHBoxLayout()
+        update_row.addWidget(self.update_label, 1)
+        update_row.addWidget(self.auto_update)
+        layout.addLayout(update_row)
         central = QWidget()
         central.setLayout(layout)
         self.setCentralWidget(central)
@@ -223,12 +232,33 @@ class MainWindow(QMainWindow):
 
     # -- atualização ---------------------------------------------------------------
     def _check_update(self) -> None:
-        result = updater.check_latest()
-        if result:
-            self.signals.update_available.emit(*result)
+        release = updater.check_latest()
+        if release:
+            self.signals.update_available.emit(release)
 
-    def _on_update(self, version: str, url: str) -> None:
-        self.update_label.setText(f"🎉 Nova versão disponível: <a href='{url}'>{version} — baixar instalador</a>")
+    def _on_update(self, release: updater.Release) -> None:
+        self.update_label.setText(
+            f"🎉 Nova versão disponível: <a href='{release.page_url}'>{release.version} — baixar instalador</a>"
+        )
+        if self.auto_update.isChecked() and updater.can_auto_update(release) and not self._windows:
+            self._run_update(release)
+
+    def _run_update(self, release: updater.Release) -> None:
+        dialog = UpdateDialog(release, self)
+        dialog.exec()
+        if dialog.error:
+            QMessageBox.warning(self, "Atualização", f"Não foi possível atualizar automaticamente:\n{dialog.error}")
+            return
+        if not dialog.installer_path:
+            return  # usuário escolheu "Agora não"
+        try:
+            updater.launch_installer(dialog.installer_path)
+        except updater.UpdateError as exc:
+            QMessageBox.warning(self, "Atualização", str(exc))
+            return
+        # O instalador fecha este processo, instala e reabre a nova versão.
+        self.close()
+        QApplication.quit()
 
     def closeEvent(self, event) -> None:
         for window in list(self._windows):

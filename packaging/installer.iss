@@ -48,6 +48,9 @@ Name: "{autodesktop}\StreamaZap"; Filename: "{app}\StreamaZap.exe"; Tasks: deskt
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""StreamaZap"""; Flags: runhidden; StatusMsg: "Configurando o Firewall do Windows..."
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""StreamaZap"" dir=in action=allow program=""{app}\StreamaZap.exe"" enable=yes profile=any"; Flags: runhidden
 Filename: "{app}\StreamaZap.exe"; Description: "{cm:LaunchProgram,StreamaZap}"; Flags: nowait postinstall skipifsilent
+; Atualização automática (instalador rodando com /VERYSILENT): reabre o app já
+; atualizado, como o usuário normal e não como administrador.
+Filename: "{app}\StreamaZap.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""StreamaZap"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"
