@@ -90,12 +90,19 @@ packaging/            PyInstaller e Inno Setup
 .github/workflows/    CI e geração do instalador
 ```
 
-### Publicando uma nova versão
+### Releases automáticas
 
-O GitHub Actions compila o executável, gera o instalador e publica na aba Releases:
+Cada push no branch principal compila o app no GitHub Actions (Windows), gera o
+instalador e publica uma **Release** automaticamente. É de lá que o app baixa as
+atualizações.
 
-- **pela linha de comando:** `git tag v0.2.0 && git push origin v0.2.0`
-- **pelo site:** aba **Actions → Release → Run workflow**, digite a versão (ex.: `0.2.0`).
+- A versão é `MAJOR.MINOR` de `streamazap/__init__.py` + o número da build
+  (ex.: `0.1.42`). Para mudar MAJOR/MINOR, edite `__version__`.
+- Push em outros branches só compila: o instalador fica em **Actions → (build) → Artifacts**.
+- Para não publicar um push específico, escreva `[skip release]` na mensagem do commit.
+- Commits que só mexem em documentação (`*.md`) não geram build.
+- Versão específica: `git tag v1.0.0 && git push origin v1.0.0`, ou
+  **Actions → Build & Release → Run workflow**.
 
 ## Licença
 
