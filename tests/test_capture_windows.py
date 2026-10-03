@@ -1,6 +1,8 @@
 """Captura real de monitor no Windows (roda no CI do Windows): DXGI x BitBlt."""
 
+import ctypes
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -30,13 +32,22 @@ def dxgi(monitor):
 def test_dxgi_matches_bitblt(monitor, dxgi):
     from streamazap.capture.screen import _win
 
+    frames = []
+    for _ in range(40):
+        frames.append(dxgi.grab())
+        if dxgi._staged:  # a imagem veio mesmo pela GPU (e não pelo BitBlt de reserva)
+            break
+        time.sleep(0.05)
+    assert dxgi._staged, "nenhuma imagem chegou pela Desktop Duplication"
+    left, top, width, height = monitor.rect
+    ctypes.windll.user32.SetCursorPos(left + width // 3, top + height // 3)  # só o mouse muda
+    time.sleep(0.1)
+    frames += [dxgi.grab() for _ in range(3)]
     gdi = _win.MonitorCapturer(*monitor.rect)
     try:
-        frames = [dxgi.grab() for _ in range(5)]
         reference = gdi.grab()
     finally:
         gdi.close()
-    width, height = monitor.rect[2:]
     for frame in frames:
         assert frame.shape == (height, width, 4) and frame.dtype == np.uint8
     # Mesma imagem pelos dois caminhos (tirando o cursor e o que mudou entre as capturas).
