@@ -1,0 +1,102 @@
+# StreamaZap
+
+Compartilhe sua **tela** (ou uma **janela**) e o **som dos aplicativos que você escolher**
+com amigos na rede local ou pelo **Radmin VPN**. Aplicativo open source escrito em Python.
+
+- 🖥 **Tela inteira ou uma janela específica.** A janela é capturada mesmo atrás de outras.
+- 🔊 **Som do jeito que você quiser:** sem som, todo o som do PC (exceto o do próprio StreamaZap)
+  ou só os aplicativos marcados (ex.: apenas o jogo, ou apenas o navegador).
+- 📡 **As salas aparecem sozinhas.** Quem cria uma sala anuncia a sala em todas as redes do PC,
+  incluindo a do Radmin VPN. Quem estiver na mesma rede do Radmin vê a sala na lista e clica para entrar.
+- 🔒 Senha opcional na sala, 💬 chat e lista de quem está assistindo.
+- ⚡ Vídeo H.264 pela GPU (NVIDIA NVENC, Intel QuickSync, AMD AMF) com fallback para CPU; áudio Opus.
+
+## Download
+
+Baixe o instalador mais recente em **[Releases](https://github.com/HeitorCanhizares/streamaZap/releases/latest)**:
+
+- `StreamaZap-Setup-X.Y.Z.exe` — instalador (cria atalhos e já libera o app no Firewall do Windows);
+- `StreamaZap-X.Y.Z-portable.zip` — versão portátil, é só extrair e abrir `StreamaZap.exe`.
+
+O app avisa na tela inicial quando sai uma versão nova.
+
+**Requisitos:** Windows 10 versão 2004 ou mais recente (para capturar o som por aplicativo), 64 bits.
+
+## Como usar com amigos (Radmin VPN)
+
+1. Todos instalam o [Radmin VPN](https://www.radmin-vpn.com/) e entram na **mesma rede** do Radmin.
+2. Todos abrem o StreamaZap. A barra inferior mostra `✅ Radmin VPN conectado: 26.x.x.x`.
+3. Quem vai transmitir clica em **Criar sala**, escolhe a tela ou janela, o som e a qualidade,
+   e clica em **Iniciar transmissão**.
+4. Os amigos veem a sala aparecer na lista em poucos segundos e dão **duplo clique** para entrar.
+
+Se a sala não aparecer, use **Entrar por IP…** com o IP do Radmin de quem está transmitindo
+(ex.: `26.12.34.56`). A janela de transmissão mostra os seus endereços.
+
+> **Dica:** no Radmin a banda costuma ser limitada; o preset **720p 30fps** é o mais estável.
+
+Atalhos do player: **F11** ou duplo clique = tela cheia, **Esc** = sai da tela cheia.
+
+## Como funciona
+
+| Parte | Tecnologia |
+|---|---|
+| Interface | PySide6 (Qt) |
+| Captura de tela/janela | GDI `BitBlt` / `PrintWindow` (Windows), `mss` (outros sistemas) |
+| Captura de som por app | WASAPI *process loopback* (Windows 10 2004+) via `ctypes` |
+| Vídeo | H.264 via PyAV/FFmpeg (NVENC / QSV / AMF / x264), baixa latência, sem B-frames |
+| Áudio | Opus 48 kHz estéreo, quadros de 20 ms |
+| Descoberta de salas | Broadcast UDP na porta **47801** em cada interface (ex.: `26.255.255.255` no Radmin) |
+| Transmissão | TCP na porta **47800** (usa as próximas portas se estiver ocupada) |
+
+Quando a conexão de um espectador não acompanha, o host descarta o vídeo atrasado
+dele e envia um novo keyframe, então o atraso não acumula.
+
+Firewall: o instalador cria a regra `StreamaZap` liberando o programa. Na versão portátil,
+aceite o aviso do Firewall do Windows (marque redes **públicas** também, pois é assim que o
+Windows costuma classificar o Radmin).
+
+## Desenvolvimento
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate            # Linux/macOS: source .venv/bin/activate
+pip install -r requirements-dev.txt
+python -m streamazap               # abre o app
+pytest                             # testes
+ruff check .                       # lint
+```
+
+Fora do Windows o app roda (útil para assistir e para desenvolver), mas compartilha apenas
+o monitor inteiro e sem som.
+
+### Estrutura
+
+```
+streamazap/
+  app.py              ponto de entrada
+  discovery.py        anúncio/descoberta de salas (UDP)
+  netutil.py          interfaces de rede, detecção do Radmin
+  protocol.py         protocolo TCP (handshake, vídeo, áudio, chat)
+  host.py             servidor da sala
+  client.py           espectador
+  player.py           reprodução de áudio com buffer
+  capture/screen.py   captura de tela e janelas
+  capture/audio.py    escolha de apps e mixagem
+  capture/audio_win.py  WASAPI process loopback
+  media/              codificadores H.264 e Opus
+  ui/                 janelas Qt
+packaging/            PyInstaller e Inno Setup
+.github/workflows/    CI e geração do instalador
+```
+
+### Publicando uma nova versão
+
+O GitHub Actions compila o executável, gera o instalador e publica na aba Releases:
+
+- **pela linha de comando:** `git tag v0.2.0 && git push origin v0.2.0`
+- **pelo site:** aba **Actions → Release → Run workflow**, digite a versão (ex.: `0.2.0`).
+
+## Licença
+
+[MIT](LICENSE)

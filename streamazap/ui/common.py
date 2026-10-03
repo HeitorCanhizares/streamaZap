@@ -1,0 +1,90 @@
+"""Peças de interface reaproveitadas pelas janelas de host e espectador."""
+
+from __future__ import annotations
+
+import html
+import time
+
+import numpy as np
+from PySide6.QtCore import QObject, QRect, Qt, Signal
+from PySide6.QtGui import QColor, QImage, QPainter
+from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout, QWidget
+
+
+class Bridge(QObject):
+    """Leva eventos das threads de rede para a thread da interface."""
+
+    chat = Signal(str, str)
+    viewers = Signal(list)
+    info = Signal(dict)
+    stats = Signal(dict)
+    error = Signal(str)
+    closed = Signal(str)
+    frame_ready = Signal()
+
+
+class VideoWidget(QWidget):
+    """Desenha o último quadro recebido mantendo a proporção."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._image: QImage | None = None
+        self._array: np.ndarray | None = None
+        self.setMinimumSize(320, 180)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self.placeholder = "Aguardando vídeo…"
+
+    def set_frame(self, rgb: np.ndarray) -> None:
+        rgb = np.ascontiguousarray(rgb)
+        height, width = rgb.shape[:2]
+        self._array = rgb  # o QImage não copia os dados
+        self._image = QImage(rgb.data, width, height, width * 3, QImage.Format.Format_RGB888)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0))
+        if self._image is None:
+            painter.setPen(QColor(180, 180, 180))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.placeholder)
+            return
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        img_w, img_h = self._image.width(), self._image.height()
+        scale = min(self.width() / img_w, self.height() / img_h)
+        w, h = int(img_w * scale), int(img_h * scale)
+        painter.drawImage(QRect((self.width() - w) // 2, (self.height() - h) // 2, w, h), self._image)
+
+
+class ChatPanel(QWidget):
+    message_sent = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.log = QTextBrowser()
+        self.log.setOpenExternalLinks(True)
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Mensagem…")
+        send = QPushButton("Enviar")
+        row = QHBoxLayout()
+        row.addWidget(self.input)
+        row.addWidget(send)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.log)
+        layout.addLayout(row)
+        send.clicked.connect(self._send)
+        self.input.returnPressed.connect(self._send)
+
+    def _send(self) -> None:
+        text = self.input.text().strip()
+        if text:
+            self.message_sent.emit(text)
+            self.input.clear()
+
+    def add_message(self, name: str, text: str) -> None:
+        stamp = time.strftime("%H:%M")
+        if name:
+            line = f"<span style='color:gray'>{stamp}</span> <b>{html.escape(name)}:</b> {html.escape(text)}"
+        else:
+            line = f"<span style='color:gray'>{stamp} <i>{html.escape(text)}</i></span>"
+        self.log.append(line)

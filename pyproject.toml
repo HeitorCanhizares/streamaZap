@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "streamazap"
+dynamic = ["version"]
+description = "Compartilhe sua tela e o som de aplicativos com amigos na rede local ou Radmin VPN."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6-Essentials>=6.6",
+    "av>=12.0",
+    "numpy>=1.26",
+    "mss>=9.0",
+    "psutil>=5.9",
+    "sounddevice>=0.4.6",
+]
+
+[project.scripts]
+streamazap = "streamazap.app:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "streamazap.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["streamazap*"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

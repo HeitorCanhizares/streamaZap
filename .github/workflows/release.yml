@@ -1,0 +1,86 @@
+name: Release
+
+# Publica uma nova versão de duas formas:
+#   1. git tag v1.2.3 && git push origin v1.2.3
+#   2. Aba "Actions" > Release > "Run workflow" e digite a versão (ex.: 1.2.3)
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão (ex.: 1.2.3)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Definir versão
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]]; then
+            echo "Versão inválida: $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          sed -i "s/^__version__ = .*/__version__ = \"$VERSION\"/" streamazap/__init__.py
+          grep __version__ streamazap/__init__.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller pytest
+
+      - name: Testes
+        run: pytest -q
+
+      - name: Gerar executável (PyInstaller)
+        run: pyinstaller packaging/streamazap.spec --noconfirm
+
+      - name: Pacote portátil (.zip)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer | Out-Null
+          Compress-Archive -Path dist/StreamaZap/* -DestinationPath "installer/StreamaZap-${{ steps.version.outputs.version }}-portable.zip"
+
+      - name: Gerar instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+          }
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StreamaZap-${{ steps.version.outputs.version }}
+          path: installer/*
+
+      - name: Publicar release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: StreamaZap ${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: installer/*
