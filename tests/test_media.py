@@ -30,17 +30,28 @@ def test_audio_roundtrip():
 
 
 def test_mixer_prebuffers_and_mixes():
-    mixer = AudioMixer(lambda frame: None)
+    mixer = AudioMixer(lambda frame, ts: None)
     a, b = mixer.add_source("a"), mixer.add_source("b")
     one = np.full(FRAME_BYTES // 2, 1000, np.int16).tobytes()
     a(one)
     assert mixer.mix_once() is None  # ainda enchendo o buffer
     a(one)
     b(one * 2)
-    mixed = np.frombuffer(mixer.mix_once(), np.int16)
+    mixed = np.frombuffer(mixer.mix_once()[0], np.int16)
     assert (mixed == 2000).all()
-    assert (np.frombuffer(mixer.mix_once(), np.int16) == 2000).all()
+    assert (np.frombuffer(mixer.mix_once()[0], np.int16) == 2000).all()
     loud = np.full(FRAME_BYTES // 2, 30000, np.int16).tobytes()
     a(loud)
     b(loud)
-    assert (np.frombuffer(mixer.mix_once(), np.int16) == 32767).all()
+    assert (np.frombuffer(mixer.mix_once()[0], np.int16) == 32767).all()
+
+
+def test_mixer_timestamps_capture_time():
+    now = [100.0]
+    mixer = AudioMixer(lambda frame, ts: None, clock=lambda: now[0])
+    push = mixer.add_source("a")
+    push(bytes(FRAME_BYTES * 3))  # 60 ms de áudio chegando em t=100 s
+    pcm, ts = mixer.mix_once()
+    assert ts == 100_000 - 60  # 1ª amostra foi capturada 60 ms antes de chegar
+    pcm, ts = mixer.mix_once()
+    assert ts == 100_000 - 40

@@ -22,7 +22,7 @@ HELLO = 2
 WELCOME = 3
 REJECT = 4
 VIDEO = 5  # payload: flags (1 byte, bit0 = keyframe) + timestamp do host (ms, 8 bytes) + H.264 annex-b
-AUDIO = 6  # payload: pacote Opus
+AUDIO = 6  # payload: timestamp de captura no host (ms, 8 bytes) + pacote Opus
 CHAT = 7  # JSON {name, text}
 KEYFRAME_REQUEST = 8
 INFO = 9  # JSON {host, you, viewers: [...], streams: [...]}
@@ -31,12 +31,15 @@ PONG = 11  # JSON {t} host -> cliente (eco)
 SUBSCRIBE = 12  # JSON {media: bool} cliente quer (ou não) receber vídeo/áudio deste host
 STREAM = 13  # JSON {port, addresses} participante anuncia que está compartilhando (port 0 = parou)
 BYE = 14  # JSON {reason} host encerrou de propósito (não reconectar)
+CALLBACK = 15  # JSON: cliente->host {stream, port}: peça ao participante para conectar em mim;
+#                     host->participante {ip, port}: conecte seu compartilhamento nesse endereço
 
 HEADER = struct.Struct("!BI")
 MAX_MESSAGE = 32 * 1024 * 1024
 
 VIDEO_FLAG_KEYFRAME = 0x01
 VIDEO_HEADER = struct.Struct("!BQ")
+AUDIO_HEADER = struct.Struct("!Q")
 
 
 class ProtocolError(Exception):
@@ -62,6 +65,18 @@ def decode_video(payload: bytes) -> tuple[bytes, bool, int]:
         raise ProtocolError("pacote de vídeo truncado")
     flags, timestamp_ms = VIDEO_HEADER.unpack_from(payload)
     return payload[VIDEO_HEADER.size :], bool(flags & VIDEO_FLAG_KEYFRAME), timestamp_ms
+
+
+def encode_audio(packet: bytes, timestamp_ms: int) -> bytes:
+    return encode(AUDIO, AUDIO_HEADER.pack(timestamp_ms) + packet)
+
+
+def decode_audio(payload: bytes) -> tuple[bytes, int]:
+    """Retorna (pacote Opus, timestamp de captura no host em ms)."""
+    if len(payload) < AUDIO_HEADER.size:
+        raise ProtocolError("pacote de áudio truncado")
+    (timestamp_ms,) = AUDIO_HEADER.unpack_from(payload)
+    return payload[AUDIO_HEADER.size :], timestamp_ms
 
 
 def decode_json(payload: bytes) -> dict:

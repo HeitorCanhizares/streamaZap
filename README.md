@@ -49,7 +49,22 @@ Se a sala não aparecer, use **Entrar por IP…** com o IP do Radmin de quem est
 
 > **Dica:** no Radmin a banda costuma ser limitada; o preset **720p 30fps** é o mais estável.
 
-### Amigo em outro país dando timeout ou travando
+### "Tempo esgotado" ao entrar na sala
+
+Se a sala **aparece** na lista mas dá *tempo esgotado* ao entrar, o PC de quem transmite está
+recusando a conexão de vídeo — quase sempre o **Firewall do Windows** (a rede do Radmin costuma
+ser "Pública" e, se alguém clicou em *Cancelar* no aviso do Firewall, o Windows cria uma regra
+de **bloqueio**) ou o **firewall do antivírus**.
+
+- O StreamaZap verifica isso sozinho e mostra **🛡️ Corrigir firewall** (pede permissão de
+  administrador uma vez). Atualizar pelo instalador também remove as regras de bloqueio.
+- Antivírus com firewall próprio (Kaspersky, Avast, ESET, Norton…) aparecem no aviso: libere o
+  StreamaZap neles.
+- Mesmo assim, o app tenta uma **conexão reversa**: se o amigo não consegue chegar até o host,
+  o host conecta no amigo (aparece "🔁 conexão reversa" no player).
+- **Todos precisam estar na mesma versão.** Salas de outra versão aparecem com ⚠️ na lista.
+
+### Amigo em outro país travando
 
 - No Radmin, veja se a conexão com o amigo é **direta** (e não "relay"/retransmitida): relay
   tem banda bem menor. O ping aparece ao lado do nome dele na janela de transmissão.

@@ -20,13 +20,14 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from streamazap import config, netutil, protocol
+from streamazap import __version__, config, netutil, protocol
 from streamazap.capture.audio import AUDIO_NONE, AudioApp, AudioCaptureGroup
 from streamazap.capture.screen import VideoSource, create_capturer
 from streamazap.discovery import Announcer
 from streamazap.media.audio import AudioEncoder
 from streamazap.media.video import ENCODER_AUTO, VideoEncoder
 from streamazap.playout import SlidingMin
+from streamazap.updater import RELEASES_URL
 
 log = logging.getLogger(__name__)
 
@@ -196,10 +197,15 @@ class _Viewer:
                     _, data, _ = self._queue.popleft()
                     self._queued_bytes -= len(data)
                 self.sock.sendall(data)
-        except OSError:
-            pass
+        except OSError as exc:
+            if not self._closed:
+                log.info("envio para %s (%s) falhou: %s", self.name, self.address, exc)
         finally:
             self.host._drop_viewer(self)
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     def describe(self) -> dict:
         return {"id": self.viewer_id, "name": self.name, "rtt": self.rtt_ms, "sharing": self.stream is not None}
@@ -243,7 +249,7 @@ class StreamHost:
         self._server = self._listen()
         self.settings = replace(self.settings, port=self.port)
         if self.settings.announce:
-            self._announcer = Announcer(self._announce_info)
+            self._announcer = Announcer(self._announce_info, on_callback=self.connect_back)
             self._announcer.start()
         threading.Thread(target=self._accept_loop, name="host-accept", daemon=True).start()
         threading.Thread(target=self._info_loop, name="host-info", daemon=True).start()
@@ -382,13 +388,33 @@ class StreamHost:
                 sock, (address, _) = self._server.accept()
             except OSError:
                 return
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, config.SEND_BUFFER_BYTES)
-            viewer = _Viewer(self, sock, address)
-            with self._lock:
-                self._viewers.append(viewer)
-            threading.Thread(target=self._viewer_reader, args=(viewer,), name=f"viewer-{address}", daemon=True).start()
+            self._add_connection(sock, address)
+
+    def _add_connection(self, sock: socket.socket, address: str) -> None:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, config.SEND_BUFFER_BYTES)
+        viewer = _Viewer(self, sock, address)
+        with self._lock:
+            self._viewers.append(viewer)
+        threading.Thread(target=self._viewer_reader, args=(viewer,), name=f"viewer-{address}", daemon=True).start()
+
+    def connect_back(self, address: str, port: int) -> None:
+        """Conexão reversa: o espectador não conseguiu chegar até nós, então nós conectamos nele."""
+        if self._stop.is_set() or not 0 < port < 65536:
+            return
+
+        def work():
+            log.info("conexão reversa para %s:%d", address, port)
+            try:
+                sock = socket.create_connection((address, port), timeout=config.CONNECT_TIMEOUT)
+            except OSError as exc:
+                log.info("conexão reversa para %s:%d falhou: %s", address, port, exc)
+                return
+            sock.settimeout(None)
+            self._add_connection(sock, address)
+
+        threading.Thread(target=work, name=f"callback-{address}", daemon=True).start()
 
     def _viewer_reader(self, viewer: _Viewer) -> None:
         sock = viewer.sock
@@ -411,6 +437,18 @@ class StreamHost:
             if msg_type != protocol.HELLO:
                 raise protocol.ProtocolError("esperava HELLO")
             hello = protocol.decode_json(payload)
+            if hello.get("version") != config.PROTOCOL_VERSION:
+                theirs = hello.get("app") or "antiga"
+                sock.sendall(
+                    protocol.encode_json(
+                        protocol.REJECT,
+                        {
+                            "reason": f"Versões diferentes do StreamaZap: você tem a {theirs} e o host a {__version__}.\n"
+                            f"Atualizem para a mais recente: {RELEASES_URL}"
+                        },
+                    )
+                )
+                raise protocol.ProtocolError(f"versão incompatível ({theirs})")
             if self.settings.password and not protocol.check_auth(self.settings.password, nonce, hello.get("auth", "")):
                 sock.sendall(protocol.encode_json(protocol.REJECT, {"reason": "Senha incorreta"}))
                 raise protocol.ProtocolError("senha incorreta")
@@ -447,12 +485,15 @@ class StreamHost:
                         self.request_keyframe()
                 elif msg_type == protocol.STREAM:
                     self._update_stream(viewer, protocol.decode_json(payload))
+                elif msg_type == protocol.CALLBACK:
+                    self._relay_callback(viewer, protocol.decode_json(payload))
                 elif msg_type == protocol.CHAT:
                     text = str(protocol.decode_json(payload).get("text", ""))[:500]
                     if text:
                         self._relay_chat(viewer.name, text)
         except (OSError, ConnectionError, protocol.ProtocolError) as exc:
-            log.info("espectador %s saiu: %s", viewer.address, exc)
+            if not viewer.closed:  # se já fechamos (ex.: envio falhou), o motivo já foi registrado
+                log.info("espectador %s (%s) saiu: %s", viewer.name, viewer.address, exc)
         finally:
             was_authed = viewer.authed
             self._drop_viewer(viewer)
@@ -472,6 +513,20 @@ class StreamHost:
             if was_sharing:
                 self.on_chat("", f"{viewer.name} parou de compartilhar")
         self._notify_viewers_changed()
+
+    def _relay_callback(self, requester: _Viewer, data: dict) -> None:
+        """Repassa ao participante dono do stream o pedido de conexão reversa."""
+        port = data.get("port")
+        target = next((v for v in self._authed() if v.viewer_id == data.get("stream") and v.stream), None)
+        if target is not None and isinstance(port, int):
+            target.send(protocol.CALLBACK, protocol.encode_json(protocol.CALLBACK, {"ip": requester.address, "port": port}))
+
+    def request_participant_callback(self, stream_id: str, port: int) -> None:
+        """O próprio host quer assistir um participante mas não alcança o compartilhamento dele."""
+        target = next((v for v in self._authed() if v.viewer_id == stream_id and v.stream), None)
+        if target is not None:
+            # Sem "ip": o participante conecta no endereço pelo qual ele fala com o host.
+            target.send(protocol.CALLBACK, protocol.encode_json(protocol.CALLBACK, {"port": port}))
 
     def _relay_chat(self, name: str, text: str) -> None:
         self._broadcast(protocol.CHAT, protocol.encode_json(protocol.CHAT, {"name": name, "text": text}))
@@ -495,9 +550,9 @@ class StreamHost:
             self._audio.stop()
         self._start_audio()
 
-    def _on_audio_frame(self, pcm: bytes) -> None:
+    def _on_audio_frame(self, pcm: bytes, timestamp_ms: int) -> None:
         for packet in self._audio_encoder.encode(pcm):
-            self._broadcast(protocol.AUDIO, protocol.encode(protocol.AUDIO, packet), media_only=True)
+            self._broadcast(protocol.AUDIO, protocol.encode_audio(packet, timestamp_ms), media_only=True)
 
     # -- vídeo ---------------------------------------------------------------------
     def _start_video(self) -> None:

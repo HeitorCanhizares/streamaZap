@@ -32,3 +32,5 @@ jobs:
         run: |
           python -c "from streamazap.capture.screen import list_monitors, list_windows, create_capturer; m = list_monitors(); print(m); f = create_capturer(m[0]).grab(); print(f.shape); print(len(list_windows()), 'janelas')"
           python -c "import streamazap.capture.audio_win; from streamazap.capture.audio import audio_supported, list_audio_apps; print('audio:', audio_supported(), list_audio_apps())"
+          python -c "import sys; from streamazap import firewall as f; r = f._run_powershell(f.CHECK_SCRIPT.format(program=f._ps_quote(sys.executable))); print(repr(r.stdout), r.stderr[:500]); print(f.parse_check_output(r.stdout))"
+          python -c "import sounddevice as sd; from streamazap.player import _wasapi_output; print('wasapi:', _wasapi_output(sd))"

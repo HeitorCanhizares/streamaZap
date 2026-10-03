@@ -59,6 +59,8 @@ class ViewerWindow(QMainWindow):
         viewer.on_closed = self.bridge.closed.emit
         viewer.on_status = self.bridge.status.emit
         viewer.on_stats = lambda stats: self.bridge.stats.emit(stats) if self.media is None else None
+        # Alguém não alcança nosso compartilhamento: o host pede que a gente conecte nele.
+        viewer.on_callback = lambda ip, port: self.share.connect_back(ip, port) if self.share else None
 
         # Vídeo + lateral ---------------------------------------------------------
         self.video = VideoWidget()
@@ -215,8 +217,9 @@ class ViewerWindow(QMainWindow):
 
     def _on_stats(self, stats: dict) -> None:
         mbps = stats.get("kbps", 0) / 1000
+        reverse = " · 🔁 conexão reversa" if stats.get("reverse") else ""
         self.net_label.setText(
-            f"📶 {format_rtt(stats.get('rtt'))} · {mbps:.1f} Mbps · buffer {stats.get('buffer_ms', 0)} ms"
+            f"📶 {format_rtt(stats.get('rtt'))} · {mbps:.1f} Mbps · buffer {stats.get('buffer_ms', 0)} ms{reverse}"
         )
 
     # -- sala: participantes e streams ---------------------------------------------
@@ -254,7 +257,12 @@ class ViewerWindow(QMainWindow):
             return
         self.video.set_overlay(f"Conectando no compartilhamento de {stream['name']}…")
         viewer = StreamViewer(
-            stream["addresses"], stream["port"], self.room.name, self.room.password, delay_ms=self.room.delay_ms
+            stream["addresses"],
+            stream["port"],
+            self.room.name,
+            self.room.password,
+            delay_ms=self.room.delay_ms,
+            callback_request=lambda port: self.room.request_stream_callback(stream_id, port),
         )
         viewer.stream_id = stream_id
 

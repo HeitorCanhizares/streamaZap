@@ -10,6 +10,17 @@ def test_announcement_roundtrip():
     assert msg["name"] == "Sala" and msg["locked"] is True and msg["viewers"] == 2
 
 
+def test_old_version_rooms_listed_as_incompatible():
+    old = json.dumps({"app": config.DISCOVERY_MAGIC, "v": 1, "id": "velha", "name": "Antiga", "host": "PC", "port": 47800})
+    browser = RoomBrowser()
+    browser.handle_datagram(old.encode(), "26.1.1.1", 50000)
+    browser.handle_datagram(build_announcement("nova", "Nova", "PC", 47800, 0, False), "26.1.1.2", 50001)
+    rooms = browser.rooms()
+    assert [r.name for r in rooms] == ["Nova", "Antiga"]  # compatíveis primeiro
+    assert rooms[0].compatible and not rooms[1].compatible
+    assert rooms[0].callback_ports == {"26.1.1.2": 50001}
+
+
 def test_ignores_foreign_packets():
     assert parse_announcement(b"lixo") is None
     assert parse_announcement(json.dumps({"app": "outro", "v": 1, "id": "x", "port": 1}).encode()) is None

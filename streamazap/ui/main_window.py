@@ -23,9 +23,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from streamazap import APP_NAME, __version__, config, netutil, updater
+from streamazap import APP_NAME, __version__, config, firewall, netutil, updater
 from streamazap.client import JoinError, StreamViewer
-from streamazap.discovery import RoomBrowser
+from streamazap.discovery import Room, RoomBrowser, request_callback
 from streamazap.host import StreamHost
 from streamazap.ui.host_dialog import HostDialog
 from streamazap.ui.host_window import HostWindow
@@ -37,6 +37,8 @@ class _Signals(QObject):
     joined = Signal(object)
     join_failed = Signal(str)
     update_available = Signal(object)
+    firewall_status = Signal(object)
+    join_progress = Signal(str)
 
 
 class MainWindow(QMainWindow):
@@ -82,6 +84,18 @@ class MainWindow(QMainWindow):
         self.empty_hint.setStyleSheet("color:gray")
         self.network_label = QLabel()
         self.network_label.setWordWrap(True)
+        self.firewall_label = QLabel()
+        self.firewall_label.setWordWrap(True)
+        self.firewall_label.setStyleSheet("color:#c0392b")
+        self.firewall_fix = QPushButton("🛡️  Corrigir firewall")
+        self.firewall_fix.clicked.connect(self.fix_firewall)
+        self.firewall_row = QWidget()
+        firewall_layout = QHBoxLayout(self.firewall_row)
+        firewall_layout.setContentsMargins(0, 0, 0, 0)
+        firewall_layout.addWidget(self.firewall_label, 1)
+        firewall_layout.addWidget(self.firewall_fix)
+        self.firewall_row.hide()
+        self.firewall: firewall.FirewallStatus | None = None
         self.update_label = QLabel()
         self.update_label.setOpenExternalLinks(True)
 
@@ -93,6 +107,7 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.network_label, 1)
         bottom.addWidget(join)
         layout.addLayout(bottom)
+        layout.addWidget(self.firewall_row)
         self.auto_update = QCheckBox("Atualizar automaticamente ao abrir")
         self.auto_update.setChecked(self.settings.value("auto_update", True, type=bool))
         self.auto_update.toggled.connect(lambda on: self.settings.setValue("auto_update", on))
@@ -107,12 +122,15 @@ class MainWindow(QMainWindow):
         self.signals.joined.connect(self._on_joined)
         self.signals.join_failed.connect(self._on_join_failed)
         self.signals.update_available.connect(self._on_update)
+        self.signals.firewall_status.connect(self._on_firewall_status)
+        self.signals.join_progress.connect(self.statusBar().showMessage)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(1000)
         self.refresh()
         threading.Thread(target=self._check_update, daemon=True).start()
+        self.check_firewall()
 
     # -- lista de salas ----------------------------------------------------------
     def refresh(self) -> None:
@@ -120,8 +138,15 @@ class MainWindow(QMainWindow):
         selected_id = selected.data(0, Qt.ItemDataRole.UserRole).room_id if selected else None
         self.rooms.clear()
         for room in self.browser.rooms():
-            item = QTreeWidgetItem([room.name, room.host_name, str(room.viewers), "🔒" if room.locked else "", ", ".join(room.addresses)])
+            lock = "🔒" if room.locked else ""
+            if not room.compatible:
+                lock = f"⚠️ versão {room.app_version or 'antiga'}"
+            item = QTreeWidgetItem([room.name, room.host_name, str(room.viewers), lock, ", ".join(room.addresses)])
             item.setData(0, Qt.ItemDataRole.UserRole, room)
+            if not room.compatible:
+                item.setToolTip(0, "Sala de outra versão do StreamaZap — atualizem para a mesma versão")
+                for column in range(5):
+                    item.setForeground(column, Qt.GlobalColor.gray)
             self.rooms.addTopLevelItem(item)
             if room.room_id == selected_id:
                 self.rooms.setCurrentItem(item)
@@ -153,13 +178,21 @@ class MainWindow(QMainWindow):
         self.settings.setValue("nickname", name)
         return name
 
-    def join_room(self, room) -> None:
+    def join_room(self, room: Room) -> None:
+        if not room.compatible:
+            QMessageBox.warning(
+                self,
+                "Versões diferentes",
+                f"Essa sala é de outra versão do StreamaZap ({room.app_version or 'antiga'}; você tem a {__version__}).\n\n"
+                f"Os dois precisam estar na mesma versão. Baixe a mais recente em:\n{updater.RELEASES_URL}",
+            )
+            return
         password = ""
         if room.locked:
             password, ok = QInputDialog.getText(self, room.name, "Senha da sala:", QLineEdit.EchoMode.Password)
             if not ok:
                 return
-        self._start_join(room.addresses, room.port, password)
+        self._start_join(room.addresses, room.port, password, room)
 
     def join_manual(self) -> None:
         text, ok = QInputDialog.getText(self, "Entrar por IP", "Endereço do host (ex.: 26.12.34.56 ou 26.12.34.56:47800):",
@@ -177,14 +210,25 @@ class MainWindow(QMainWindow):
         except ValueError:
             QMessageBox.warning(self, APP_NAME, "Porta inválida.")
             return
-        self._start_join([host], port_number, password)
+        # Se a sala desse IP aparece na lista, dá para pedir conexão reversa se precisar.
+        room = next((r for r in self.browser.rooms() if host in r.addresses and r.compatible), None)
+        self._start_join([host], port_number, password, room)
 
-    def _start_join(self, addresses: list[str], port: int, password: str) -> None:
+    def _start_join(self, addresses: list[str], port: int, password: str, room: Room | None = None) -> None:
         if self._joining:
             return
         self._joining = True
         self.statusBar().showMessage("Conectando…")
-        viewer = StreamViewer(addresses, port, self._nickname(), password)
+
+        def ask_callback(callback_port: int) -> None:
+            self.signals.join_progress.emit("Conexão direta bloqueada — pedindo para o host conectar em você…")
+            # Pega a versão mais recente da sala (porta UDP de anúncio atualizada).
+            current = next((r for r in self.browser.rooms() if r.room_id == room.room_id), room)
+            request_callback(current, callback_port)
+
+        viewer = StreamViewer(
+            addresses, port, self._nickname(), password, callback_request=ask_callback if room is not None else None
+        )
 
         def work():
             try:
@@ -229,6 +273,29 @@ class MainWindow(QMainWindow):
         window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         window.destroyed.connect(lambda *_: self._windows.remove(window) if window in self._windows else None)
         window.show()
+
+    # -- firewall ------------------------------------------------------------------
+    def check_firewall(self) -> None:
+        threading.Thread(target=lambda: self.signals.firewall_status.emit(firewall.check()), daemon=True).start()
+
+    def _on_firewall_status(self, status: firewall.FirewallStatus) -> None:
+        self.firewall = status
+        text = status.describe()
+        self.firewall_row.setVisible(bool(text))
+        self.firewall_label.setText(f"⚠️ {text}" if text else "")
+        self.firewall_fix.setVisible(status.blocked or not status.allowed)
+        self.firewall_fix.setEnabled(True)
+        self.firewall_fix.setText("🛡️  Corrigir firewall")
+
+    def fix_firewall(self) -> None:
+        self.firewall_fix.setEnabled(False)
+        self.firewall_fix.setText("Corrigindo… (aceite o aviso do Windows)")
+
+        def work():
+            firewall.fix()
+            self.signals.firewall_status.emit(firewall.check())
+
+        threading.Thread(target=work, daemon=True).start()
 
     # -- atualização ---------------------------------------------------------------
     def _check_update(self) -> None:

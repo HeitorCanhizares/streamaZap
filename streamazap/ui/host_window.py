@@ -6,6 +6,7 @@ import threading
 
 from PySide6.QtCore import QObject, QSettings, Qt, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -17,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from streamazap import APP_NAME, netutil
+from streamazap import APP_NAME, firewall, netutil
 from streamazap.client import JoinError, StreamViewer
 from streamazap.host import StreamHost
 from streamazap.ui.common import Bridge, ChatPanel, format_rtt
@@ -27,6 +28,7 @@ from streamazap.ui.host_dialog import MODE_EDIT, HostDialog
 class _WatchSignals(QObject):
     joined = Signal(object)
     failed = Signal(str)
+    firewall_status = Signal(object)
 
 
 class HostWindow(QMainWindow):
@@ -44,7 +46,8 @@ class HostWindow(QMainWindow):
         self._watch = _WatchSignals()
         self._watch.joined.connect(self._open_watch_window)
         self._watch.failed.connect(lambda msg: QMessageBox.warning(self, "Assistir", msg))
-        self.resize(780, 520)
+        self._watch.firewall_status.connect(self._on_firewall_status)
+        self.resize(780, 560)
 
         self.header = QLabel()
         self.header.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -58,6 +61,9 @@ class HostWindow(QMainWindow):
         watch.clicked.connect(lambda: self._watch_stream(self.streams.currentItem()))
         edit = QPushButton("✏️  Editar transmissão")
         edit.clicked.connect(self.edit)
+        invite = QPushButton("📋  Copiar convite")
+        invite.setToolTip("Copia o endereço da sala para mandar a quem não está vendo ela na lista (Entrar por IP)")
+        invite.clicked.connect(self._copy_invite)
         stop = QPushButton("Encerrar sala")
         stop.setStyleSheet("background:#c0392b;color:white;padding:6px 14px")
         stop.clicked.connect(self.close)
@@ -71,6 +77,7 @@ class HostWindow(QMainWindow):
         left.addWidget(self.stats)
         buttons = QHBoxLayout()
         buttons.addWidget(edit)
+        buttons.addWidget(invite)
         buttons.addWidget(stop)
         left.addLayout(buttons)
         self.chat = ChatPanel()
@@ -79,8 +86,21 @@ class HostWindow(QMainWindow):
         body = QHBoxLayout()
         body.addLayout(left, 1)
         body.addWidget(self.chat, 2)
+        self.firewall_label = QLabel()
+        self.firewall_label.setWordWrap(True)
+        self.firewall_label.setStyleSheet("color:#c0392b")
+        self.firewall_fix = QPushButton("🛡️  Corrigir firewall")
+        self.firewall_fix.clicked.connect(self._fix_firewall)
+        self.firewall_row = QWidget()
+        firewall_layout = QHBoxLayout(self.firewall_row)
+        firewall_layout.setContentsMargins(0, 0, 0, 0)
+        firewall_layout.addWidget(self.firewall_label, 1)
+        firewall_layout.addWidget(self.firewall_fix)
+        self.firewall_row.hide()
+
         root = QVBoxLayout()
         root.addWidget(self.header)
+        root.addWidget(self.firewall_row)
         root.addLayout(body)
         central = QWidget()
         central.setLayout(root)
@@ -91,6 +111,39 @@ class HostWindow(QMainWindow):
         self.bridge.stats.connect(self._on_stats)
         self.bridge.error.connect(self._on_error)
         self._update_header()
+        self._check_firewall()
+
+    # -- firewall: quem transmite precisa aceitar conexões de entrada ----------------
+    def _check_firewall(self) -> None:
+        threading.Thread(target=lambda: self._watch.firewall_status.emit(firewall.check()), daemon=True).start()
+
+    def _on_firewall_status(self, status: firewall.FirewallStatus) -> None:
+        text = status.describe()
+        self.firewall_row.setVisible(bool(text))
+        self.firewall_label.setText(
+            f"⚠️ {text}. Seus amigos vão ver a sala, mas a conexão pode dar “tempo esgotado”." if text else ""
+        )
+        self.firewall_fix.setVisible(status.blocked or not status.allowed)
+        self.firewall_fix.setEnabled(True)
+        self.firewall_fix.setText("🛡️  Corrigir firewall")
+
+    def _fix_firewall(self) -> None:
+        self.firewall_fix.setEnabled(False)
+        self.firewall_fix.setText("Corrigindo… (aceite o aviso do Windows)")
+
+        def work():
+            firewall.fix()
+            self._watch.firewall_status.emit(firewall.check())
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _copy_invite(self) -> None:
+        interfaces = netutil.ipv4_interfaces()  # Radmin primeiro
+        if not interfaces:
+            return
+        invite = f"{interfaces[0].ip}:{self.host.port}"
+        QApplication.clipboard().setText(invite)
+        self.chat.add_message("", f"Convite copiado: {invite} — no StreamaZap do amigo: “Entrar por IP…”")
 
     def _update_header(self) -> None:
         s = self.host.settings
@@ -148,7 +201,13 @@ class HostWindow(QMainWindow):
         if item is None:
             return
         stream = item.data(Qt.ItemDataRole.UserRole)
-        viewer = StreamViewer(stream["addresses"], stream["port"], self.host.settings.host_name, self.host.settings.password)
+        viewer = StreamViewer(
+            stream["addresses"],
+            stream["port"],
+            self.host.settings.host_name,
+            self.host.settings.password,
+            callback_request=lambda port: self.host.request_participant_callback(stream["id"], port),
+        )
 
         def work():
             try:

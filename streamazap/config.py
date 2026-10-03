@@ -10,7 +10,7 @@ DISCOVERY_PORT = 47801
 
 # Identificador usado nos pacotes de descoberta para ignorar tráfego de outros apps.
 DISCOVERY_MAGIC = "streamazap"
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 
 # Conexões pela internet (Radmin entre países) podem ter latência alta e perda
 # de pacotes: timeouts generosos e reconexão automática.
@@ -20,6 +20,9 @@ PING_INTERVAL = 1.0
 STALL_TIMEOUT = 15.0  # sem receber nada por esse tempo = conexão caiu
 VIEWER_IDLE_TIMEOUT = 30.0  # host derruba espectador que não manda ping
 RECONNECT_ATTEMPTS = 6
+# Conexão reversa: se não der para conectar no host (firewall/antivírus bloqueando a
+# entrada no PC dele), pedimos para o host conectar em nós.
+CALLBACK_TIMEOUT = 12.0
 
 # Suavização: atraso de reprodução padrão (ms) usado para absorver a variação da rede.
 DEFAULT_PLAYOUT_DELAY_MS = 200

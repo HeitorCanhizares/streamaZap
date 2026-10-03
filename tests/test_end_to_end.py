@@ -193,3 +193,87 @@ def test_slow_viewer_queue_is_trimmed_by_age(monkeypatch):
     assert [item[0] for item in viewer._queue] == [protocol.CHAT, protocol.VIDEO]
     a.close()
     b.close()
+
+
+def test_old_client_gets_clear_update_message(host):
+    """Cliente de versão antiga (sem 'version' no HELLO) recebe REJECT com instrução de atualizar."""
+    sock = socket.create_connection(("127.0.0.1", host.port))
+    msg_type, payload = protocol.recv_message(sock)
+    nonce = protocol.decode_json(payload)["nonce"]
+    sock.sendall(protocol.encode_json(protocol.HELLO, {"name": "Velho", "auth": protocol.auth_token("123", nonce)}))
+    msg_type, payload = protocol.recv_message(sock)
+    assert msg_type == protocol.REJECT
+    assert "Atualizem" in protocol.decode_json(payload)["reason"]
+    sock.close()
+
+
+def test_reverse_connection_when_host_blocks_incoming(host):
+    """Se a conexão direta falha (firewall do host), o host conecta de volta no espectador."""
+    frames = []
+    blocked_port = 1  # nada escuta aqui: simula entrada bloqueada no host
+    viewer = StreamViewer(
+        ["127.0.0.1"], blocked_port, "Longe", "123", delay_ms=0, on_frame=frames.append,
+        callback_request=lambda port: host.connect_back("127.0.0.1", port),
+    )
+    viewer.connect()
+    viewer.start()
+    try:
+        assert viewer.used_callback
+        assert wait_for(lambda: len(frames) > 3)
+        assert host.viewer_names() == ["Longe"]
+    finally:
+        viewer.stop()
+
+
+def test_reverse_connection_requested_over_discovery_udp():
+    """O pedido de conexão reversa vai por UDP para o socket que anuncia a sala."""
+    from streamazap.discovery import Announcer, RoomBrowser, request_callback
+
+    port = 48777
+    requests = []
+    browser = RoomBrowser(port=port)
+    browser.start()
+    info = {"name": "S", "host_name": "H", "port": 47800, "viewers": 0, "locked": False}
+    announcer = Announcer(lambda: info, port=port, on_callback=lambda ip, p: requests.append((ip, p)))
+    announcer.start()
+    try:
+        assert wait_for(lambda: browser.rooms() and browser.rooms()[0].callback_ports)
+        room = browser.rooms()[0]
+        request_callback(room, 40123, attempts=3)
+        assert wait_for(lambda: requests)
+        assert requests[0][1] == 40123 and requests[0][0] in room.addresses
+        time.sleep(0.5)
+        assert len(requests) == 1  # repetições do mesmo pedido são ignoradas
+    finally:
+        announcer.stop()
+        browser.stop()
+
+
+def test_reverse_connection_to_participant_via_room(host):
+    """Bia não alcança o compartilhamento da Ana: o host repassa o pedido e a Ana conecta na Bia."""
+    share = make_host(48960, password="123", source_id=2)
+    ana = viewer_for(host, name="Ana", on_callback=share.connect_back)
+    ana.connect()
+    ana.start()
+    infos = []
+    bia_room = viewer_for(host, name="Bia", on_info=infos.append)
+    bia_room.connect()
+    bia_room.start()
+    try:
+        ana.announce_stream(share.port, ["127.0.0.1"])
+        assert wait_for(lambda: infos and any(s["name"] == "Ana" for s in infos[-1]["streams"]))
+        stream = next(s for s in infos[-1]["streams"] if s["name"] == "Ana")
+        frames = []
+        watch = StreamViewer(
+            stream["addresses"], 1, "Bia", "123", delay_ms=0, on_frame=frames.append,  # porta 1: direto falha
+            callback_request=lambda p: bia_room.request_stream_callback(stream["id"], p),
+        )
+        watch.connect()
+        watch.start()
+        assert watch.used_callback
+        assert wait_for(lambda: frames and frames[-1].shape == (180, 160, 3))
+        watch.stop()
+    finally:
+        bia_room.stop()
+        ana.stop()
+        share.stop()

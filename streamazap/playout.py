@@ -1,13 +1,16 @@
-"""Reprodução suave do vídeo (jitter buffer).
+"""Reprodução suave e sincronizada (jitter buffer).
 
 Pela internet os pacotes chegam em rajadas: alguns atrasam, outros chegam
-juntos. Em vez de mostrar cada quadro assim que chega, cada quadro é exibido
-no instante `timestamp do host + atraso de rede mínimo + atraso de suavização`.
-Assim o ritmo de exibição segue o ritmo em que o host capturou, e a variação
-da rede (até o tamanho do atraso escolhido) fica invisível.
+juntos. Em vez de tocar cada coisa assim que chega, tudo (vídeo E áudio) é
+tocado no instante
 
-Os pacotes ficam na fila ainda comprimidos (pouca memória) e são decodificados
-na hora de exibir.
+    horário de captura no host + menor atraso de rede visto + suavização
+
+calculado pelo mesmo `MediaClock`. Assim o ritmo segue o do host, a variação
+da rede fica invisível e som e imagem ficam alinhados entre si.
+
+Os pacotes de vídeo ficam na fila ainda comprimidos (pouca memória) e são
+decodificados na hora de exibir.
 """
 
 from __future__ import annotations
@@ -45,23 +48,52 @@ class SlidingMin:
         self._items.clear()
 
 
+class MediaClock:
+    """Converte horário do host em horário local de reprodução (compartilhado por vídeo e áudio)."""
+
+    def __init__(self, delay_ms: int, clock: Callable[[], float] = time.monotonic):
+        self.now = clock
+        self.delay = delay_ms / 1000
+        # Offset entre o relógio do host e o nosso + menor tempo de trânsito recente.
+        self._base = SlidingMin(10.0)
+        self._base_value: float | None = None
+        self._lock = threading.Lock()
+
+    def set_delay(self, delay_ms: int) -> None:
+        self.delay = delay_ms / 1000
+
+    def observe(self, host_ts_ms: int) -> None:
+        """Registra a chegada de um pacote (vídeo ou áudio) com esse timestamp."""
+        now = self.now()
+        with self._lock:
+            self._base_value = self._base.add(now, now - host_ts_ms / 1000)
+
+    def play_time(self, host_ts: float) -> float:
+        """Instante local (relógio monotônico) em que algo capturado em `host_ts` (segundos) deve tocar."""
+        base = self._base_value
+        if base is None:
+            return self.now()
+        return host_ts + base + self.delay
+
+    def reset(self) -> None:
+        with self._lock:
+            self._base.reset()
+            self._base_value = None
+
+
 class VideoPlayout:
     def __init__(
         self,
         decode: Callable[[bytes], list[np.ndarray]],
         on_frame: Callable[[np.ndarray], None],
         on_decode_error: Callable[[], None],
-        delay_ms: int,
-        clock: Callable[[], float] = time.monotonic,
+        clock: MediaClock,
     ):
         self._decode = decode
         self._on_frame = on_frame
         self._on_decode_error = on_decode_error
-        self._clock = clock
-        self.delay = delay_ms / 1000
-        # Offset entre o relógio do host e o nosso + menor tempo de trânsito visto.
-        self._base = SlidingMin(10.0)
-        self._queue: collections.deque[tuple[float, bytes]] = collections.deque()
+        self.clock = clock
+        self._queue: collections.deque[tuple[float, bytes]] = collections.deque()  # (host_ts s, pacote)
         self._cond = threading.Condition()
         self._stop = False
         self.frames_shown = 0
@@ -76,27 +108,21 @@ class VideoPlayout:
             self._stop = True
             self._cond.notify()
 
-    def set_delay(self, delay_ms: int) -> None:
+    def wake(self) -> None:
+        """Reavalia horários (ex.: suavização mudou)."""
         with self._cond:
-            self.delay = delay_ms / 1000
             self._cond.notify()
 
     def buffered_seconds(self) -> float:
         with self._cond:
             if not self._queue:
                 return 0.0
-            return max(0.0, self._queue[-1][0] - self._clock())
-
-    def due_time(self, host_ts_ms: int) -> float:
-        now = self._clock()
-        host_ts = host_ts_ms / 1000
-        base = self._base.add(now, now - host_ts)
-        return host_ts + base + self.delay
+            return max(0.0, self.clock.play_time(self._queue[-1][0]) - self.clock.now())
 
     def push(self, packet: bytes, host_ts_ms: int) -> None:
-        due = self.due_time(host_ts_ms)
+        """O chamador já deve ter feito clock.observe(host_ts_ms)."""
         with self._cond:
-            self._queue.append((due, packet))
+            self._queue.append((host_ts_ms / 1000, packet))
             self._cond.notify()
 
     def _take_due(self) -> list[bytes] | None:
@@ -106,24 +132,21 @@ class VideoPlayout:
                 if not self._queue:
                     self._cond.wait(0.5)
                     continue
-                now = self._clock()
+                now = self.clock.now()
                 # Fila grande demais (ex.: rede travou e depois despejou tudo): alcança o presente.
-                if self._queue[-1][0] - now > self.delay + MAX_EXTRA_BACKLOG:
-                    return [p for _, p in self._drain()]
-                wait = self._queue[0][0] - now
+                if self.clock.play_time(self._queue[-1][0]) - now > self.clock.delay + MAX_EXTRA_BACKLOG:
+                    items = [p for _, p in self._queue]
+                    self._queue.clear()
+                    return items
+                wait = self.clock.play_time(self._queue[0][0]) - now
                 if wait > 0:
                     self._cond.wait(min(wait, 0.05))
                     continue
                 due = []
-                while self._queue and self._queue[0][0] <= now:
+                while self._queue and self.clock.play_time(self._queue[0][0]) <= now:
                     due.append(self._queue.popleft()[1])
                 return due
             return None
-
-    def _drain(self):
-        items = list(self._queue)
-        self._queue.clear()
-        return items
 
     def _run(self) -> None:
         while True:

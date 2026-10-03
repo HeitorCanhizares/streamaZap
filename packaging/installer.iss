@@ -46,12 +46,16 @@ Name: "{group}\{cm:UninstallProgram,StreamaZap}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\StreamaZap"; Filename: "{app}\StreamaZap.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""StreamaZap"""; Flags: runhidden; StatusMsg: "Configurando o Firewall do Windows..."
+; Apaga TODAS as regras do programa — inclusive as de BLOQUEIO que o Windows cria quando
+; alguém clica em "Cancelar" no aviso do Firewall (elas vencem a regra de liberação e
+; derrubam a conexão de vídeo na rede do Radmin, que costuma ser "Pública").
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=all program=""{app}\StreamaZap.exe"""; Flags: runhidden; StatusMsg: "Configurando o Firewall do Windows..."
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""StreamaZap"" dir=in action=allow program=""{app}\StreamaZap.exe"" enable=yes profile=any"; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""StreamaZap"" dir=out action=allow program=""{app}\StreamaZap.exe"" enable=yes profile=any"; Flags: runhidden
 Filename: "{app}\StreamaZap.exe"; Description: "{cm:LaunchProgram,StreamaZap}"; Flags: nowait postinstall skipifsilent
 ; Atualização automática (instalador rodando com /VERYSILENT): reabre o app já
 ; atualizado, como o usuário normal e não como administrador.
 Filename: "{app}\StreamaZap.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [UninstallRun]
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""StreamaZap"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=all program=""{app}\StreamaZap.exe"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"
