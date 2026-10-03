@@ -8,13 +8,13 @@ from streamazap import protocol
 def test_roundtrip_over_socketpair():
     a, b = socket.socketpair()
     a.sendall(protocol.encode_json(protocol.CHAT, {"text": "olá"}))
-    a.sendall(protocol.encode_video(b"\x00\x01", keyframe=True))
+    a.sendall(protocol.encode_video(b"\x00\x01", keyframe=True, timestamp_ms=123456789))
     msg_type, payload = protocol.recv_message(b)
     assert msg_type == protocol.CHAT
     assert protocol.decode_json(payload) == {"text": "olá"}
     msg_type, payload = protocol.recv_message(b)
     assert msg_type == protocol.VIDEO
-    assert protocol.decode_video(payload) == (b"\x00\x01", True)
+    assert protocol.decode_video(payload) == (b"\x00\x01", True, 123456789)
     a.close()
     with pytest.raises(ConnectionError):
         protocol.recv_message(b)

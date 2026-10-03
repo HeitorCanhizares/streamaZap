@@ -10,7 +10,15 @@ com amigos na rede local ou pelo **Radmin VPN**. Aplicativo open source escrito 
   ou só os aplicativos marcados (ex.: apenas o jogo, ou apenas o navegador).
 - 📡 **As salas aparecem sozinhas.** Quem cria uma sala anuncia a sala em todas as redes do PC,
   incluindo a do Radmin VPN. Quem estiver na mesma rede do Radmin vê a sala na lista e clica para entrar.
-- 🔒 Senha opcional na sala, 💬 chat e lista de quem está assistindo.
+- 👥 **Todo mundo pode compartilhar:** qualquer participante clica em *Compartilhar minha tela*
+  e os outros escolhem em *Assistindo:* quem querem ver. Cada um envia o próprio vídeo direto
+  para quem assiste (P2P pelo Radmin), dividindo a carga.
+- ✏️ **Editar a transmissão ao vivo** (trocar tela/janela, som, qualidade) sem derrubar ninguém.
+- 🌊 **Vídeo liso:** buffer de suavização ajustável (*Suavização*, padrão 200 ms) e qualidade
+  adaptável, que reduz o bitrate sozinha quando alguém está com a conexão lenta e volta a subir depois.
+- 🌍 **Feito para amigos longe:** mede a latência de cada um, reconecta sozinho se a conexão
+  cair e não acumula atraso (descarta vídeo velho em vez de deixar o atraso crescer).
+- 🔒 Senha opcional na sala, 💬 chat e lista de quem está assistindo com a latência de cada um.
 - ⚡ Vídeo H.264 pela GPU (NVIDIA NVENC, Intel QuickSync, AMD AMF) com fallback para CPU; áudio Opus.
 
 ## Download
@@ -41,6 +49,16 @@ Se a sala não aparecer, use **Entrar por IP…** com o IP do Radmin de quem est
 
 > **Dica:** no Radmin a banda costuma ser limitada; o preset **720p 30fps** é o mais estável.
 
+### Amigo em outro país dando timeout ou travando
+
+- No Radmin, veja se a conexão com o amigo é **direta** (e não "relay"/retransmitida): relay
+  tem banda bem menor. O ping aparece ao lado do nome dele na janela de transmissão.
+- Deixe **Qualidade adaptável** ligada (em *Editar transmissão*): o host ajusta o bitrate
+  pela conexão mais lenta da sala.
+- Quem está longe pode aumentar a **Suavização** (ex.: 500 ms): troca um pouco de atraso por
+  um vídeo bem mais liso.
+- Se a conexão cair, o app tenta reconectar sozinho (faixa laranja em cima do vídeo).
+
 Atalhos do player: **F11** ou duplo clique = tela cheia, **Esc** = sai da tela cheia.
 
 ## Como funciona
@@ -53,10 +71,14 @@ Atalhos do player: **F11** ou duplo clique = tela cheia, **Esc** = sai da tela c
 | Vídeo | H.264 via PyAV/FFmpeg (NVENC / QSV / AMF / x264), baixa latência, sem B-frames |
 | Áudio | Opus 48 kHz estéreo, quadros de 20 ms |
 | Descoberta de salas | Broadcast UDP na porta **47801** em cada interface (ex.: `26.255.255.255` no Radmin) |
-| Transmissão | TCP na porta **47800** (usa as próximas portas se estiver ocupada) |
+| Transmissão | TCP na porta **47800** (usa as próximas portas se estiver ocupada; quem compartilha dentro da sala usa 47801+) |
+| Suavização | Jitter buffer: cada quadro leva o horário de captura e é exibido em ritmo constante |
+| Congestionamento | Atraso medido pela fila do host + latência vs. mínima recente (pega *bufferbloat* da VPN); bitrate cai/volta sozinho |
 
 Quando a conexão de um espectador não acompanha, o host descarta o vídeo atrasado
-dele e envia um novo keyframe, então o atraso não acumula.
+dele e envia um novo keyframe, então o atraso não acumula. Numa simulação de link de
+1,5 Mbit/s com 150 ms de latência e até 80 ms de variação, a qualidade adaptável derrubou a
+latência de ~10 s para ~200 ms, mantendo 30 fps sem travadas.
 
 Firewall: o instalador cria a regra `StreamaZap` liberando o programa. Na versão portátil,
 aceite o aviso do Firewall do Windows (marque redes **públicas** também, pois é assim que o

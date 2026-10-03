@@ -12,12 +12,20 @@ from streamazap import config
 log = logging.getLogger(__name__)
 
 BYTES_PER_SECOND = config.AUDIO_RATE * config.AUDIO_CHANNELS * 2
-TARGET_BUFFER = int(BYTES_PER_SECOND * 0.06)  # 60 ms antes de começar a tocar
-MAX_BUFFER = int(BYTES_PER_SECOND * 0.30)  # acima disso, descarta para não acumular atraso
+MIN_TARGET_SECONDS = 0.06
+EXTRA_SECONDS = 0.25  # folga acima do alvo antes de descartar áudio atrasado
+
+
+def _bytes_for(seconds: float) -> int:
+    value = int(BYTES_PER_SECOND * seconds)
+    return value - value % 4
 
 
 class AudioPlayer:
-    def __init__(self):
+    """O buffer alvo acompanha o atraso de suavização do vídeo, mantendo os dois sincronizados."""
+
+    def __init__(self, delay_ms: int = config.DEFAULT_PLAYOUT_DELAY_MS):
+        self.set_delay(delay_ms)
         self.volume = 1.0
         self.muted = False
         self._buffer = bytearray()
@@ -25,6 +33,11 @@ class AudioPlayer:
         self._lock = threading.Lock()
         self._stream = None
         self.error: str | None = None
+
+    def set_delay(self, delay_ms: int) -> None:
+        target = max(MIN_TARGET_SECONDS, delay_ms / 1000)
+        self._target = _bytes_for(target)
+        self._max = _bytes_for(target + EXTRA_SECONDS)
 
     def start(self) -> None:
         if self._stream is not None or self.error:
@@ -53,15 +66,15 @@ class AudioPlayer:
     def push(self, pcm: bytes) -> None:
         with self._lock:
             self._buffer += pcm
-            if len(self._buffer) > MAX_BUFFER:
-                cut = len(self._buffer) - TARGET_BUFFER
+            if len(self._buffer) > self._max:
+                cut = len(self._buffer) - self._target
                 del self._buffer[: cut - cut % 4]
 
     def take(self, size: int) -> bytes:
         """Retira `size` bytes do buffer (silêncio enquanto está enchendo)."""
         with self._lock:
             if not self._playing:
-                if len(self._buffer) < TARGET_BUFFER:
+                if len(self._buffer) < self._target:
                     return bytes(size)
                 self._playing = True
             chunk = bytes(self._buffer[:size])

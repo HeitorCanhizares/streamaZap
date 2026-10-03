@@ -1,4 +1,12 @@
-"""Lado de quem cria a sala: captura, codifica e transmite para os espectadores."""
+"""Servidor de stream: captura, codifica e transmite para os espectadores.
+
+O mesmo servidor serve dois papéis:
+  * dono da sala (announce=True): anuncia a sala na rede, guarda o chat, a lista
+    de participantes e a lista de streams da sala;
+  * participante compartilhando (announce=False): só serve o próprio vídeo/áudio.
+    Os outros conectam direto nele (P2P pelo Radmin), o que divide a carga de
+    upload entre quem está compartilhando.
+"""
 
 from __future__ import annotations
 
@@ -8,21 +16,22 @@ import secrets
 import socket
 import threading
 import time
+import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
-from streamazap import config, protocol
+from streamazap import config, netutil, protocol
 from streamazap.capture.audio import AUDIO_NONE, AudioApp, AudioCaptureGroup
 from streamazap.capture.screen import VideoSource, create_capturer
 from streamazap.discovery import Announcer
 from streamazap.media.audio import AudioEncoder
 from streamazap.media.video import ENCODER_AUTO, VideoEncoder
+from streamazap.playout import SlidingMin
 
 log = logging.getLogger(__name__)
 
-# Se a fila de um espectador passar disso, a conexão dele não está dando conta:
-# descartamos o vídeo pendente e esperamos o próximo keyframe.
-MAX_QUEUE_BYTES = 3 * 1024 * 1024
+# Proteção extra além do limite por tempo (config.MAX_VIEWER_LAG).
+MAX_QUEUE_BYTES = 8 * 1024 * 1024
 
 
 @dataclass
@@ -37,7 +46,56 @@ class HostSettings:
     encoder: str = ENCODER_AUTO
     audio_mode: str = AUDIO_NONE
     audio_apps: list[AudioApp] = field(default_factory=list)
+    adaptive: bool = True
+    announce: bool = True
     port: int = config.STREAM_PORT
+
+    def video_key(self):
+        return (self.source, self.max_height, self.fps, self.bitrate, self.encoder, self.adaptive)
+
+    def audio_key(self):
+        return (self.audio_mode, tuple(self.audio_apps))
+
+
+class BitrateController:
+    """Ajusta o bitrate pela conexão mais lenta da sala.
+
+    Cai rápido quando algum espectador acumula atraso (ou teve vídeo descartado),
+    mas espera o efeito da queda antes de cair de novo (se o atraso já está
+    diminuindo, a fila está esvaziando). Sobe aos poucos quando todos estão em dia.
+    """
+
+    DECREASE_INTERVAL = 2.0
+    INCREASE_INTERVAL = 5.0
+    HIGH_LAG = 0.4
+    LOW_LAG = 0.15
+
+    def __init__(self, base: int, enabled: bool = True):
+        self.base = base
+        self.current = base
+        self.minimum = max(300_000, int(round(base * 0.15, -3)))
+        self.enabled = enabled
+        self._last_change = float("-inf")
+        self._last_lag = 0.0
+
+    def update(self, now: float, lag: float, dropped: bool) -> int | None:
+        """Retorna o novo bitrate se ele mudou."""
+        previous_lag, self._last_lag = self._last_lag, lag
+        if not self.enabled:
+            return None
+        elapsed = now - self._last_change
+        draining = lag < previous_lag * 0.85
+        if (dropped or (lag > self.HIGH_LAG and not draining)) and elapsed >= self.DECREASE_INTERVAL:
+            new = max(self.minimum, int(round(self.current * 0.7, -3)))
+        elif not dropped and lag < self.LOW_LAG and elapsed >= self.INCREASE_INTERVAL and self.current < self.base:
+            new = min(self.base, int(round(self.current * 1.15, -3)))
+        else:
+            return None
+        if new == self.current:
+            return None
+        self.current = new
+        self._last_change = now
+        return new
 
 
 class _Viewer:
@@ -45,36 +103,69 @@ class _Viewer:
         self.host = host
         self.sock = sock
         self.address = address
+        self.viewer_id = uuid.uuid4().hex[:8]
         self.name = address
         self.authed = False
+        self.media = True  # quer receber vídeo/áudio deste servidor
         self.waiting_keyframe = True
-        self._queue: collections.deque[tuple[int, bytes]] = collections.deque()
+        self.rtt_ms: float | None = None
+        # Atraso de fila na rede = latência atual - menor latência do último minuto.
+        # Pega o "bufferbloat" (dados presos em buffers do sistema/VPN), que a fila do app não vê.
+        self._rtt_floor = SlidingMin(60.0)
+        self.network_queue_delay = 0.0
+        self.stream: dict | None = None  # {port, addresses} se estiver compartilhando
+        self._queue: collections.deque[tuple[int, bytes, float]] = collections.deque()
         self._queued_bytes = 0
         self._cond = threading.Condition()
         self._closed = False
 
+    def _media_age(self, now: float) -> float:
+        for msg_type, _, queued_at in self._queue:
+            if msg_type in (protocol.VIDEO, protocol.AUDIO):
+                return now - queued_at
+        return 0.0
+
+    def lag(self) -> float:
+        """Há quanto tempo a mídia mais antiga da fila espera para ser enviada."""
+        with self._cond:
+            return self._media_age(time.monotonic())
+
+    def record_rtt(self, rtt_ms: float | None) -> None:
+        self.rtt_ms = rtt_ms
+        if rtt_ms is not None:
+            floor = self._rtt_floor.add(time.monotonic(), rtt_ms)
+            self.network_queue_delay = max(0.0, (rtt_ms - floor) / 1000)
+
+    def congestion_delay(self) -> float:
+        """Quanto este espectador está atrasado por falta de banda (fila do app + fila na rede)."""
+        return max(self.lag(), self.network_queue_delay)
+
     def send(self, msg_type: int, data: bytes) -> None:
+        now = time.monotonic()
         with self._cond:
             if self._closed:
                 return
-            if self._queued_bytes + len(data) > MAX_QUEUE_BYTES:
-                # Conexão lenta: joga fora o vídeo atrasado e pede keyframe.
-                self._queue = collections.deque(item for item in self._queue if item[0] != protocol.VIDEO)
-                self._queued_bytes = sum(len(item[1]) for item in self._queue)
+            lagging = self._media_age(now) > config.MAX_VIEWER_LAG
+            if lagging or self._queued_bytes + len(data) > MAX_QUEUE_BYTES:
+                # Conexão não está dando conta: joga fora a mídia atrasada e recomeça
+                # do próximo keyframe, em vez de deixar o atraso crescer sem fim.
+                kept = [item for item in self._queue if item[0] not in (protocol.VIDEO, protocol.AUDIO)]
+                self._queue = collections.deque(kept)
+                self._queued_bytes = sum(len(item[1]) for item in kept)
                 self.waiting_keyframe = True
-                self.host.request_keyframe()
+                self.host.report_congestion()
                 if msg_type == protocol.VIDEO:
                     return
-            self._queue.append((msg_type, data))
+            self._queue.append((msg_type, data, now))
             self._queued_bytes += len(data)
             self._cond.notify()
 
-    def send_video(self, packet: bytes, keyframe: bool) -> None:
+    def send_video(self, message: bytes, keyframe: bool) -> None:
         if self.waiting_keyframe:
             if not keyframe:
                 return
             self.waiting_keyframe = False
-        self.send(protocol.VIDEO, protocol.encode_video(packet, keyframe))
+        self.send(protocol.VIDEO, message)
 
     def close(self) -> None:
         with self._cond:
@@ -86,6 +177,14 @@ class _Viewer:
             pass
         self.sock.close()
 
+    def flush(self, timeout: float) -> None:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            with self._cond:
+                if not self._queue or self._closed:
+                    return
+            time.sleep(0.02)
+
     def sender_loop(self) -> None:
         try:
             while True:
@@ -94,7 +193,7 @@ class _Viewer:
                         self._cond.wait()
                     if self._closed:
                         return
-                    _, data = self._queue.popleft()
+                    _, data, _ = self._queue.popleft()
                     self._queued_bytes -= len(data)
                 self.sock.sendall(data)
         except OSError:
@@ -102,14 +201,17 @@ class _Viewer:
         finally:
             self.host._drop_viewer(self)
 
+    def describe(self) -> dict:
+        return {"id": self.viewer_id, "name": self.name, "rtt": self.rtt_ms, "sharing": self.stream is not None}
+
 
 class StreamHost:
-    """Servidor da sala. Callbacks são chamados de threads de fundo."""
+    """Callbacks são chamados de threads de fundo."""
 
     def __init__(
         self,
         settings: HostSettings,
-        on_viewers: Callable[[list[str]], None] = lambda names: None,
+        on_viewers: Callable[[list[dict]], None] = lambda viewers: None,
         on_chat: Callable[[str, str], None] = lambda name, text: None,
         on_error: Callable[[str], None] = lambda message: None,
         on_stats: Callable[[dict], None] = lambda stats: None,
@@ -125,28 +227,34 @@ class StreamHost:
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._force_keyframe = threading.Event()
+        self._congestion = threading.Event()
+        self._last_congestion_keyframe = 0.0
         self._server: socket.socket | None = None
         self._announcer: Announcer | None = None
         self._audio: AudioCaptureGroup | None = None
         self._audio_encoder: AudioEncoder | None = None
+        self._video_stop = threading.Event()
+        self._video_thread: threading.Thread | None = None
         self.port = settings.port
         self.encoder_name: str | None = None
 
     # -- ciclo de vida -------------------------------------------------------------
     def start(self) -> None:
         self._server = self._listen()
-        self._announcer = Announcer(self._announce_info)
-        self._announcer.start()
+        self.settings = replace(self.settings, port=self.port)
+        if self.settings.announce:
+            self._announcer = Announcer(self._announce_info)
+            self._announcer.start()
         threading.Thread(target=self._accept_loop, name="host-accept", daemon=True).start()
-        if self.settings.source is not None:
-            threading.Thread(target=self._video_loop, name="host-video", daemon=True).start()
-        if self.settings.audio_mode != AUDIO_NONE:
-            self._audio_encoder = AudioEncoder()
-            self._audio = AudioCaptureGroup(self.settings.audio_mode, self.settings.audio_apps, self._on_audio_frame)
-            self._audio.start()
+        threading.Thread(target=self._info_loop, name="host-info", daemon=True).start()
+        self._start_video()
+        self._start_audio()
 
-    def stop(self) -> None:
+    def stop(self, reason: str = "O host encerrou a transmissão") -> None:
+        if self._stop.is_set():
+            return
         self._stop.set()
+        self._video_stop.set()
         if self._announcer:
             self._announcer.stop()
         if self._audio:
@@ -155,12 +263,27 @@ class StreamHost:
             self._server.close()
         with self._lock:
             viewers = list(self._viewers)
+        bye = protocol.encode_json(protocol.BYE, {"reason": reason})
         for viewer in viewers:
+            viewer.send(protocol.BYE, bye)
+        for viewer in viewers:
+            viewer.flush(0.5)
             viewer.close()
+
+    def apply_settings(self, new: HostSettings) -> None:
+        """Edita a transmissão ao vivo: os espectadores continuam conectados."""
+        old = self.settings
+        new = replace(new, port=self.port, announce=old.announce)
+        self.settings = new
+        if new.video_key() != old.video_key():
+            self._restart_video()
+        if new.audio_key() != old.audio_key():
+            self._restart_audio()
+        self._notify_viewers_changed()
 
     def _listen(self) -> socket.socket:
         last_error = None
-        for port in range(self.settings.port, self.settings.port + 10):
+        for port in range(self.settings.port, self.settings.port + 20):
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -182,28 +305,67 @@ class StreamHost:
             "name": self.settings.room_name,
             "host_name": self.settings.host_name,
             "port": self.port,
-            "viewers": len(self.viewer_names()),
+            "viewers": len(self.viewers()),
             "locked": bool(self.settings.password),
         }
 
     # -- espectadores --------------------------------------------------------------
-    def viewer_names(self) -> list[str]:
+    def _authed(self) -> list[_Viewer]:
         with self._lock:
-            return [v.name for v in self._viewers if v.authed]
+            return [v for v in self._viewers if v.authed]
+
+    def viewers(self) -> list[dict]:
+        return [v.describe() for v in self._authed()]
+
+    def viewer_names(self) -> list[str]:
+        return [v.name for v in self._authed()]
+
+    def streams(self) -> list[dict]:
+        """Streams da sala: o do host (pela própria conexão) e o de quem está compartilhando."""
+        result = []
+        if self.settings.source is not None:
+            result.append({"id": "host", "name": self.settings.host_name, "port": self.port, "addresses": []})
+        for viewer in self._authed():
+            if viewer.stream:
+                addresses = [viewer.address] + [a for a in viewer.stream.get("addresses", []) if a != viewer.address]
+                result.append({"id": viewer.viewer_id, "name": viewer.name, "port": viewer.stream["port"], "addresses": addresses})
+        return result
 
     def request_keyframe(self) -> None:
         self._force_keyframe.set()
 
-    def _broadcast(self, msg_type: int, data: bytes) -> None:
-        with self._lock:
-            viewers = [v for v in self._viewers if v.authed]
-        for viewer in viewers:
-            viewer.send(msg_type, data)
+    def report_congestion(self) -> None:
+        # Um espectador lento não pode forçar keyframes (caros) para todos o tempo todo.
+        self._congestion.set()
+        now = time.monotonic()
+        if now - self._last_congestion_keyframe >= 2.0:
+            self._last_congestion_keyframe = now
+            self._force_keyframe.set()
+
+    def _broadcast(self, msg_type: int, data: bytes, media_only: bool = False) -> None:
+        for viewer in self._authed():
+            if not media_only or viewer.media:
+                viewer.send(msg_type, data)
+
+    def _info_payload(self, viewer: _Viewer | None = None) -> dict:
+        return {
+            "room": self.settings.room_name,
+            "host": self.settings.host_name,
+            "viewers": self.viewers(),
+            "streams": self.streams(),
+            "you": viewer.viewer_id if viewer else None,
+        }
 
     def _notify_viewers_changed(self) -> None:
-        names = self.viewer_names()
-        self._broadcast(protocol.INFO, protocol.encode_json(protocol.INFO, {"viewers": names, "host": self.settings.host_name}))
-        self.on_viewers(names)
+        for viewer in self._authed():
+            viewer.send(protocol.INFO, protocol.encode_json(protocol.INFO, self._info_payload(viewer)))
+        self.on_viewers(self.viewers())
+
+    def _info_loop(self) -> None:
+        # Atualiza latências na interface de todos de tempos em tempos.
+        while not self._stop.wait(3.0):
+            if self._authed():
+                self._notify_viewers_changed()
 
     def _drop_viewer(self, viewer: _Viewer) -> None:
         with self._lock:
@@ -211,7 +373,7 @@ class StreamHost:
                 return
             self._viewers.remove(viewer)
         viewer.close()
-        if viewer.authed:
+        if viewer.authed and not self._stop.is_set():
             self._notify_viewers_changed()
 
     def _accept_loop(self) -> None:
@@ -221,6 +383,8 @@ class StreamHost:
             except OSError:
                 return
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, config.SEND_BUFFER_BYTES)
             viewer = _Viewer(self, sock, address)
             with self._lock:
                 self._viewers.append(viewer)
@@ -242,7 +406,7 @@ class StreamHost:
                     },
                 )
             )
-            sock.settimeout(15)
+            sock.settimeout(config.HANDSHAKE_TIMEOUT)
             msg_type, payload = protocol.recv_message(sock)
             if msg_type != protocol.HELLO:
                 raise protocol.ProtocolError("esperava HELLO")
@@ -251,19 +415,38 @@ class StreamHost:
                 sock.sendall(protocol.encode_json(protocol.REJECT, {"reason": "Senha incorreta"}))
                 raise protocol.ProtocolError("senha incorreta")
             viewer.name = str(hello.get("name") or viewer.address)[:40]
-            sock.settimeout(None)
-            sock.sendall(protocol.encode_json(protocol.WELCOME, {"room": self.settings.room_name, "host": self.settings.host_name}))
+            viewer.media = bool(hello.get("media", True))
+            sock.settimeout(config.VIEWER_IDLE_TIMEOUT)
+            sock.sendall(
+                protocol.encode_json(
+                    protocol.WELCOME,
+                    {"room": self.settings.room_name, "host": self.settings.host_name, "you": viewer.viewer_id},
+                )
+            )
             viewer.authed = True
             threading.Thread(target=viewer.sender_loop, name=f"viewer-send-{viewer.address}", daemon=True).start()
             self.request_keyframe()
             self._notify_viewers_changed()
-            self.on_chat("", f"{viewer.name} entrou na sala")
+            if self.settings.announce:
+                self.on_chat("", f"{viewer.name} entrou na sala")
 
             while not self._stop.is_set():
                 msg_type, payload = protocol.recv_message(sock)
-                if msg_type == protocol.KEYFRAME_REQUEST:
+                if msg_type == protocol.PING:
+                    ping = protocol.decode_json(payload)
+                    rtt = ping.get("rtt")
+                    viewer.record_rtt(float(rtt) if isinstance(rtt, (int, float)) else None)
+                    viewer.send(protocol.PONG, protocol.encode_json(protocol.PONG, {"t": ping.get("t")}))
+                elif msg_type == protocol.KEYFRAME_REQUEST:
                     viewer.waiting_keyframe = True
                     self.request_keyframe()
+                elif msg_type == protocol.SUBSCRIBE:
+                    viewer.media = bool(protocol.decode_json(payload).get("media", True))
+                    if viewer.media:
+                        viewer.waiting_keyframe = True
+                        self.request_keyframe()
+                elif msg_type == protocol.STREAM:
+                    self._update_stream(viewer, protocol.decode_json(payload))
                 elif msg_type == protocol.CHAT:
                     text = str(protocol.decode_json(payload).get("text", ""))[:500]
                     if text:
@@ -273,8 +456,22 @@ class StreamHost:
         finally:
             was_authed = viewer.authed
             self._drop_viewer(viewer)
-            if was_authed and not self._stop.is_set():
+            if was_authed and not self._stop.is_set() and self.settings.announce:
                 self.on_chat("", f"{viewer.name} saiu da sala")
+
+    def _update_stream(self, viewer: _Viewer, data: dict) -> None:
+        port = data.get("port")
+        was_sharing = viewer.stream is not None
+        if isinstance(port, int) and 0 < port < 65536:
+            addresses = [str(a) for a in data.get("addresses", []) if isinstance(a, str)][:8]
+            viewer.stream = {"port": port, "addresses": addresses}
+            if not was_sharing:
+                self.on_chat("", f"{viewer.name} começou a compartilhar a tela")
+        else:
+            viewer.stream = None
+            if was_sharing:
+                self.on_chat("", f"{viewer.name} parou de compartilhar")
+        self._notify_viewers_changed()
 
     def _relay_chat(self, name: str, text: str) -> None:
         self._broadcast(protocol.CHAT, protocol.encode_json(protocol.CHAT, {"name": name, "text": text}))
@@ -283,14 +480,46 @@ class StreamHost:
     def send_chat(self, text: str) -> None:
         self._relay_chat(self.settings.host_name, text)
 
-    # -- mídia -------------------------------------------------------------------
+    # -- áudio ---------------------------------------------------------------------
+    def _start_audio(self) -> None:
+        if self.settings.audio_mode == AUDIO_NONE:
+            self._audio = None
+            return
+        if self._audio_encoder is None:
+            self._audio_encoder = AudioEncoder()
+        self._audio = AudioCaptureGroup(self.settings.audio_mode, self.settings.audio_apps, self._on_audio_frame)
+        self._audio.start()
+
+    def _restart_audio(self) -> None:
+        if self._audio:
+            self._audio.stop()
+        self._start_audio()
+
     def _on_audio_frame(self, pcm: bytes) -> None:
         for packet in self._audio_encoder.encode(pcm):
-            self._broadcast(protocol.AUDIO, protocol.encode(protocol.AUDIO, packet))
+            self._broadcast(protocol.AUDIO, protocol.encode(protocol.AUDIO, packet), media_only=True)
 
-    def _video_loop(self) -> None:
-        s = self.settings
+    # -- vídeo ---------------------------------------------------------------------
+    def _start_video(self) -> None:
+        if self.settings.source is None:
+            return
+        self._video_stop = threading.Event()
+        self._video_thread = threading.Thread(
+            target=self._video_loop, args=(self.settings, self._video_stop), name="host-video", daemon=True
+        )
+        self._video_thread.start()
+
+    def _restart_video(self) -> None:
+        self._video_stop.set()
+        if self._video_thread is not None:
+            self._video_thread.join(timeout=3)
+        for viewer in self._authed():
+            viewer.waiting_keyframe = True
+        self._start_video()
+
+    def _video_loop(self, s: HostSettings, stop: threading.Event) -> None:
         encoder = VideoEncoder(s.max_height, s.fps, s.bitrate, s.encoder)
+        controller = BitrateController(s.bitrate, s.adaptive)
         capturer = None
         interval = 1.0 / s.fps
         last_frame = None
@@ -299,7 +528,7 @@ class StreamHost:
         next_tick = time.perf_counter()
         try:
             capturer = self._capturer_factory(s.source)
-            while not self._stop.is_set():
+            while not stop.is_set():
                 next_tick += interval
                 frame = capturer.grab()
                 if frame is None:
@@ -309,23 +538,35 @@ class StreamHost:
                     last_frame = frame
                     force = self._force_keyframe.is_set()
                     self._force_keyframe.clear()
+                    timestamp_ms = int(time.monotonic() * 1000)
                     packets = encoder.encode(frame, force_keyframe=force)
                     self.encoder_name = encoder.codec_name
-                    with self._lock:
-                        viewers = [v for v in self._viewers if v.authed]
+                    viewers = [v for v in self._authed() if v.media]
                     for packet, keyframe in packets:
+                        message = protocol.encode_video(packet, keyframe, timestamp_ms)
                         sent_bytes += len(packet)
                         for viewer in viewers:
-                            viewer.send_video(packet, keyframe)
+                            viewer.send_video(message, keyframe)
                     frames += 1
 
                 now = time.monotonic()
                 if now - stats_time >= 1.0:
+                    viewers = [v for v in self._authed() if v.media]
+                    lag = max((v.congestion_delay() for v in viewers), default=0.0)
+                    dropped = self._congestion.is_set()
+                    self._congestion.clear()
+                    new_bitrate = controller.update(now, lag, dropped)
+                    if new_bitrate is not None:
+                        log.info("bitrate ajustado para %d kbps (atraso %.2fs)", new_bitrate // 1000, lag)
+                        encoder.set_bitrate(new_bitrate)
                     elapsed = now - stats_time
                     self.on_stats(
                         {
                             "fps": frames / elapsed,
                             "kbps": sent_bytes * 8 / 1000 / elapsed,
+                            "target_kbps": controller.current // 1000,
+                            "base_kbps": controller.base // 1000,
+                            "lag": lag,
                             "encoder": encoder.codec_name,
                             "size": encoder.size,
                             "audio_errors": self._audio.errors() if self._audio else [],
@@ -336,12 +577,18 @@ class StreamHost:
 
                 delay = next_tick - time.perf_counter()
                 if delay > 0:
-                    time.sleep(delay)
+                    stop.wait(delay)
                 else:
                     next_tick = time.perf_counter()  # captura lenta: não acumula atraso
         except Exception as exc:  # noqa: BLE001 - reportado na interface
             log.exception("loop de vídeo falhou")
-            self.on_error(str(exc))
+            if not stop.is_set():
+                self.on_error(str(exc))
         finally:
             if capturer is not None:
                 capturer.close()
+
+
+def local_addresses() -> list[str]:
+    """IPs deste PC, Radmin primeiro (enviados ao host quando começamos a compartilhar)."""
+    return [i.ip for i in netutil.ipv4_interfaces()]

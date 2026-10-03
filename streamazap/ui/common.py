@@ -11,6 +11,10 @@ from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout, QWidget
 
 
+def format_rtt(rtt) -> str:
+    return f"{rtt:.0f} ms" if isinstance(rtt, (int, float)) else "…"
+
+
 class Bridge(QObject):
     """Leva eventos das threads de rede para a thread da interface."""
 
@@ -20,7 +24,13 @@ class Bridge(QObject):
     stats = Signal(dict)
     error = Signal(str)
     closed = Signal(str)
+    status = Signal(str)
     frame_ready = Signal()
+    media_joined = Signal(object)
+    media_failed = Signal(str)
+    media_closed = Signal(str)
+    share_error = Signal(str)
+    share_stats = Signal(dict)
 
 
 class VideoWidget(QWidget):
@@ -33,6 +43,17 @@ class VideoWidget(QWidget):
         self.setMinimumSize(320, 180)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
         self.placeholder = "Aguardando vídeo…"
+        self.overlay = ""  # aviso exibido por cima do vídeo (ex.: reconectando)
+
+    def set_overlay(self, text: str) -> None:
+        self.overlay = text
+        self.update()
+
+    def clear(self, placeholder: str) -> None:
+        self._image = None
+        self._array = None
+        self.placeholder = placeholder
+        self.update()
 
     def set_frame(self, rgb: np.ndarray) -> None:
         rgb = np.ascontiguousarray(rgb)
@@ -47,12 +68,17 @@ class VideoWidget(QWidget):
         if self._image is None:
             painter.setPen(QColor(180, 180, 180))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.placeholder)
-            return
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        img_w, img_h = self._image.width(), self._image.height()
-        scale = min(self.width() / img_w, self.height() / img_h)
-        w, h = int(img_w * scale), int(img_h * scale)
-        painter.drawImage(QRect((self.width() - w) // 2, (self.height() - h) // 2, w, h), self._image)
+        else:
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            img_w, img_h = self._image.width(), self._image.height()
+            scale = min(self.width() / img_w, self.height() / img_h)
+            w, h = int(img_w * scale), int(img_h * scale)
+            painter.drawImage(QRect((self.width() - w) // 2, (self.height() - h) // 2, w, h), self._image)
+        if self.overlay:
+            band = QRect(0, 0, self.width(), 36)
+            painter.fillRect(band, QColor(200, 120, 0, 220))
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(band, Qt.AlignmentFlag.AlignCenter, self.overlay)
 
 
 class ChatPanel(QWidget):

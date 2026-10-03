@@ -70,7 +70,8 @@ class VideoEncoder:
                 ctx.bit_rate = self.bitrate
                 ctx.gop_size = self.fps * 4
                 ctx.max_b_frames = 0
-                ctx.options = dict(options)
+                # VBV: limita picos de bitrate (keyframes) para não engasgar conexões lentas.
+                ctx.options = dict(options, maxrate=str(self.bitrate), bufsize=str(self.bitrate // 2))
                 ctx.open()
             except Exception as exc:  # noqa: BLE001 - tentamos o próximo codificador
                 errors.append(f"{name}: {exc}")
@@ -80,6 +81,12 @@ class VideoEncoder:
             log.info("codificador %s aberto em %dx%d", name, out_w, out_h)
             return
         raise RuntimeError("Nenhum codificador H.264 disponível:\n" + "\n".join(errors))
+
+    def set_bitrate(self, bitrate: int) -> None:
+        """Muda o bitrate; o codificador é reaberto no próximo quadro (começa com keyframe)."""
+        if bitrate != self.bitrate:
+            self.bitrate = bitrate
+            self.close()
 
     @property
     def size(self) -> tuple[int, int] | None:
