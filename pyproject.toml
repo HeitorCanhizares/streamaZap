@@ -24,6 +24,9 @@ streamazap = "streamazap.app:main"
 [tool.setuptools.dynamic]
 version = { attr = "streamazap.__version__" }
 
+[tool.setuptools.package-data]
+streamazap = ["assets/*.png"]
+
 [tool.setuptools.packages.find]
 include = ["streamazap*"]
 

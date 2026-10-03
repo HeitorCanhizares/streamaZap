@@ -12,6 +12,7 @@ a = Analysis(
     [os.path.join(SPECPATH, "launcher.py")],
     pathex=[os.path.dirname(SPECPATH)],
     binaries=binaries,
+    datas=[(os.path.join(os.path.dirname(SPECPATH), "streamazap", "assets", "icon.png"), os.path.join("streamazap", "assets"))],
     hiddenimports=hiddenimports,
     excludes=["tkinter", "PySide6.QtNetwork", "PySide6.QtQml", "PySide6.QtQuick", "PySide6.QtPdf"],
     noarchive=False,
@@ -24,6 +25,7 @@ exe = EXE(
     exclude_binaries=True,
     name="StreamaZap",
     console=False,
+    icon=os.path.join(SPECPATH, "icon.ico"),
     upx=False,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="StreamaZap", upx=False)

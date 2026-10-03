@@ -23,6 +23,7 @@ def main() -> int:
         handlers.append(logging.StreamHandler())
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=handlers)
 
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
     from streamazap.ui.main_window import MainWindow
@@ -30,6 +31,14 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
+    icon_path = Path(__file__).resolve().parent / "assets" / "icon.png"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
+    if sys.platform == "win32":
+        # Faz a barra de tarefas usar o ícone do app (e não o do python.exe).
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("StreamaZap.App")
     window = MainWindow()
     window.show()
     return app.exec()

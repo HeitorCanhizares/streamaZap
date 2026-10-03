@@ -1,3 +1,5 @@
+<p align="center"><img src="streamazap/assets/icon.png" width="160" alt="StreamaZap"></p>
+
 # StreamaZap
 
 Compartilhe sua **tela** (ou uma **janela**) e o **som dos aplicativos que você escolher**
@@ -93,6 +95,13 @@ streamazap/
 packaging/            PyInstaller e Inno Setup
 .github/workflows/    CI e geração do instalador
 ```
+
+### Ícone
+
+A arte fica em `packaging/icon-source.*` (png, jpg ou webp, quadrada). Para trocar,
+substitua esse arquivo: a build roda `packaging/make_icon.py`, que recorta o fundo
+branco fora do quadrado arredondado e gera o `.ico` do executável/instalador e o
+`.png` das janelas. Localmente: `pip install pillow && python packaging/make_icon.py`.
 
 ### Releases automáticas
 

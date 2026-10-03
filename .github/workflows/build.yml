@@ -86,6 +86,11 @@ jobs:
       - name: Testes
         run: pytest -q
 
+      - name: Gerar ícones
+        run: |
+          pip install pillow
+          python packaging/make_icon.py
+
       - name: Gerar executável (PyInstaller)
         run: pyinstaller packaging/streamazap.spec --noconfirm
 

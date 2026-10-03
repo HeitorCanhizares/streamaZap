@@ -26,6 +26,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; Administrador é necessário para liberar o app no Firewall do Windows
 ; (a rede do Radmin costuma ser classificada como "Pública").
 PrivilegesRequired=admin
+SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\StreamaZap.exe
 CloseApplications=yes
 
