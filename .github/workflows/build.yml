@@ -1,11 +1,11 @@
 name: Build & Release
 
-# Toda build gera o instalador do Windows. Quando a build é do branch principal
-# (ou de uma tag v*), ela vira automaticamente uma Release no GitHub, que é de
+# Toda build gera o instalador do Windows. Quando a build é do branch master
+# (ou main, ou de uma tag v*), ela vira automaticamente uma Release no GitHub, que é de
 # onde o app baixa as atualizações.
 #
 # Versão:
-#   * push no branch principal -> MAJOR.MINOR (de streamazap/__init__.py) + número da build
+#   * push no master/main       -> MAJOR.MINOR (de streamazap/__init__.py) + número da build
 #                                 ex.: __version__ = "0.1.0", build 42 -> 0.1.42
 #   * tag v1.2.3               -> 1.2.3
 #   * "Run workflow" manual    -> versão digitada (ou automática se deixar vazio)
@@ -45,7 +45,6 @@ jobs:
         shell: bash
         env:
           INPUT_VERSION: ${{ github.event.inputs.version }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           BASE=$(sed -n 's/^__version__ = "\([0-9]*\.[0-9]*\).*/\1/p' streamazap/__init__.py)
@@ -58,7 +57,7 @@ jobs:
             VERSION="${INPUT_VERSION#v}"
             VERSION="${VERSION:-$AUTO}"
             RELEASE=true
-          elif [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
+          elif [ "$GITHUB_REF_NAME" = "master" ] || [ "$GITHUB_REF_NAME" = "main" ]; then
             VERSION="$AUTO"
             RELEASE=true
             case "$COMMIT_MESSAGE" in *"[skip release]"*) RELEASE=false ;; esac

@@ -92,7 +92,7 @@ packaging/            PyInstaller e Inno Setup
 
 ### Releases automáticas
 
-Cada push no branch principal compila o app no GitHub Actions (Windows), gera o
+Cada push no branch `master` compila o app no GitHub Actions (Windows), gera o
 instalador e publica uma **Release** automaticamente. É de lá que o app baixa as
 atualizações.
 
