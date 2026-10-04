@@ -355,5 +355,7 @@ def test_saturation_detection_ignores_ramp_up():
         second(2.6e6, 2.0e6)
     assert viewer.overused
     assert abs(viewer.capacity() - 2.0e6) < 1
+    second(2.6e6, 1.5e6)  # piorou de repente: vale o último segundo, não a média
+    assert abs(viewer.capacity() - 1.5e6) < 1
     a.close()
     b.close()

@@ -81,6 +81,7 @@ class BitrateController:
     CEILING_MARGIN = 0.85
     PROBE_INTERVAL = 20.0
     PROBE_STEP = 1.05
+    DRAIN_TIME = 3.0
     SLOW_START = 0.7
     SLOW_START_INTERVAL = 2.0
 
@@ -127,7 +128,10 @@ class BitrateController:
             if throughput:
                 capacity = min(throughput, self.current)
                 self._ceiling = int(capacity)
-                wanted = min(max(capacity * self.CEILING_MARGIN, self.current * 0.5), self.current * 0.9)
+                # Abaixo da capacidade o bastante para também esvaziar, em ~3 s, a fila que já
+                # se formou (lag segundos dela); depois sobe de novo até perto do teto.
+                drain = capacity * min(lag, 2.0) / self.DRAIN_TIME
+                wanted = min(max(capacity * self.CEILING_MARGIN - drain, self.current * 0.5), self.current * 0.9)
             else:
                 self._ceiling, wanted = self.current, self.current * 0.7
             self._ceiling_time = now
@@ -241,9 +245,11 @@ class _Viewer:
         return offered > 900_000 and sum(r for _, r in self._rates) < offered * 0.9
 
     def capacity(self) -> float:
-        """O que a conexão dele escoou (bit/s), na média dos últimos segundos."""
+        """O que a conexão dele escoou (bit/s): a média dos últimos segundos ou o último, se menor
+        (quando o link piora de repente, a média ainda carrega os segundos bons)."""
         if self._rates:
-            return sum(r for _, r in self._rates) / len(self._rates)
+            received = [r for _, r in self._rates]
+            return min(received[-1], sum(received) / len(received))
         return self.send_rate
 
     def tune_send_buffer(self, bitrate: int) -> None:

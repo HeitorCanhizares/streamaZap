@@ -82,13 +82,21 @@ def test_bitrate_controller_slow_start():
 def test_bitrate_controller_drops_to_measured_capacity():
     c = BitrateController(4_000_000)
     t = _full_speed(c)
-    # A conexão mais lenta escoou 3 Mbps de vídeo: cai para 85% disso (não um corte cego de 30%).
-    assert c.update(t, lag=0.6, dropped=False, throughput=3_000_000) == 2_550_000
+    # Saturou (recebe menos do que mandamos) antes de formar fila: cai para 85% do que a
+    # conexão escoou, não um corte cego de 30%.
+    assert c.update(t, lag=0.0, dropped=True, throughput=3_000_000) == 2_550_000
     # A medida de atraso ainda cresce por 1-2 s (vem do ping): não cai de novo à toa.
     assert c.update(t + 2, lag=0.8, dropped=False, throughput=2_900_000) is None
     assert c.update(t + 4, lag=0.9, dropped=False) is None
     # Mas se a fila estourar (vídeo descartado), cai mesmo assim.
     assert c.update(t + 5, lag=0.9, dropped=True) == 1_785_000
+
+
+def test_bitrate_controller_drains_existing_queue():
+    c = BitrateController(4_000_000)
+    t = _full_speed(c)
+    # Já há 0,6 s de fila: cai abaixo dos 85% o bastante para esvaziá-la em ~3 s.
+    assert c.update(t, lag=0.6, dropped=False, throughput=3_500_000) == 2_275_000
 
 
 def test_bitrate_controller_remembers_ceiling():
@@ -100,7 +108,7 @@ def test_bitrate_controller_remembers_ceiling():
     assert c.update(t + 6, lag=0.0, dropped=False) is None  # acima de 85% do teto: só sonda a cada 20 s
     c = BitrateController(4_000_000)
     t = _full_speed(c)
-    c.update(t, lag=0.6, dropped=False, throughput=3_000_000)  # -> 2,55 Mbps, teto 3 Mbps
+    c.update(t, lag=0.0, dropped=True, throughput=3_000_000)  # -> 2,55 Mbps, teto 3 Mbps
     assert c.current == 2_550_000
     assert c.update(t + 6, lag=0.0, dropped=False) is None  # já está a 85% do teto
     assert c.update(t + 20, lag=0.0, dropped=False) == 2_678_000  # sonda +5% a cada 20 s
