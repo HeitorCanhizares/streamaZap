@@ -12,6 +12,7 @@ import threading
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -27,7 +28,7 @@ from PySide6.QtWidgets import (
 from streamazap import APP_NAME, config
 from streamazap.client import JoinError, StreamViewer
 from streamazap.host import StreamHost, local_addresses
-from streamazap.ui.common import Bridge, ChatPanel, VideoWidget, format_rtt
+from streamazap.ui.common import Bridge, ChatPanel, VideoWidget, format_network, format_rtt
 from streamazap.ui.host_dialog import MODE_EDIT, MODE_SHARE, HostDialog
 
 HOST_STREAM = "host"
@@ -50,7 +51,9 @@ class ViewerWindow(QMainWindow):
         self.resize(1280, 760)
 
         delay = int(self.settings.value("playout_delay", config.DEFAULT_PLAYOUT_DELAY_MS))
+        auto = self.settings.value("playout_auto", True, type=bool)
         viewer.set_delay(delay)
+        viewer.set_auto_delay(auto)
 
         self.bridge = Bridge()
         viewer.on_frame = lambda frame: self._on_frame_thread(viewer, frame)
@@ -119,8 +122,16 @@ class ViewerWindow(QMainWindow):
             "Mais alto = mais liso (bom para conexões de longe); mais baixo = menos atraso."
         )
         self.smooth_label = QLabel()
+        self.smooth_auto = QCheckBox("Auto")
+        self.smooth_auto.setToolTip(
+            "Ajusta a suavização sozinho: sobe quando a rede engasga (para não travar) e desce\n"
+            "devagar quando ela estabiliza (menos atraso). O som acompanha sem cortes."
+        )
+        self.smooth_auto.setChecked(auto)
+        self.smooth_auto.toggled.connect(self._on_smooth_auto)
         self.smooth.valueChanged.connect(self._on_smooth)
         self._on_smooth(self.smooth.value(), save=False)
+        self.smooth.setEnabled(not auto)
         self.net_label = QLabel()
         self.net_label.setStyleSheet("color: gray")
         chat_toggle = QPushButton("Painel")
@@ -141,6 +152,7 @@ class ViewerWindow(QMainWindow):
         bar.addSpacing(12)
         bar.addWidget(self.smooth_label)
         bar.addWidget(self.smooth)
+        bar.addWidget(self.smooth_auto)
         bar.addSpacing(12)
         bar.addWidget(self.net_label)
         bar.addStretch()
@@ -208,14 +220,28 @@ class ViewerWindow(QMainWindow):
 
     def _on_smooth(self, value: int, save: bool = True) -> None:
         delay = value * 50
-        self.smooth_label.setText(f"Suavização: {delay} ms")
+        if not self.smooth_auto.isChecked():
+            self.smooth_label.setText(f"Suavização: {delay} ms")
         for viewer in (self.room, self.media):
             if viewer is not None:
                 viewer.set_delay(delay)
         if save:
             self.settings.setValue("playout_delay", delay)
 
+    def _on_smooth_auto(self, enabled: bool) -> None:
+        self.smooth.setEnabled(not enabled)
+        for viewer in (self.room, self.media):
+            if viewer is not None:
+                viewer.set_auto_delay(enabled)
+        self.settings.setValue("playout_auto", enabled)
+        if enabled:
+            self.smooth_label.setText("Suavização: auto")
+        else:
+            self._on_smooth(self.smooth.value(), save=False)
+
     def _on_stats(self, stats: dict) -> None:
+        if stats.get("auto") and self.smooth_auto.isChecked():
+            self.smooth_label.setText(f"Suavização: auto · {stats.get('delay_ms', 0)} ms")
         mbps = stats.get("kbps", 0) / 1000
         reverse = " · 🔁 conexão reversa" if stats.get("reverse") else ""
         self.net_label.setText(
@@ -228,7 +254,7 @@ class ViewerWindow(QMainWindow):
         for v in info.get("viewers", []):
             you = " (você)" if v.get("id") == self.room.viewer_id else ""
             sharing = " 📺" if v.get("sharing") else ""
-            lines.append(f"• {v['name']}{you}{sharing} <span style='color:gray'>{format_rtt(v.get('rtt'))}</span>")
+            lines.append(f"• {v['name']}{you}{sharing} <span style='color:gray'>{format_network(v)}</span>")
         self.viewers_label.setText("<br>".join(lines))
         self._streams = [s for s in info.get("streams", []) if s.get("id") != self.room.viewer_id]
         self._rebuild_stream_list()
@@ -282,6 +308,7 @@ class ViewerWindow(QMainWindow):
         viewer.on_closed = lambda reason: self.bridge.media_closed.emit(reason)
         viewer.on_status = self.bridge.status.emit
         viewer.on_stats = self.bridge.stats.emit
+        viewer.set_auto_delay(self.smooth_auto.isChecked())
         self.media = viewer
         self._current_stream = viewer.stream_id
         self.room.set_media(False)  # para de receber o vídeo do host (economiza banda)
@@ -363,7 +390,9 @@ class ViewerWindow(QMainWindow):
             return
         watching = len(self.share.viewer_names())
         text = f"Compartilhando: {self.share.settings.source.label}<br>{stats['fps']:.0f} fps · {stats['kbps']:.0f} kbps · {watching} assistindo"
-        if stats.get("target_kbps", 0) < stats.get("base_kbps", 0):
+        if stats.get("idle"):
+            text = f"Compartilhando: {self.share.settings.source.label}<br>ninguém assistindo — captura pausada"
+        if stats.get("target_kbps", 0) < stats.get("base_kbps", 0) and not stats.get("starting"):
             text += f"<br><span style='color:#c87f0a'>qualidade reduzida p/ {stats['target_kbps']} kbps (conexão lenta)</span>"
         self.share_status.setText(text)
 

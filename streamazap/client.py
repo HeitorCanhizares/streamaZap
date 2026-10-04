@@ -47,6 +47,7 @@ class StreamViewer:
         password: str = "",
         delay_ms: int = config.DEFAULT_PLAYOUT_DELAY_MS,
         media: bool = True,
+        auto_delay: bool = False,
         on_frame: Callable[[np.ndarray], None] = lambda frame: None,
         on_chat: Callable[[str, str], None] = lambda name, text: None,
         on_info: Callable[[dict], None] = lambda info: None,
@@ -72,7 +73,7 @@ class StreamViewer:
         self.on_stats = on_stats
         self.callback_request = callback_request
         self.on_callback = on_callback
-        self.clock = MediaClock(delay_ms)
+        self.clock = MediaClock(delay_ms, auto=auto_delay)
         self.player = AudioPlayer(self.clock)
         self.used_callback = False
         self.room_name = ""
@@ -205,6 +206,10 @@ class StreamViewer:
 
     def start(self) -> None:
         self.player.start()
+        # A placa de som pede cada bloco adiantado: o áudio precisa chegar antes disso.
+        self.clock.audio_lead = self.player.output_latency + 0.02
+        if self.player.error:
+            self.clock.audio_level = 0.0  # sem saída de áudio: ninguém ouve, a suavização desce rápido
         threading.Thread(target=self._run, name="viewer", daemon=True).start()
         threading.Thread(target=self._ping_loop, name="viewer-ping", daemon=True).start()
 
@@ -249,6 +254,12 @@ class StreamViewer:
         if self._playout:
             self._playout.wake()
 
+    def set_auto_delay(self, enabled: bool) -> None:
+        """Suavização automática: ajusta sozinha pela variação da rede (o valor manual vira o ponto de partida)."""
+        self.clock.set_auto(enabled)
+        if self._playout:
+            self._playout.wake()
+
     def request_stream_callback(self, stream_id: str, port: int) -> None:
         """Pede (via host da sala) que o participante `stream_id` conecte em nós na `port`."""
         self._send(protocol.encode_json(protocol.CALLBACK, {"stream": stream_id, "port": port}))
@@ -269,17 +280,28 @@ class StreamViewer:
             self._send(protocol.encode(protocol.KEYFRAME_REQUEST))
 
     def _ping_loop(self) -> None:
-        last_bytes, last_time = 0, time.monotonic()
+        last_bytes, last_time, last_late = 0, time.monotonic(), 0
         while not self._stop.wait(config.PING_INTERVAL):
-            self._send(protocol.encode_json(protocol.PING, {"t": time.monotonic(), "rtt": self.rtt_ms}))
+            delay_ms = int(self.clock.current_delay() * 1000)
+            late, last_late = self.clock.late_events - last_late, self.clock.late_events
             now = time.monotonic()
+            received = (self._received_bytes - last_bytes) * 8 / (now - last_time)
+            # "rx": o que chegou de verdade (com a conexão no limite, é a capacidade dela);
+            # "delay": a suavização em uso (o host mostra quem está com a rede pior).
+            self._send(
+                protocol.encode_json(
+                    protocol.PING, {"t": time.monotonic(), "rtt": self.rtt_ms, "delay": delay_ms, "rx": int(received)}
+                )
+            )
             playout = self._playout
             self.on_stats(
                 {
                     "rtt": self.rtt_ms,
-                    "kbps": (self._received_bytes - last_bytes) * 8 / 1000 / (now - last_time),
+                    "kbps": received / 1000,
                     "buffer_ms": int(playout.buffered_seconds() * 1000) if playout else 0,
-                    "delay_ms": self.delay_ms,
+                    "delay_ms": delay_ms,
+                    "auto": self.clock.auto,
+                    "late": late,
                     "audio_latency_ms": int(self.player.output_latency * 1000),
                     "reverse": self.used_callback,
                 }
@@ -329,7 +351,7 @@ class StreamViewer:
         video = VideoDecoder()
         audio = AudioDecoder()
         playout = VideoPlayout(
-            video.decode, lambda frame: self.on_frame(video.to_image(frame)), self._request_keyframe, self.clock
+            video.decode, lambda image: self.on_frame(image), self._request_keyframe, self.clock, prepare=video.to_image
         )
         self._playout = playout
         self.player.clear()
@@ -341,11 +363,11 @@ class StreamViewer:
                 self._received_bytes += len(payload) + protocol.HEADER.size
                 if msg_type == protocol.VIDEO:
                     packet, _, timestamp_ms = protocol.decode_video(payload)
-                    self.clock.observe(timestamp_ms)
+                    self.clock.observe(timestamp_ms, "video")
                     playout.push(packet, timestamp_ms)
                 elif msg_type == protocol.AUDIO:
                     packet, timestamp_ms = protocol.decode_audio(payload)
-                    self.clock.observe(timestamp_ms)
+                    self.clock.observe(timestamp_ms, "audio")
                     try:
                         self.player.push(audio.decode(packet), timestamp_ms)
                     except Exception:  # noqa: BLE001

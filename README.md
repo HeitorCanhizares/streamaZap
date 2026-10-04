@@ -14,8 +14,10 @@ com amigos na rede local ou pelo **Radmin VPN**. Aplicativo open source escrito 
   e os outros escolhem em *Assistindo:* quem querem ver. Cada um envia o próprio vídeo direto
   para quem assiste (P2P pelo Radmin), dividindo a carga.
 - ✏️ **Editar a transmissão ao vivo** (trocar tela/janela, som, qualidade) sem derrubar ninguém.
-- 🌊 **Vídeo liso:** buffer de suavização ajustável (*Suavização*, padrão 200 ms) e qualidade
-  adaptável, que reduz o bitrate sozinha quando alguém está com a conexão lenta e volta a subir depois.
+- 🌊 **Vídeo liso sem mexer em nada:** a *Suavização* se ajusta sozinha (sobe quando a rede
+  engasga, desce quando ela estabiliza) e a qualidade adaptável mede quanto a conexão de cada um
+  aguenta e ajusta o bitrate para caber, voltando a subir depois. O som acompanha o vídeo
+  acelerando/desacelerando 1-2% em vez de cortar.
 - 🌍 **Feito para amigos longe:** mede a latência de cada um, reconecta sozinho se a conexão
   cair e não acumula atraso (descarta vídeo velho em vez de deixar o atraso crescer).
 - 🔒 Senha opcional na sala, 💬 chat e lista de quem está assistindo com a latência de cada um.
@@ -85,8 +87,9 @@ funcionar, é o firewall. O botão **📋 Copiar relatório** do Diagnóstico ju
   tem banda bem menor. O ping aparece ao lado do nome dele na janela de transmissão.
 - Deixe **Qualidade adaptável** ligada (em *Editar transmissão*): o host ajusta o bitrate
   pela conexão mais lenta da sala.
-- Quem está longe pode aumentar a **Suavização** (ex.: 500 ms): troca um pouco de atraso por
-  um vídeo bem mais liso.
+- Deixe a **Suavização** em *Auto* (padrão): ela aumenta sozinha para quem está longe. A lista
+  de participantes mostra a suavização de cada um; alta = rede dele oscilando. Desmarcando
+  *Auto*, dá para fixar um valor.
 - Se a conexão cair, o app tenta reconectar sozinho (faixa laranja em cima do vídeo).
 
 Atalhos do player: **F11** ou duplo clique = tela cheia, **Esc** = sai da tela cheia.
@@ -102,13 +105,14 @@ Atalhos do player: **F11** ou duplo clique = tela cheia, **Esc** = sai da tela c
 | Áudio | Opus 48 kHz estéreo, quadros de 20 ms |
 | Descoberta de salas | Broadcast UDP na porta **47801** em cada interface (ex.: `26.255.255.255` no Radmin) |
 | Transmissão | TCP na porta **47800** (usa as próximas portas se estiver ocupada; quem compartilha dentro da sala usa 47801+) |
-| Suavização | Jitter buffer: cada quadro leva o horário de captura e é exibido em ritmo constante |
-| Congestionamento | Atraso medido pela fila do host + latência vs. mínima recente (pega *bufferbloat* da VPN); bitrate cai/volta sozinho |
+| Suavização | Jitter buffer automático: cada quadro leva o horário de captura e é exibido em ritmo constante; o atraso cobre o pior atraso recente da rede |
+| Áudio x vídeo | Mesmo relógio; o áudio corrige diferenças reamostrando (até 2%), com fade de 2 ms em toda emenda |
+| Congestionamento | Atraso na fila do host + latência vs. mínima recente + recebido vs. enviado; o bitrate cai para ~85% do que a conexão escoou e volta a subir sondando aos poucos |
+| Fila de envio | Áudio e controle passam na frente do vídeo; buffer do sistema do tamanho da conexão (banda x latência) |
 
 Quando a conexão de um espectador não acompanha, o host descarta o vídeo atrasado
-dele e envia um novo keyframe, então o atraso não acumula. Numa simulação de link de
-1,5 Mbit/s com 150 ms de latência e até 80 ms de variação, a qualidade adaptável derrubou a
-latência de ~10 s para ~200 ms, mantendo 30 fps sem travadas.
+dele e envia um novo keyframe em até 2 s, então o atraso não acumula. Sem ninguém
+assistindo, a captura fica pausada.
 
 Firewall: o instalador cria a regra `StreamaZap` liberando o programa. Na versão portátil,
 aceite o aviso do Firewall do Windows (marque redes **públicas** também, pois é assim que o

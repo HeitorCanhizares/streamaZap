@@ -34,6 +34,12 @@ def output_size(width: int, height: int, max_height: int) -> tuple[int, int]:
 
 
 class VideoEncoder:
+    # Buffer do VBV em segundos de bitrate: limita o tamanho dos picos (keyframes, troca de cena).
+    # Com 0,5 s, um keyframe levava ~0,3 s para passar num link no limite (travadinha); com 0,25 s,
+    # cai pela metade custando ~0,2 dB de qualidade média.
+    VBV_SECONDS = 0.25
+    GOP_SECONDS = 10  # keyframes sob demanda (quem entra, erro, recuperação); este é só o de segurança
+
     def __init__(self, max_height: int, fps: int, bitrate: int, encoder: str = ENCODER_AUTO):
         self.max_height = max_height
         self.fps = fps
@@ -64,10 +70,10 @@ class VideoEncoder:
                 ctx.time_base = Fraction(1, self.fps)
                 ctx.framerate = Fraction(self.fps, 1)
                 ctx.bit_rate = self.bitrate
-                ctx.gop_size = self.fps * 4
+                ctx.gop_size = self.fps * self.GOP_SECONDS
                 ctx.max_b_frames = 0
                 # VBV: limita picos de bitrate (keyframes) para não engasgar conexões lentas.
-                ctx.options = dict(options, maxrate=str(self.bitrate), bufsize=str(self.bitrate // 2))
+                ctx.options = dict(options, maxrate=str(self.bitrate), bufsize=str(int(self.bitrate * self.VBV_SECONDS)))
                 ctx.open()
             except Exception as exc:  # noqa: BLE001 - tentamos o próximo codificador
                 errors.append(f"{name}: {exc}")

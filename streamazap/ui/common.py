@@ -15,6 +15,15 @@ def format_rtt(rtt) -> str:
     return f"{rtt:.0f} ms" if isinstance(rtt, (int, float)) else "…"
 
 
+def format_network(viewer: dict) -> str:
+    """Latência e suavização de um participante (suavização alta = rede dele oscilando)."""
+    text = format_rtt(viewer.get("rtt"))
+    delay = viewer.get("delay")
+    if isinstance(delay, (int, float)):
+        text += f" · suavização {delay:.0f} ms"
+    return text
+
+
 class Bridge(QObject):
     """Leva eventos das threads de rede para a thread da interface."""
 

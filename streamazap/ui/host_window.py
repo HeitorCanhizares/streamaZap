@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from streamazap import APP_NAME, firewall, netutil
 from streamazap.client import JoinError, StreamViewer
 from streamazap.host import StreamHost
-from streamazap.ui.common import Bridge, ChatPanel, format_rtt
+from streamazap.ui.common import Bridge, ChatPanel, format_network
 from streamazap.ui.host_dialog import MODE_EDIT, HostDialog
 
 
@@ -173,7 +173,7 @@ class HostWindow(QMainWindow):
         self.viewers.clear()
         for v in viewers:
             sharing = " · 📺 compartilhando" if v.get("sharing") else ""
-            self.viewers.addItem(f"{v['name']}  ({format_rtt(v.get('rtt'))}){sharing}")
+            self.viewers.addItem(f"{v['name']}  ({format_network(v)}){sharing}")
         selected = self.streams.currentItem().data(Qt.ItemDataRole.UserRole)["id"] if self.streams.currentItem() else None
         self.streams.clear()
         for stream in self.host.streams():
@@ -186,12 +186,17 @@ class HostWindow(QMainWindow):
                 self.streams.setCurrentItem(item)
 
     def _on_stats(self, stats: dict) -> None:
+        if stats.get("idle"):
+            self.stats.setText("Ninguém assistindo — captura pausada (volta sozinha quando alguém entrar)")
+            return
         size = stats.get("size")
         resolution = f"{size[0]}x{size[1]}" if size else "—"
         text = f"{resolution} · {stats['fps']:.0f} fps · {stats['kbps']:.0f} kbps · {stats.get('encoder') or '—'}"
         if stats.get("capture"):
             text += f" · captura {stats.get('capture_ms', 0):.0f} ms ({stats['capture']})"
-        if stats.get("target_kbps", 0) < stats.get("base_kbps", 0):
+        if stats.get("starting"):
+            text += "<br><span style='color:gray'>Começando: subindo a qualidade aos poucos</span>"
+        elif stats.get("target_kbps", 0) < stats.get("base_kbps", 0):
             text += (
                 f"<br><span style='color:#c87f0a'>Qualidade reduzida para {stats['target_kbps']} kbps "
                 f"(alguém com conexão lenta, atraso {stats.get('lag', 0):.1f}s)</span>"

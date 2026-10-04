@@ -63,35 +63,91 @@ class HostSettings:
 class BitrateController:
     """Ajusta o bitrate pela conexão mais lenta da sala.
 
-    Cai rápido quando algum espectador acumula atraso (ou teve vídeo descartado),
-    mas espera o efeito da queda antes de cair de novo (se o atraso já está
-    diminuindo, a fila está esvaziando). Sobe aos poucos quando todos estão em dia.
+    Começa em 70% e sobe a cada 2 s até o alvo (início suave: passar da capacidade logo de
+    cara enchia as filas da rede e deixava um pico de atraso). Cai rápido quando algum
+    espectador acumula atraso (ou teve vídeo descartado), para perto do que a conexão dele
+    realmente escoou, e espera o efeito antes de cair de novo. Sobe aos poucos quando todos
+    estão em dia.
     """
 
     DECREASE_INTERVAL = 2.0
+    SETTLE_TIME = 6.0
     INCREASE_INTERVAL = 5.0
     HIGH_LAG = 0.4
     LOW_LAG = 0.15
+    # Lembra o bitrate em que a conexão engasgou: sobe rápido só até perto dele e, dali para
+    # cima, sonda devagar. Sem isso o bitrate passava do limite a cada ~15 s (pico de atraso).
+    CEILING_MEMORY = 60.0
+    CEILING_MARGIN = 0.85
+    PROBE_INTERVAL = 20.0
+    PROBE_STEP = 1.05
+    SLOW_START = 0.7
+    SLOW_START_INTERVAL = 2.0
 
     def __init__(self, base: int, enabled: bool = True):
         self.base = base
-        self.current = base
+        self.current = int(round(base * self.SLOW_START, -3)) if enabled else base
+        self._slow_start = enabled
         self.minimum = max(300_000, int(round(base * 0.15, -3)))
         self.enabled = enabled
         self._last_change = float("-inf")
+        self._last_drop = float("-inf")
         self._last_lag = 0.0
+        self._ceiling = 0
+        self._ceiling_time = float("-inf")
+        self._measured_drop = False
 
-    def update(self, now: float, lag: float, dropped: bool) -> int | None:
-        """Retorna o novo bitrate se ele mudou."""
+    @property
+    def starting(self) -> bool:
+        """Ainda no início suave (qualidade subindo aos poucos, não é conexão lenta)."""
+        return self._slow_start and self.current < self.base
+
+    def update(self, now: float, lag: float, dropped: bool, throughput: float | None = None) -> int | None:
+        """Retorna o novo bitrate se ele mudou.
+
+        `throughput`: vídeo que a conexão mais lenta realmente escoou (bit/s) enquanto estava
+        congestionada; é a capacidade dela, então a queda vai direto para perto disso.
+        """
         previous_lag, self._last_lag = self._last_lag, lag
         if not self.enabled:
             return None
         elapsed = now - self._last_change
-        draining = lag < previous_lag * 0.85
-        if (dropped or (lag > self.HIGH_LAG and not draining)) and elapsed >= self.DECREASE_INTERVAL:
-            new = max(self.minimum, int(round(self.current * 0.7, -3)))
-        elif not dropped and lag < self.LOW_LAG and elapsed >= self.INCREASE_INTERVAL and self.current < self.base:
+        since_drop = now - self._last_drop
+        # Logo depois de uma queda a medida ainda reflete a fila antiga (o ping leva 1-2 s).
+        # Se a queda foi pela vazão medida, confia nela: só cai de novo se a fila estourar.
+        # Senão, só cai de novo se piorar; passado esse tempo, se não estiver esvaziando.
+        # (Logo depois de uma subida pode cair na hora: foi ela que passou do limite.)
+        if since_drop < self.SETTLE_TIME:
+            keeps_growing = not self._measured_drop and lag > previous_lag * 1.05
+        else:
+            keeps_growing = lag >= previous_lag * 0.85
+        if (dropped or (lag > self.HIGH_LAG and keeps_growing)) and since_drop >= self.DECREASE_INTERVAL:
+            self._measured_drop = bool(throughput)
+            self._last_drop = now
+            if throughput:
+                capacity = min(throughput, self.current)
+                self._ceiling = int(capacity)
+                wanted = min(max(capacity * self.CEILING_MARGIN, self.current * 0.5), self.current * 0.9)
+            else:
+                self._ceiling, wanted = self.current, self.current * 0.7
+            self._ceiling_time = now
+            self._slow_start = False
+            new = max(self.minimum, int(round(wanted, -3)))
+        elif (
+            not dropped
+            and lag < self.LOW_LAG
+            and elapsed >= (self.SLOW_START_INTERVAL if self._slow_start else self.INCREASE_INTERVAL)
+            and self.current < self.base
+        ):
             new = min(self.base, int(round(self.current * 1.15, -3)))
+            if now - self._ceiling_time < self.CEILING_MEMORY:
+                near = int(self._ceiling * self.CEILING_MARGIN)
+                if self.current < near:
+                    new = min(new, near)
+                elif elapsed >= self.PROBE_INTERVAL:
+                    new = min(self.base, int(round(self.current * self.PROBE_STEP, -3)))
+                else:
+                    return None
         else:
             return None
         if new == self.current:
@@ -112,21 +168,42 @@ class _Viewer:
         self.media = True  # quer receber vídeo/áudio deste servidor
         self.waiting_keyframe = True
         self.rtt_ms: float | None = None
+        self.rtt_floor_ms: float | None = None
+        self.playout_delay_ms: int | None = None  # suavização em uso no espectador
         # Atraso de fila na rede = latência atual - menor latência do último minuto.
         # Pega o "bufferbloat" (dados presos em buffers do sistema/VPN), que a fila do app não vê.
         self._rtt_floor = SlidingMin(60.0)
         self.network_queue_delay = 0.0
         self.stream: dict | None = None  # {port, addresses} se estiver compartilhando
-        self._queue: collections.deque[tuple[int, bytes, float]] = collections.deque()
+        # Áudio e controle passam na frente do vídeo: um keyframe grande na fila não pode
+        # atrasar o som (nem o PONG, que mede a latência).
+        self._urgent: collections.deque[tuple[int, bytes, float]] = collections.deque()
+        self._video: collections.deque[tuple[int, bytes, float]] = collections.deque()
         self._queued_bytes = 0
+        self._send_buffer = config.SEND_BUFFER_BYTES
+        self.sent_bytes = 0  # aceitos pelo sistema; congestionado, isso anda no ritmo da conexão
+        self.offered_bytes = 0  # tudo que o host quis mandar para ele
+        self._rate_mark = 0
+        self._offered_mark = 0
+        self.send_rate = 0.0  # bit/s no último segundo
+        self.offered_rate = 0.0
+        # (oferecido, recebido) dos últimos segundos: um segundo sozinho oscila demais (keyframes).
+        # O "recebido" chega no ping ~1 s depois, então é comparado com o oferecido do segundo anterior.
+        self._rates: collections.deque[tuple[float, float]] = collections.deque(maxlen=3)
+        self._previous_offered: float | None = None
+        self.receive_rate: float | None = None  # bit/s que o espectador diz ter recebido (mais exato)
         self._cond = threading.Condition()
         self._closed = False
 
     def _media_age(self, now: float) -> float:
-        for msg_type, _, queued_at in self._queue:
-            if msg_type in (protocol.VIDEO, protocol.AUDIO):
-                return now - queued_at
-        return 0.0
+        oldest = now
+        if self._video:
+            oldest = self._video[0][2]
+        for msg_type, _, queued_at in self._urgent:
+            if msg_type == protocol.AUDIO:
+                oldest = min(oldest, queued_at)
+                break
+        return now - oldest
 
     def lag(self) -> float:
         """Há quanto tempo a mídia mais antiga da fila espera para ser enviada."""
@@ -136,12 +213,55 @@ class _Viewer:
     def record_rtt(self, rtt_ms: float | None) -> None:
         self.rtt_ms = rtt_ms
         if rtt_ms is not None:
-            floor = self._rtt_floor.add(time.monotonic(), rtt_ms)
+            floor = self.rtt_floor_ms = self._rtt_floor.add(time.monotonic(), rtt_ms)
             self.network_queue_delay = max(0.0, (rtt_ms - floor) / 1000)
 
     def congestion_delay(self) -> float:
         """Quanto este espectador está atrasado por falta de banda (fila do app + fila na rede)."""
         return max(self.lag(), self.network_queue_delay)
+
+    def measure_rate(self, elapsed: float) -> None:
+        if elapsed <= 0:
+            return
+        sent, self._rate_mark = self.sent_bytes - self._rate_mark, self.sent_bytes
+        offered, self._offered_mark = self.offered_bytes - self._offered_mark, self.offered_bytes
+        self.send_rate = sent * 8 / elapsed
+        self.offered_rate = offered * 8 / elapsed
+        if self.receive_rate is not None and self._previous_offered is not None:
+            self._rates.append((self._previous_offered, self.receive_rate))
+        self._previous_offered = self.offered_rate
+
+    @property
+    def overused(self) -> bool:
+        """Recebendo bem menos do que mandamos (3 s): a fila está crescendo em algum ponto do
+        caminho, antes mesmo do atraso medido pelo ping (que chega 1-2 s depois) acusar."""
+        if len(self._rates) < self._rates.maxlen:
+            return False
+        offered = sum(o for o, _ in self._rates)
+        return offered > 900_000 and sum(r for _, r in self._rates) < offered * 0.9
+
+    def capacity(self) -> float:
+        """O que a conexão dele escoou (bit/s), na média dos últimos segundos."""
+        if self._rates:
+            return sum(r for _, r in self._rates) / len(self._rates)
+        return self.send_rate
+
+    def tune_send_buffer(self, bitrate: int) -> None:
+        """Buffer do sistema do tamanho da conexão (banda x latência + folga).
+
+        Grande demais (512 KB fixos), a 2 Mbps ele segura ~2 s de vídeo escondidos do app:
+        o atraso cresce sem a fila do app perceber nem conseguir descartar.
+        """
+        if self.rtt_floor_ms is None:
+            return
+        wanted = int((bitrate + config.AUDIO_BITRATE) / 8 * (self.rtt_floor_ms / 1000 + 0.2))
+        wanted = min(max(wanted, 64 * 1024), 1024 * 1024)
+        if abs(wanted - self._send_buffer) > self._send_buffer * 0.2:
+            try:
+                self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, wanted)
+                self._send_buffer = wanted
+            except OSError:
+                pass
 
     def send(self, msg_type: int, data: bytes) -> None:
         now = time.monotonic()
@@ -152,15 +272,16 @@ class _Viewer:
             if lagging or self._queued_bytes + len(data) > MAX_QUEUE_BYTES:
                 # Conexão não está dando conta: joga fora a mídia atrasada e recomeça
                 # do próximo keyframe, em vez de deixar o atraso crescer sem fim.
-                kept = [item for item in self._queue if item[0] not in (protocol.VIDEO, protocol.AUDIO)]
-                self._queue = collections.deque(kept)
-                self._queued_bytes = sum(len(item[1]) for item in kept)
+                self._video.clear()
+                self._urgent = collections.deque(item for item in self._urgent if item[0] != protocol.AUDIO)
+                self._queued_bytes = sum(len(item[1]) for item in self._urgent)
                 self.waiting_keyframe = True
                 self.host.report_congestion()
                 if msg_type == protocol.VIDEO:
                     return
-            self._queue.append((msg_type, data, now))
+            (self._video if msg_type == protocol.VIDEO else self._urgent).append((msg_type, data, now))
             self._queued_bytes += len(data)
+            self.offered_bytes += len(data)
             self._cond.notify()
 
     def send_video(self, message: bytes, keyframe: bool) -> None:
@@ -184,7 +305,7 @@ class _Viewer:
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             with self._cond:
-                if not self._queue or self._closed:
+                if not (self._urgent or self._video) or self._closed:
                     return
             time.sleep(0.02)
 
@@ -192,13 +313,14 @@ class _Viewer:
         try:
             while True:
                 with self._cond:
-                    while not self._queue and not self._closed:
+                    while not (self._urgent or self._video) and not self._closed:
                         self._cond.wait()
                     if self._closed:
                         return
-                    _, data, _ = self._queue.popleft()
+                    _, data, _ = (self._urgent or self._video).popleft()
                     self._queued_bytes -= len(data)
                 self.sock.sendall(data)
+                self.sent_bytes += len(data)
         except OSError as exc:
             if not self._closed:
                 log.info("envio para %s (%s) falhou: %s", self.name, self.address, exc)
@@ -210,7 +332,13 @@ class _Viewer:
         return self._closed
 
     def describe(self) -> dict:
-        return {"id": self.viewer_id, "name": self.name, "rtt": self.rtt_ms, "sharing": self.stream is not None}
+        return {
+            "id": self.viewer_id,
+            "name": self.name,
+            "rtt": self.rtt_ms,
+            "delay": self.playout_delay_ms,
+            "sharing": self.stream is not None,
+        }
 
 
 class StreamHost:
@@ -236,7 +364,6 @@ class StreamHost:
         self._stop = threading.Event()
         self._force_keyframe = threading.Event()
         self._congestion = threading.Event()
-        self._last_congestion_keyframe = 0.0
         self._server: socket.socket | None = None
         self._announcer: Announcer | None = None
         self._audio: AudioCaptureGroup | None = None
@@ -345,12 +472,8 @@ class StreamHost:
         self._force_keyframe.set()
 
     def report_congestion(self) -> None:
-        # Um espectador lento não pode forçar keyframes (caros) para todos o tempo todo.
+        # O keyframe para quem teve vídeo descartado sai pelo loop de vídeo (_needs_keyframe).
         self._congestion.set()
-        now = time.monotonic()
-        if now - self._last_congestion_keyframe >= 2.0:
-            self._last_congestion_keyframe = now
-            self._force_keyframe.set()
 
     def _broadcast(self, msg_type: int, data: bytes, media_only: bool = False) -> None:
         for viewer in self._authed():
@@ -478,6 +601,10 @@ class StreamHost:
                     ping = protocol.decode_json(payload)
                     rtt = ping.get("rtt")
                     viewer.record_rtt(float(rtt) if isinstance(rtt, (int, float)) else None)
+                    delay = ping.get("delay")
+                    viewer.playout_delay_ms = int(delay) if isinstance(delay, (int, float)) else None
+                    received = ping.get("rx")
+                    viewer.receive_rate = float(received) if isinstance(received, (int, float)) else None
                     viewer.send(protocol.PONG, protocol.encode_json(protocol.PONG, {"t": ping.get("t")}))
                 elif msg_type == protocol.KEYFRAME_REQUEST:
                     viewer.waiting_keyframe = True
@@ -583,9 +710,11 @@ class StreamHost:
 
         encoder = VideoEncoder(s.max_height, s.fps, s.bitrate, s.encoder)
         controller = BitrateController(s.bitrate, s.adaptive)
+        encoder.set_bitrate(controller.current)
         capturer = None
         interval = 1.0 / s.fps
         last_frame = None
+        last_keyframe = float("-inf")
         frames = sent_bytes = grabs = 0
         grab_seconds = 0.0
         stats_time = time.monotonic()
@@ -594,22 +723,46 @@ class StreamHost:
             capturer = self._capturer_factory(s.source)
             while not stop.is_set():
                 next_tick += interval
+                viewers = [v for v in self._authed() if v.media]
+                if not viewers:
+                    # Ninguém assistindo: não captura nem codifica (CPU/GPU livres). Quem entrar
+                    # pede um keyframe e tudo volta no próximo quadro.
+                    now = time.monotonic()
+                    if now - stats_time >= 1.0:
+                        self.on_stats(
+                            {
+                                "idle": True,
+                                "fps": 0.0,
+                                "kbps": 0.0,
+                                "target_kbps": controller.current // 1000,
+                                "base_kbps": controller.base // 1000,
+                                "audio_errors": self._audio.errors() if self._audio else [],
+                            }
+                        )
+                        stats_time = now
+                    next_tick = time.perf_counter()
+                    stop.wait(interval)
+                    continue
                 grab_start = time.perf_counter()
                 frame = capturer.grab()
                 grab_seconds += time.perf_counter() - grab_start
                 grabs += 1
+                # Quem teve o vídeo descartado (conexão lenta) espera um keyframe: sai em até 2 s,
+                # sem deixar um espectador lento forçar keyframes (caros) para todos o tempo todo.
+                recovering = any(v.waiting_keyframe for v in viewers) and time.monotonic() - last_keyframe >= 2.0
+                force = self._force_keyframe.is_set() or recovering
                 if frame is None:
-                    # Janela minimizada: só reenvia o último quadro se alguém pediu keyframe.
-                    frame = last_frame if self._force_keyframe.is_set() else None
+                    # Janela minimizada: só reenvia o último quadro se alguém precisa de keyframe.
+                    frame = last_frame if force else None
                 if frame is not None:
                     last_frame = frame
-                    force = self._force_keyframe.is_set()
                     self._force_keyframe.clear()
                     timestamp_ms = int(time.monotonic() * 1000)
                     packets = encoder.encode(frame, force_keyframe=force)
                     self.encoder_name = encoder.codec_name
-                    viewers = [v for v in self._authed() if v.media]
                     for packet, keyframe in packets:
+                        if keyframe:
+                            last_keyframe = time.monotonic()
                         message = protocol.encode_video(packet, keyframe, timestamp_ms)
                         sent_bytes += len(packet)
                         for viewer in viewers:
@@ -618,24 +771,33 @@ class StreamHost:
 
                 now = time.monotonic()
                 if now - stats_time >= 1.0:
-                    viewers = [v for v in self._authed() if v.media]
+                    elapsed = now - stats_time
+                    for viewer in viewers:
+                        viewer.measure_rate(elapsed)
+                        viewer.tune_send_buffer(controller.current)
                     lag = max((v.congestion_delay() for v in viewers), default=0.0)
-                    dropped = self._congestion.is_set()
+                    # Vídeo que os espectadores congestionados conseguiram escoar (tirando o áudio).
+                    congested = [
+                        v.capacity() for v in viewers if v.overused or v.congestion_delay() > BitrateController.LOW_LAG
+                    ]
+                    throughput = max(0.0, min(congested) - config.AUDIO_BITRATE * 1.2) if congested else None
+                    dropped = self._congestion.is_set() or any(v.overused for v in viewers)
                     self._congestion.clear()
-                    new_bitrate = controller.update(now, lag, dropped)
+                    size = encoder.size  # antes de uma troca de bitrate fechar o codificador
+                    new_bitrate = controller.update(now, lag, dropped, throughput or None)
                     if new_bitrate is not None:
                         log.info("bitrate ajustado para %d kbps (atraso %.2fs)", new_bitrate // 1000, lag)
                         encoder.set_bitrate(new_bitrate)
-                    elapsed = now - stats_time
                     self.on_stats(
                         {
                             "fps": frames / elapsed,
                             "kbps": sent_bytes * 8 / 1000 / elapsed,
                             "target_kbps": controller.current // 1000,
                             "base_kbps": controller.base // 1000,
+                            "starting": controller.starting,
                             "lag": lag,
                             "encoder": encoder.codec_name,
-                            "size": encoder.size,
+                            "size": size,
                             "capture": getattr(capturer, "backend", None),
                             "capture_ms": grab_seconds * 1000 / grabs if grabs else 0.0,
                             "audio_errors": self._audio.errors() if self._audio else [],

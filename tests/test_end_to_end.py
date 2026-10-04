@@ -1,4 +1,5 @@
 import socket
+import threading
 import time
 
 import numpy as np
@@ -185,13 +186,37 @@ def test_slow_viewer_queue_is_trimmed_by_age(monkeypatch):
     time.sleep(0.1)
     viewer.send_video(protocol.encode_video(b"p" * 100, False, 2), keyframe=False)
     assert fake.congestion == 1
-    assert [item[0] for item in viewer._queue] == [protocol.CHAT]  # chat preservado, vídeo velho fora
+    assert [item[0] for item in viewer._urgent] == [protocol.CHAT] and not viewer._video  # chat fica, vídeo velho sai
     assert viewer.waiting_keyframe
     viewer.send_video(protocol.encode_video(b"p", False, 3), keyframe=False)
-    assert len(viewer._queue) == 1  # P-frame ignorado até o próximo keyframe
+    assert not viewer._video  # P-frame ignorado até o próximo keyframe
     viewer.send_video(protocol.encode_video(b"k", True, 4), keyframe=True)
-    assert [item[0] for item in viewer._queue] == [protocol.CHAT, protocol.VIDEO]
+    assert [item[0] for item in viewer._video] == [protocol.VIDEO]
     a.close()
+    b.close()
+
+
+def test_audio_and_control_skip_ahead_of_queued_video():
+    """Um keyframe grande na fila não atrasa o som nem o PONG (que mede a latência)."""
+    from streamazap.host import _Viewer
+
+    class FakeHost:
+        def report_congestion(self):
+            pass
+
+        def _drop_viewer(self, viewer):
+            pass
+
+    a, b = socket.socketpair()
+    viewer = _Viewer(FakeHost(), a, "x")
+    viewer.send_video(protocol.encode_video(b"k" * 50_000, True, 0), keyframe=True)
+    viewer.send(protocol.AUDIO, protocol.encode_audio(b"som", 1))
+    viewer.send(protocol.PONG, protocol.encode_json(protocol.PONG, {"t": 1}))
+    threading.Thread(target=viewer.sender_loop, daemon=True).start()
+    b.settimeout(5)
+    order = [protocol.recv_message(b)[0] for _ in range(3)]
+    assert order == [protocol.AUDIO, protocol.PONG, protocol.VIDEO]
+    viewer.close()
     b.close()
 
 
@@ -277,3 +302,58 @@ def test_reverse_connection_to_participant_via_room(host):
         bia_room.stop()
         ana.stop()
         share.stop()
+
+
+def test_host_does_not_capture_without_viewers():
+    """Sala aberta sem ninguém assistindo não gasta CPU/GPU capturando e codificando."""
+    grabs = []
+
+    class CountingCapturer(FakeCapturer):
+        def grab(self):
+            grabs.append(time.monotonic())
+            return super().grab()
+
+    settings = HostSettings(
+        room_name="Teste", host_name="Host", source=VideoSource("monitor", 1, "fake"), max_height=0, fps=30,
+        bitrate=500_000, encoder="libx264", port=48960, announce=False,
+    )
+    host = StreamHost(settings, capturer_factory=CountingCapturer)
+    host.start()
+    try:
+        time.sleep(0.5)
+        assert grabs == []
+        frames = []
+        viewer = StreamViewer(["127.0.0.1"], host.port, "Bia", "", delay_ms=0, on_frame=frames.append)
+        viewer.connect()
+        viewer.start()
+        assert wait_for(lambda: frames)  # quem entra recebe vídeo (começa com keyframe)
+        viewer.stop()
+    finally:
+        host.stop()
+
+
+def test_saturation_detection_ignores_ramp_up():
+    """O "recebido" chega no ping ~1 s depois: subindo o bitrate não pode parecer saturação."""
+    from streamazap.host import _Viewer
+
+    class FakeHost:
+        def report_congestion(self):
+            pass
+
+    a, b = socket.socketpair()
+    viewer = _Viewer(FakeHost(), a, "x")
+
+    def second(offered, received):
+        viewer.offered_bytes += int(offered / 8)
+        viewer.receive_rate = received
+        viewer.measure_rate(1.0)
+
+    for offered, received in [(2.0e6, None), (2.3e6, 2.0e6), (2.6e6, 2.3e6), (2.6e6, 2.6e6)]:
+        second(offered, received)
+    assert not viewer.overused
+    for _ in range(3):  # a conexão não passa de 2 Mbps
+        second(2.6e6, 2.0e6)
+    assert viewer.overused
+    assert abs(viewer.capacity() - 2.0e6) < 1
+    a.close()
+    b.close()
