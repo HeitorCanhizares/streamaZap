@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>Prévia de transmissão</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style></style>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 100%; aspect-ratio: 16 / 9; position: relative; overflow: hidden; background: #0A100E; font-family: 'Space Grotesk', system-ui, sans-serif; color: #E6F4EC">
+<sc-if value="{{ isGame }}" hint-placeholder-val="{{ true }}">
+<svg sc-camel-view-box="0 0 160 90" sc-camel-preserve-aspect-ratio="xMidYMid slice" style="display: block; width: 100%; height: 100%" aria-hidden="true">
+<rect width="160" height="90" fill="#1B2A3A"></rect>
+<polygon points="0,60 26,38 44,50 70,24 98,48 120,32 160,56 160,90 0,90" fill="#243B4C"></polygon>
+<polygon points="0,72 40,56 80,68 120,54 160,70 160,90 0,90" fill="#2F4A3E"></polygon>
+<rect x="18" y="52" width="14" height="22" fill="#20332C"></rect>
+<rect x="128" y="48" width="18" height="26" fill="#20332C"></rect>
+<rect x="0" y="80" width="160" height="10" fill="#1A2B24"></rect>
+<polygon points="108,90 120,70 138,64 152,70 148,90" fill="#0E1820"></polygon>
+<g stroke="#E6F4EC" stroke-width="0.8" stroke-linecap="round">
+<line x1="80" y1="40" x2="80" y2="43"></line>
+<line x1="80" y1="49" x2="80" y2="52"></line>
+<line x1="74" y1="46" x2="77" y2="46"></line>
+<line x1="83" y1="46" x2="86" y2="46"></line>
+</g>
+<rect x="6" y="80" width="32" height="3" rx="1.5" fill="#0A100E" opacity="0.6"></rect>
+<rect x="6" y="80" width="23" height="3" rx="1.5" fill="#3BF08A"></rect>
+<circle cx="148" cy="12" r="8" fill="#0A100E" opacity="0.55" stroke="#5CD6FF" stroke-width="0.6"></circle>
+<circle cx="148" cy="12" r="1.3" fill="#3BF08A"></circle>
+<circle cx="151" cy="9" r="0.9" fill="#FF5D6E"></circle>
+<text x="104" y="84" font-size="6" fill="#E6F4EC" font-family="JetBrains Mono, monospace">24/90</text>
+</svg>
+</sc-if>
+<sc-if value="{{ isRace }}" hint-placeholder-val="{{ false }}">
+<svg sc-camel-view-box="0 0 160 90" sc-camel-preserve-aspect-ratio="xMidYMid slice" style="display: block; width: 100%; height: 100%" aria-hidden="true">
+<rect width="160" height="90" fill="#2A2140"></rect>
+<circle cx="120" cy="30" r="12" fill="#FF9E5C"></circle>
+<polygon points="0,50 30,36 60,46 96,32 130,44 160,38 160,90 0,90" fill="#3A2B52"></polygon>
+<rect x="0" y="48" width="160" height="42" fill="#1D2A22"></rect>
+<polygon points="66,48 94,48 152,90 8,90" fill="#2B2F36"></polygon>
+<polygon points="66,48 70,48 18,90 8,90" fill="#FF5D6E" opacity="0.7"></polygon>
+<polygon points="90,48 94,48 152,90 142,90" fill="#FF5D6E" opacity="0.7"></polygon>
+<g fill="#E6F4EC">
+<rect x="79.4" y="51" width="1.2" height="4"></rect>
+<rect x="79.2" y="60" width="1.6" height="6"></rect>
+<rect x="79" y="72" width="2" height="9"></rect>
+</g>
+<rect x="64" y="64" width="32" height="14" rx="3" fill="#5CD6FF"></rect>
+<rect x="68" y="66" width="24" height="4" rx="1" fill="#0A100E" opacity="0.6"></rect>
+<rect x="66" y="76" width="6" height="4" rx="1" fill="#0E1820"></rect>
+<rect x="88" y="76" width="6" height="4" rx="1" fill="#0E1820"></rect>
+<text x="152" y="82" text-anchor="end" font-size="11" font-weight="600" fill="#E6F4EC" font-family="JetBrains Mono, monospace">212</text>
+<text x="152" y="87" text-anchor="end" font-size="4" fill="#A3BDB1" font-family="JetBrains Mono, monospace">KM/H</text>
+</svg>
+</sc-if>
+<sc-if value="{{ isMovie }}" hint-placeholder-val="{{ false }}">
+<svg sc-camel-view-box="0 0 160 90" sc-camel-preserve-aspect-ratio="xMidYMid slice" style="display: block; width: 100%; height: 100%" aria-hidden="true">
+<rect width="160" height="90" fill="#10233A"></rect>
+<circle cx="42" cy="30" r="9" fill="#F2E86D" opacity="0.9"></circle>
+<g fill="#0B1828">
+<rect x="0" y="52" width="18" height="26"></rect>
+<rect x="20" y="44" width="12" height="34"></rect>
+<rect x="34" y="56" width="20" height="22"></rect>
+<rect x="58" y="38" width="10" height="40"></rect>
+<rect x="70" y="50" width="24" height="28"></rect>
+<rect x="98" y="42" width="14" height="36"></rect>
+<rect x="114" y="54" width="20" height="24"></rect>
+<rect x="138" y="46" width="22" height="32"></rect>
+</g>
+<g fill="#F2E86D" opacity="0.55">
+<rect x="23" y="48" width="2" height="2"></rect>
+<rect x="61" y="44" width="2" height="2"></rect>
+<rect x="61" y="52" width="2" height="2"></rect>
+<rect x="102" y="48" width="2" height="2"></rect>
+<rect x="142" y="52" width="2" height="2"></rect>
+</g>
+<rect x="0" y="0" width="160" height="11" fill="#000000"></rect>
+<rect x="0" y="78" width="160" height="12" fill="#000000"></rect>
+<text x="80" y="74" text-anchor="middle" font-size="5" fill="#FFFFFF" font-family="Space Grotesk, sans-serif">— Você viu aquilo lá em cima?</text>
+</svg>
+</sc-if>
+<sc-if value="{{ isCode }}" hint-placeholder-val="{{ false }}">
+<svg sc-camel-view-box="0 0 160 90" sc-camel-preserve-aspect-ratio="xMidYMid slice" style="display: block; width: 100%; height: 100%" aria-hidden="true">
+<rect width="160" height="90" fill="#0F1621"></rect>
+<rect x="0" y="0" width="26" height="90" fill="#0B111A"></rect>
+<rect x="26" y="0" width="134" height="9" fill="#0B111A"></rect>
+<rect x="28" y="2" width="26" height="7" fill="#0F1621"></rect>
+<g>
+<rect x="5" y="14" width="14" height="2" rx="1" fill="#2A443C"></rect>
+<rect x="5" y="20" width="10" height="2" rx="1" fill="#2A443C"></rect>
+<rect x="5" y="26" width="16" height="2" rx="1" fill="#3BF08A" opacity="0.7"></rect>
+<rect x="5" y="32" width="12" height="2" rx="1" fill="#2A443C"></rect>
+</g>
+<g>
+<rect x="34" y="16" width="20" height="2.4" rx="1" fill="#B79CFF"></rect><rect x="57" y="16" width="30" height="2.4" rx="1" fill="#5CD6FF"></rect>
+<rect x="40" y="23" width="14" height="2.4" rx="1" fill="#FFB547"></rect><rect x="57" y="23" width="44" height="2.4" rx="1" fill="#A3BDB1"></rect>
+<rect x="40" y="30" width="26" height="2.4" rx="1" fill="#3BF08A"></rect><rect x="69" y="30" width="18" height="2.4" rx="1" fill="#FF8FB1"></rect>
+<rect x="46" y="37" width="38" height="2.4" rx="1" fill="#A3BDB1"></rect>
+<rect x="46" y="44" width="22" height="2.4" rx="1" fill="#5CD6FF"></rect><rect x="71" y="44" width="34" height="2.4" rx="1" fill="#FFB547"></rect>
+<rect x="40" y="51" width="16" height="2.4" rx="1" fill="#B79CFF"></rect>
+<rect x="34" y="58" width="28" height="2.4" rx="1" fill="#5CD6FF"></rect><rect x="65" y="58" width="12" height="2.4" rx="1" fill="#A3BDB1"></rect>
+<rect x="40" y="65" width="48" height="2.4" rx="1" fill="#3BF08A"></rect>
+</g>
+<rect x="26" y="74" width="134" height="16" fill="#0B111A"></rect>
+<text x="30" y="84" font-size="4.4" fill="#3BF08A" font-family="JetBrains Mono, monospace">$ python main.py</text>
+<rect x="72" y="80.6" width="3" height="4.4" fill="#3BF08A"></rect>
+</svg>
+</sc-if>
+<sc-if value="{{ isDesktop }}" hint-placeholder-val="{{ false }}">
+<svg sc-camel-view-box="0 0 160 90" sc-camel-preserve-aspect-ratio="xMidYMid slice" style="display: block; width: 100%; height: 100%" aria-hidden="true">
+<rect width="160" height="90" fill="#14324A"></rect>
+<circle cx="128" cy="24" r="22" fill="#18405C"></circle>
+<rect x="14" y="12" width="78" height="52" rx="3" fill="#E6F4EC"></rect>
+<rect x="14" y="12" width="78" height="7" rx="3" fill="#C9DAD1"></rect>
+<rect x="20" y="25" width="40" height="3" rx="1" fill="#7E978B"></rect>
+<rect x="20" y="32" width="64" height="20" rx="2" fill="#2F4A3E"></rect>
+<circle cx="34" cy="42" r="5" fill="#3BF08A"></circle>
+<rect x="44" y="39" width="30" height="2.4" rx="1" fill="#A3BDB1"></rect>
+<rect x="44" y="44" width="20" height="2.4" rx="1" fill="#A3BDB1"></rect>
+<rect x="100" y="40" width="48" height="32" rx="3" fill="#0F1916"></rect>
+<rect x="100" y="40" width="48" height="6" rx="3" fill="#1F332D"></rect>
+<rect x="105" y="51" width="26" height="2.4" rx="1" fill="#3BF08A"></rect>
+<rect x="105" y="57" width="36" height="2.4" rx="1" fill="#5CD6FF"></rect>
+<rect x="0" y="82" width="160" height="8" fill="#0A100E" opacity="0.85"></rect>
+<rect x="74" y="84" width="4" height="4" rx="1" fill="#3BF08A"></rect>
+<rect x="80" y="84" width="4" height="4" rx="1" fill="#5CD6FF"></rect>
+<rect x="86" y="84" width="4" height="4" rx="1" fill="#FFB547"></rect>
+</svg>
+</sc-if>
+<sc-if value="{{ isCam }}" hint-placeholder-val="{{ false }}">
+<svg sc-camel-view-box="0 0 160 90" sc-camel-preserve-aspect-ratio="xMidYMid slice" style="display: block; width: 100%; height: 100%" aria-hidden="true">
+<rect width="160" height="90" fill="{{ camBg }}"></rect>
+<rect x="0" y="22" width="160" height="2" fill="{{ camFig }}" opacity="0.5"></rect>
+<rect x="18" y="10" width="10" height="12" fill="{{ camFig }}" opacity="0.6"></rect>
+<rect x="30" y="14" width="6" height="8" fill="{{ camFig }}" opacity="0.45"></rect>
+<circle cx="136" cy="18" r="6" fill="{{ camLamp }}" opacity="0.8"></circle>
+<rect x="135" y="24" width="2" height="20" fill="{{ camFig }}" opacity="0.6"></rect>
+<circle cx="80" cy="40" r="15" fill="{{ camFig }}"></circle>
+<path d="M46 90c0-21 15-34 34-34s34 13 34 34z" fill="{{ camFig }}"></path>
+</svg>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;scene&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;game&quot;,&quot;race&quot;,&quot;movie&quot;,&quot;code&quot;,&quot;desktop&quot;,&quot;cama&quot;,&quot;camb&quot;,&quot;camc&quot;,&quot;camd&quot;],&quot;default&quot;:&quot;game&quot;},&quot;$preview&quot;:{&quot;width&quot;:320,&quot;height&quot;:180}}">
+class Component extends DCLogic {
+  renderVals() {
+    const scene = this.props.scene ?? 'game';
+    const cams = {
+      cama: ['#1E3A2E', '#3B6B55', '#3BF08A'],
+      camb: ['#3A2A1E', '#6B4F36', '#FFB547'],
+      camc: ['#1E2C3F', '#3E5878', '#5CD6FF'],
+      camd: ['#2E2340', '#57457A', '#FF8FB1']
+    };
+    const cam = cams[scene] || cams.cama;
+    return {
+      isGame: scene === 'game',
+      isRace: scene === 'race',
+      isMovie: scene === 'movie',
+      isCode: scene === 'code',
+      isDesktop: scene === 'desktop',
+      isCam: !!cams[scene],
+      camBg: cam[0],
+      camFig: cam[1],
+      camLamp: cam[2]
+    };
+  }
+}
+</script>
+
+
+</body></html>

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>streamaZap — Configurações</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style></style>
+<style>
+body{margin:0;background:#0A100E}
+a{color:#3BF08A}a:hover{color:#7CF7B0}
+.zp *{box-sizing:border-box}
+.zp button,.zp select{font:inherit;color:inherit;cursor:pointer}
+.zp input{font:inherit}
+.zp input::placeholder{color:#7E978B}
+.zp button:focus-visible,.zp a:focus-visible,.zp input:focus-visible,.zp select:focus-visible{outline:2px solid #3BF08A;outline-offset:2px}
+.zp-rail:hover{background:#15241F;color:#E6F4EC}
+.zp-dots{background-image:radial-gradient(rgba(59,240,138,.07) 1px,transparent 1.6px);background-size:18px 18px}
+.zp-ghost:hover{background:#1A2C27;color:#E6F4EC}
+.zp-cta:hover{background:#6CF5A8;color:#03140A}
+.zp-win:hover{background:#1A2C27}
+.zp-close:hover{background:#FF5D6E;color:#0A100E}
+.zp-range{accent-color:#3BF08A}
+.zp-range:disabled{opacity:.35}
+.zp kbd{font-family:'JetBrains Mono',monospace;font-size:12px;min-width:34px;height:30px;padding:0 9px;border-radius:8px;background:#0A100E;border:1px solid #2A443C;border-bottom-width:3px;display:inline-flex;align-items:center;justify-content:center;color:#E6F4EC}
+</style>
+</helmet>
+<div class="zp" style="width: 100%; min-height: 900px; display: flex; flex-direction: column; background: #0A100E; color: #E6F4EC; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 14px">
+
+<header style="height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 14px; padding: 0 0 0 14px; border-bottom: 1px solid #1F332D; background: #0C1412">
+<img src="icone.png" alt="" style="width: 24px; height: 24px; border-radius: 7px; display: block; margin-right: -4px">
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.02em">streama<span style="color: #3BF08A">Zap</span></span>
+<span style="font-size: 13px; color: #7E978B">Configurações</span>
+<span style="flex: 1"></span>
+<span style="display: flex; align-items: center; gap: 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3BDB1">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3BF08A; box-shadow: 0 0 8px #3BF08A"></span>Servidor online · 42 ms</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #5CD6FF"></span>Radmin · 26.12.34.56</span>
+</span>
+<span style="display: flex; margin-left: 12px">
+<button class="zp-win" aria-label="Minimizar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"></path></svg></button>
+<button class="zp-win" aria-label="Maximizar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg></button>
+<button class="zp-close" aria-label="Fechar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</span>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Navegação principal" style="flex: 0 0 76px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0 16px; background: #0C1412; border-right: 1px solid #1F332D">
+<img src="icone.png" alt="streamaZap" style="width: 52px; height: 52px; border-radius: 15px; display: block; margin-bottom: 10px; box-shadow: 0 0 0 1px #2A443C, 0 0 20px rgba(59,240,138,0.35)">
+<a href="Main.dc.html" class="zp-rail" aria-label="Salas" title="Salas" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"></path></svg></a>
+<a href="Create.dc.html" class="zp-rail" aria-label="Criar sala" title="Criar sala" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></a>
+<a href="Diagnostics.dc.html" class="zp-rail" aria-label="Diagnóstico de rede" title="Diagnóstico" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg></a>
+<span aria-current="page" title="Configurações" style="width: 48px; height: 48px; border-radius: 14px; background: rgba(59,240,138,0.13); color: #3BF08A; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" role="img" aria-label="Configurações"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="17" r="2"></circle></svg></span>
+<span style="flex: 1"></span>
+<button aria-label="Seu perfil: Heitor" title="Heitor" style="width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(59,240,138,0.16); color: #3BF08A; font-weight: 700; font-size: 15px; box-shadow: 0 0 0 2px #0C1412, 0 0 0 3px #2A443C">H</button>
+</nav>
+
+<main class="zp-dots" style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 20px; padding: 28px 32px 36px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #3BF08A">Ajustes</span>
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 32px; letter-spacing: -0.02em">Configurações</h1>
+</div>
+<span style="flex: 1"></span>
+<span style="height: 32px; padding: 0 12px; border-radius: 999px; background: rgba(59,240,138,0.1); color: #9FE8C0; font-size: 12.5px; display: flex; align-items: center; gap: 8px"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="#3BF08A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg>Tudo salva sozinho</span>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
+
+<section aria-labelledby="h-perfil" style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 22px; border-radius: 18px; background: #0F1916; border: 1px solid #1F332D">
+<h2 id="h-perfil" style="margin: 0; font-size: 16px; font-weight: 700">Perfil</h2>
+<div style="display: flex; align-items: center; gap: 16px">
+<span style="{{ avatarStyle }}">{{ initial }}</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<label for="apelido" style="font-size: 12.5px; color: #A3BDB1">Seu nome na sala</label>
+<input id="apelido" value="{{ nick }}" sc-camel-on-change="{{ onNick }}" style="height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid #2A443C; background: #0A100E; color: #E6F4EC; font-size: 15px; font-weight: 600">
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span id="cor-label" style="font-size: 12.5px; color: #A3BDB1">Cor do seu nome no chat</span>
+<div role="radiogroup" aria-labelledby="cor-label" style="display: flex; flex-wrap: wrap; gap: 10px">
+<sc-for list="{{ colors }}" as="c" hint-placeholder-count="6">
+<button role="radio" aria-checked="{{ c.on }}" aria-label="{{ c.label }}" title="{{ c.label }}" sc-camel-on-click="{{ c.pick }}" style="{{ c.style }}"></button>
+</sc-for>
+</div>
+</div>
+<div class="zp-dots" style="display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: 14px; background-color: #0C1513; border: 1px solid #1F332D">
+<span style="font-size: 11px; color: #7E978B; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.1em">PRÉVIA</span>
+<div style="align-self: flex-start; display: flex; flex-direction: column; gap: 2px; padding: 7px 10px 6px 12px; border-radius: 4px 16px 16px 16px; background: #16241F">
+<span style="{{ nameStyle }}">{{ nick }}</span>
+<span>bora, já tô na sala</span>
+<span style="align-self: flex-end; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #8BA498">22:14</span>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="h-sobre" style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 22px 22px; border-radius: 18px; background: #0F1916; border: 1px solid #1F332D; text-align: center">
+<h2 id="h-sobre" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Sobre e atualizações</h2>
+<img src="icone.png" alt="Logo do streamaZap" style="width: 136px; height: 136px; border-radius: 34px; display: block; box-shadow: 0 0 0 1px #2A443C, 0 0 48px rgba(59,240,138,0.4)">
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 22px">streama<span style="color: #3BF08A">Zap</span></span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3BDB1">versão 0.1.0 · protocolo 3 · licença MIT</span>
+<sc-if value="{{ upToDate }}" hint-placeholder-val="{{ true }}">
+<span style="height: 30px; padding: 0 12px; border-radius: 999px; background: rgba(59,240,138,0.12); color: #3BF08A; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px">Você está na versão mais nova</span>
+</sc-if>
+<sc-if value="{{ checking }}" hint-placeholder-val="{{ false }}">
+<span style="height: 30px; padding: 0 12px; border-radius: 999px; background: #16241F; color: #A3BDB1; font-size: 12.5px; display: flex; align-items: center">Procurando nas Releases…</span>
+</sc-if>
+<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: 100%">
+<button class="zp-ghost" sc-camel-on-click="{{ checkUpdate }}" style="height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #2A443C; background: transparent; color: #E6F4EC; font-weight: 600">Procurar atualização</button>
+<a href="https://github.com/HeitorCanhizares/streamaZap" class="zp-ghost" style="height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #2A443C; color: #E6F4EC; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l-6-6 6-6M15 6l6 6-6 6"></path></svg>Código no GitHub</a>
+</div>
+<button sc-camel-on-click="{{ tAuto }}" role="switch" aria-checked="{{ autoUpdate }}" style="width: 100%; display: flex; align-items: center; gap: 12px; margin-top: 4px; padding: 12px 14px; border-radius: 14px; border: 1px solid #1F332D; background: #0A100E; text-align: left">
+<span style="{{ swAuto.track }}"><span style="{{ swAuto.knob }}"></span></span>
+<span style="font-size: 13px; color: #A3BDB1; line-height: 1.4"><b style="color: #E6F4EC; font-weight: 600">Atualizar sozinho ao abrir</b> — baixa, confere e reabre já atualizado.</span>
+</button>
+</section>
+</div>
+
+<section aria-labelledby="h-conexao" style="display: flex; flex-direction: column; gap: 16px; padding: 22px; border-radius: 18px; background: #0F1916; border: 1px solid #1F332D">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px">
+<h2 id="h-conexao" style="margin: 0; font-size: 16px; font-weight: 700">Conexão</h2>
+<span style="flex: 1"></span>
+<span id="modo-label" style="font-size: 12.5px; color: #A3BDB1">Abrir o app em</span>
+<div role="radiogroup" aria-labelledby="modo-label" style="display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #0A100E; border: 1px solid #1F332D">
+<sc-for list="{{ modes }}" as="m" hint-placeholder-count="2">
+<button role="radio" aria-checked="{{ m.on }}" sc-camel-on-click="{{ m.pick }}" style="{{ m.style }}">{{ m.label }}</button>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 18px; border-radius: 16px; background: #0A100E; border: 1px solid #1F332D">
+<span style="display: flex; align-items: center; gap: 10px; font-weight: 700"><span style="width: 34px; height: 34px; border-radius: 10px; background: rgba(59,240,138,0.12); color: #3BF08A; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></svg></span>Online · servidor</span>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="srv" style="font-size: 12.5px; color: #A3BDB1">Endereço do servidor</label>
+<input id="srv" placeholder="ex.: zap.seudominio.com:7443" value="{{ server }}" sc-camel-on-change="{{ onServer }}" style="height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid #2A443C; background: #0F1916; color: #E6F4EC; font-family: 'JetBrains Mono', monospace; font-size: 13px">
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="chave" style="font-size: 12.5px; color: #A3BDB1">Senha do servidor</label>
+<input id="chave" type="password" placeholder="pede pro dono do servidor" value="{{ key }}" sc-camel-on-change="{{ onKey }}" style="height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid #2A443C; background: #0F1916; color: #E6F4EC; letter-spacing: 0.1em">
+<span style="font-size: 12px; color: #7E978B">Barra bots e quem não foi convidado.</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+<button class="zp-cta" sc-camel-on-click="{{ test }}" style="height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: #3BF08A; color: #03140A; font-weight: 700">Testar conexão</button>
+<span style="{{ testStyle }}">{{ testText }}</span>
+</div>
+<button sc-camel-on-click="{{ tRelay }}" role="switch" aria-checked="{{ relay }}" style="display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; text-align: left">
+<span style="{{ swRelay.track }}"><span style="{{ swRelay.knob }}"></span></span>
+<span style="font-size: 13px; color: #A3BDB1; line-height: 1.4"><b style="color: #E6F4EC; font-weight: 600">Usar o servidor como ponte</b> quando a conexão direta com alguém falhar.</span>
+</button>
+</div>
+<div style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 18px; border-radius: 16px; background: #0A100E; border: 1px solid #1F332D">
+<span style="display: flex; align-items: center; gap: 10px; font-weight: 700"><span style="width: 34px; height: 34px; border-radius: 10px; background: rgba(92,214,255,0.12); color: #5CD6FF; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"></path></svg></span>Local · Radmin e rede de casa</span>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="rede" style="font-size: 12.5px; color: #A3BDB1">Rede usada para as salas</label>
+<sc-raw-select id="rede" style="height: 44px; padding: 0 10px; border-radius: 12px; border: 1px solid #2A443C; background: #0F1916; color: #E6F4EC">
+<option>Automática (todas as redes)</option>
+<option>Radmin VPN · 26.12.34.56</option>
+<option>Ethernet · 192.168.0.12</option>
+</sc-raw-select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="porta" style="font-size: 12.5px; color: #A3BDB1">Porta da transmissão</label>
+<input id="porta" inputmode="numeric" value="{{ port }}" sc-camel-on-change="{{ onPort }}" style="height: 44px; width: 140px; padding: 0 14px; border-radius: 12px; border: 1px solid #2A443C; background: #0F1916; color: #E6F4EC; font-family: 'JetBrains Mono', monospace">
+<span style="font-size: 12px; color: #7E978B">Se estiver ocupada, o app usa a próxima livre. Descoberta de salas na 47801.</span>
+</div>
+<button sc-camel-on-click="{{ tAnnounce }}" role="switch" aria-checked="{{ announce }}" style="display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; text-align: left">
+<span style="{{ swAnnounce.track }}"><span style="{{ swAnnounce.knob }}"></span></span>
+<span style="font-size: 13px; color: #A3BDB1; line-height: 1.4"><b style="color: #E6F4EC; font-weight: 600">Anunciar minhas salas</b> para quem está na mesma rede.</span>
+</button>
+</div>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
+<section aria-labelledby="h-video" style="flex: 1 1 460px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 22px; border-radius: 18px; background: #0F1916; border: 1px solid #1F332D">
+<h2 id="h-video" style="margin: 0; font-size: 16px; font-weight: 700">Vídeo e câmera</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<label for="camsel" style="font-size: 12.5px; color: #A3BDB1">Câmera</label>
+<sc-raw-select id="camsel" style="height: 44px; padding: 0 10px; border-radius: 12px; border: 1px solid #2A443C; background: #0A100E; color: #E6F4EC">
+<option>Câmera integrada</option>
+<option>Webcam USB</option>
+</sc-raw-select>
+<button sc-camel-on-click="{{ tMirror }}" role="switch" aria-checked="{{ mirror }}" style="display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; text-align: left">
+<span style="{{ swMirror.track }}"><span style="{{ swMirror.knob }}"></span></span>
+<span style="font-size: 13px; color: #A3BDB1">Espelhar só a minha prévia</span>
+</button>
+</div>
+<div style="flex: 1 1 200px; min-width: 0; position: relative; border-radius: 14px; overflow: hidden; border: 1px solid #2A443C">
+<span style="{{ mirrorStyle }}"><dc-import name="Thumb" scene="camc" hint-size="100%,100%"></dc-import></span>
+<span style="position: absolute; left: 8px; top: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(10,16,14,0.82); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.08em">SUA CÂMERA</span>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span id="q-label" style="font-size: 12.5px; color: #A3BDB1">Qualidade padrão das suas salas</span>
+<div role="radiogroup" aria-labelledby="q-label" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{ presets }}" as="q" hint-placeholder-count="4">
+<button role="radio" aria-checked="{{ q.on }}" sc-camel-on-click="{{ q.pick }}" style="{{ q.style }}"><span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 13px">{{ q.res }}</span><span style="font-size: 11px; color: #A3BDB1">{{ q.fps }}</span></button>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 14px; background: #0A100E; border: 1px solid #1F332D">
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">Suavização</span><span style="font-size: 12px; color: #A3BDB1">Segura um pouquinho o vídeo pra não engasgar.</span></span>
+<button sc-camel-on-click="{{ tSmooth }}" role="switch" aria-checked="{{ smoothAuto }}" aria-label="Suavização automática" style="display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: #A3BDB1; font-size: 13px"><span style="{{ swSmooth.track }}"><span style="{{ swSmooth.knob }}"></span></span>Auto</button>
+</div>
+<div style="display: flex; align-items: center; gap: 12px">
+<label for="smooth" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Suavização fixa em milissegundos</label>
+<input id="smooth" class="zp-range" type="range" min="40" max="400" step="10" value="{{ smoothMs }}" sc-camel-on-change="{{ onSmooth }}" disabled="{{ smoothAuto }}" style="flex: 1">
+<span style="flex: 0 0 72px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #E6F4EC">{{ smoothText }}</span>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="h-som" style="flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 22px; border-radius: 18px; background: #0F1916; border: 1px solid #1F332D">
+<h2 id="h-som" style="margin: 0; font-size: 16px; font-weight: 700">Som e avisos</h2>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="volini" style="font-size: 12.5px; color: #A3BDB1">Volume inicial de cada transmissão</label>
+<div style="display: flex; align-items: center; gap: 12px">
+<input id="volini" class="zp-range" type="range" min="0" max="100" value="{{ startVol }}" sc-camel-on-change="{{ onStartVol }}" style="flex: 1">
+<span style="flex: 0 0 44px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 13px">{{ startVol }}%</span>
+</div>
+</div>
+<sc-for list="{{ toggles }}" as="t" hint-placeholder-count="4">
+<button sc-camel-on-click="{{ t.toggle }}" role="switch" aria-checked="{{ t.on }}" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid #1F332D; background: #0A100E; text-align: left">
+<span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">{{ t.label }}</span><span style="font-size: 12px; color: #A3BDB1">{{ t.hint }}</span></span>
+<span style="{{ t.track }}"><span style="{{ t.knob }}"></span></span>
+</button>
+</sc-for>
+<div style="display: flex; flex-direction: column; gap: 10px; margin-top: 4px">
+<h3 style="margin: 0; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #7E978B">Atalhos</h3>
+<dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 14px; align-items: center; font-size: 13px">
+<dt><kbd>F11</kbd></dt><dd style="margin: 0; color: #A3BDB1">Tela cheia (ou duplo clique no vídeo)</dd>
+<dt><kbd>Esc</kbd></dt><dd style="margin: 0; color: #A3BDB1">Sair da tela cheia</dd>
+<dt><kbd>M</kbd></dt><dd style="margin: 0; color: #A3BDB1">Silenciar a sala toda</dd>
+<dt><kbd>C</kbd></dt><dd style="margin: 0; color: #A3BDB1">Ligar ou desligar sua câmera</dd>
+</dl>
+</div>
+</section>
+</div>
+
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1640}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      nick: 'Heitor', color: '#3BF08A', mode: 'online', server: '', key: '', testState: 'idle', relay: true,
+      port: '47800', announce: true, mirror: true, preset: 0, smoothAuto: true, smoothMs: 120, startVol: 80,
+      t: { msg: true, friend: true, minimized: false, update: false }, autoUpdate: true, checking: false
+    };
+  }
+  renderVals() {
+    const st = this.state;
+    const sw = (on) => ({
+      track: 'flex: 0 0 44px; width: 44px; height: 26px; border-radius: 999px; padding: 3px; display: flex; justify-content: ' + (on ? 'flex-end' : 'flex-start') + '; background: ' + (on ? '#3BF08A' : '#2A443C'),
+      knob: 'width: 20px; height: 20px; border-radius: 50%; background: ' + (on ? '#03140A' : '#A3BDB1')
+    });
+    const COLORS = [['#3BF08A', 'Verde zap'], ['#5CD6FF', 'Ciano'], ['#FFB547', 'Âmbar'], ['#FF8FB1', 'Rosa'], ['#B79CFF', 'Lilás'], ['#FF9E5C', 'Laranja']];
+    const colors = COLORS.map(([hex, label]) => {
+      const on = st.color === hex;
+      return { label, on, pick: () => this.setState({ color: hex }),
+        style: 'width: 44px; height: 44px; border-radius: 50%; border: 0; background: ' + hex + '; box-shadow: 0 0 0 3px #0F1916' + (on ? ', 0 0 0 5px ' + hex : ', 0 0 0 4px #1F332D') };
+    });
+    const seg = (on) => 'height: 38px; padding: 0 16px; border-radius: 9px; border: 0; font-size: 13px; font-weight: 600; background: ' + (on ? '#1A3A2C' : 'transparent') + '; color: ' + (on ? '#3BF08A' : '#A3BDB1');
+    const modes = [['online', 'Online'], ['local', 'Local']].map(([id, label]) => ({ label, on: st.mode === id, style: seg(st.mode === id), pick: () => this.setState({ mode: id }) }));
+    const PRESETS = [['720p', '30 fps · Radmin'], ['720p', '60 fps'], ['1080p', '30 fps'], ['1080p', '60 fps']];
+    const presets = PRESETS.map(([res, fps], i) => {
+      const on = st.preset === i;
+      return { res, fps, on, pick: () => this.setState({ preset: i }),
+        style: 'display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; border-radius: 12px; border: 1px solid ' + (on ? '#3BF08A' : '#1F332D') + '; background: ' + (on ? 'rgba(59,240,138,0.1)' : '#0A100E') + '; color: ' + (on ? '#3BF08A' : '#E6F4EC') };
+    });
+    const TOG = [
+      ['msg', 'Som de nova mensagem', 'Aquele plim quando alguém manda algo no chat.'],
+      ['friend', 'Avisar quando um amigo abrir sala', 'Notificação do Windows com o nome da sala.'],
+      ['minimized', 'Silenciar quando minimizar', 'O som volta quando você abrir a janela de novo.']
+    ];
+    const toggles = TOG.map(([id, label, hint]) => {
+      const on = !!st.t[id];
+      const s = sw(on);
+      return { label, hint, on, track: s.track, knob: s.knob, toggle: () => this.setState({ t: { ...st.t, [id]: !on } }) };
+    });
+    const testMap = {
+      idle: ['Ainda não testado', '#7E978B'],
+      testing: ['Conectando…', '#A3BDB1'],
+      ok: ['Conectado · senha aceita · 42 ms', '#3BF08A'],
+      fail: ['Preencha o endereço e a senha', '#FF8592']
+    };
+    const tm = testMap[st.testState];
+    return {
+      nick: st.nick,
+      initial: (st.nick || '?').slice(0, 1).toUpperCase(),
+      onNick: (e) => this.setState({ nick: e.target.value }),
+      avatarStyle: 'flex: 0 0 72px; width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 28px; color: ' + st.color + '; background: ' + st.color + '24; box-shadow: 0 0 0 2px #0F1916, 0 0 0 4px ' + st.color,
+      nameStyle: 'font-size: 12.5px; font-weight: 700; color: ' + st.color,
+      colors, modes, presets, toggles,
+      server: st.server, key: st.key,
+      onServer: (e) => this.setState({ server: e.target.value, testState: 'idle' }),
+      onKey: (e) => this.setState({ key: e.target.value, testState: 'idle' }),
+      test: () => this.setState({ testState: st.server.trim() && st.key ? 'ok' : 'fail' }),
+      testText: tm[0],
+      testStyle: 'font-size: 13px; font-weight: 600; color: ' + tm[1],
+      relay: st.relay, swRelay: sw(st.relay), tRelay: () => this.setState({ relay: !st.relay }),
+      port: st.port, onPort: (e) => this.setState({ port: e.target.value.replace(/[^0-9]/g, '').slice(0, 5) }),
+      announce: st.announce, swAnnounce: sw(st.announce), tAnnounce: () => this.setState({ announce: !st.announce }),
+      mirror: st.mirror, swMirror: sw(st.mirror), tMirror: () => this.setState({ mirror: !st.mirror }),
+      mirrorStyle: 'display: block; transform: ' + (st.mirror ? 'scaleX(-1)' : 'none'),
+      smoothAuto: st.smoothAuto, swSmooth: sw(st.smoothAuto), tSmooth: () => this.setState({ smoothAuto: !st.smoothAuto }),
+      smoothMs: st.smoothMs, onSmooth: (e) => this.setState({ smoothMs: Number(e.target.value) }),
+      smoothText: st.smoothAuto ? 'auto' : st.smoothMs + ' ms',
+      startVol: st.startVol, onStartVol: (e) => this.setState({ startVol: Number(e.target.value) }),
+      autoUpdate: st.autoUpdate, swAuto: sw(st.autoUpdate), tAuto: () => this.setState({ autoUpdate: !st.autoUpdate }),
+      checking: st.checking, upToDate: !st.checking,
+      checkUpdate: () => { this.setState({ checking: true }); setTimeout(() => this.setState({ checking: false }), 1200); }
+    };
+  }
+}
+</script>
+
+
+</body></html>

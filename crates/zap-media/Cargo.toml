@@ -1,0 +1,19 @@
+[package]
+name = "zap-media"
+description = "Captura, conversão, codificação, câmera e áudio do StreamaZap (Windows) com backend sintético"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+zap-proto.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

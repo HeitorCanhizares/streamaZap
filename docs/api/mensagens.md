@@ -1,0 +1,170 @@
+# Mensagens de controle
+
+Formato único usado em dois lugares:
+- **WebSocket** do servidor (`/v1/ws`): uma mensagem por frame de texto;
+- **stream de controle QUIC** (modo Local, e também na conexão de mídia com o servidor):
+  `u32` big-endian com o tamanho + JSON UTF-8. Tamanho máximo: 64 KiB.
+
+Toda mensagem é um objeto com o campo `t` (tipo). Pedidos que esperam resposta podem levar `ref`
+(string do cliente); a resposta ou o `erro` correspondente repete o `ref`.
+
+Direção: **C→S** = app para servidor (ou para quem criou a sala, no modo Local);
+**S→C** = o contrário.
+
+## Tipos comuns
+
+```ts
+type Sala = {
+  id: string; codigo?: string /* só Online */; nome: string; dono_id: string;
+  acesso: "aberta" | "senha"; modo: "online" | "local"; criada_em: string;
+}
+type Participante = {
+  id: string; nome: string; cor: string /* "#RRGGBB" */; papel: "dono" | "membro";
+  entrou_em: string; versao_app: string; protocolo: number;
+  latencia_ms?: number;          // RTT até o servidor/dono
+  assistindo?: string | null;    // trilha_id principal que está vendo
+}
+type Camada = { camada: 0 | 1 | 2; largura: number; altura: number; fps: number; kbps: number }
+type Trilha = {
+  id: string; participante_id: string;
+  numero: number;                // u16 único na sala; é o `trilha` dos cabeçalhos binários (midia.md)
+  tipo: "tela" | "janela" | "camera" | "audio";
+  titulo: string;                // "Tela 1", "cs2.exe", "Câmera integrada"
+  camadas: Camada[];             // vídeo: 1 a 3 (camada 0 = escolhida por quem transmite); áudio: []
+  audio?: { taxa: 48000; canais: 1 | 2; kbps: number };
+  endereco?: Endereco;           // só modo Local: onde conectar para receber esta trilha
+}
+type Endereco = { enderecos: string[] /* "26.12.34.56" */; porta: number; fingerprint: string /* SHA-256 hex do certificado */ }
+```
+
+## Conexão e sessão
+
+| t | Direção | Campos | Notas |
+|---|---|---|---|
+| `ping` | ambos | `ts_ms` | Responder `pong` com o mesmo `ts_ms` |
+| `pong` | ambos | `ts_ms` | RTT = agora − `ts_ms` |
+| `erro` | S→C | `codigo`, `mensagem`, `ref?` | Códigos em [`README.md`](README.md#erros) |
+
+### Aperto de mão QUIC (primeira troca no stream de controle)
+
+| t | Direção | Campos |
+|---|---|---|
+| `ola` | C→S | `protocolo`, `versao_app`, `instalacao_id`, `nome`, `cor`, `ingresso?` (Online), `sala_id?` (Local), `previa?: bool` |
+| `desafio` | S→C | `nonce` (base64, 32 bytes), `acesso` | Só no modo Local com senha |
+| `autenticar` | C→S | `hmac` = base64(HMAC-SHA256(chave = senha UTF-8, msg = nonce)) |
+| `bem_vindo` | S→C | `participante_id`, `sala: Sala`, `relogio_us` (relógio do servidor, só diagnóstico) |
+| `recusado` | S→C | `codigo`, `mensagem` | A conexão é fechada em seguida |
+
+Tempo máximo do aperto de mão: 10 s.
+
+## Salas e participantes
+
+| t | Direção | Campos | Notas |
+|---|---|---|---|
+| `salas.lista` | S→C | `salas: [...]` (formato de `GET /v1/salas`) | Só WebSocket; ao conectar e a cada mudança (máx. 1/s) |
+| `sala.entrar` | C→S | `sala_id` | Só WebSocket, depois do `POST …/entrar` |
+| `sala.sair` | C→S | — | |
+| `sala.estado` | S→C | `sala`, `participantes: Participante[]`, `trilhas: Trilha[]` | Estado completo; depois só eventos |
+| `sala.encerrada` | S→C | `motivo`: `"dono"` \| `"vazia"` \| `"servidor"` | |
+| `participante.entrou` | S→C | `participante` | |
+| `participante.saiu` | S→C | `participante_id`, `motivo`: `"saiu"` \| `"caiu"` \| `"removido"` | `"caiu"` = 15 s sem conexão |
+| `participante.atualizou` | S→C | `participante` | Nome, cor, latência, quem está assistindo |
+| `perfil.atualizar` | C→S | `nome?`, `cor?` | |
+
+As mensagens de sistema do chat ("Ju ligou a webcam", "Marcão criou a sala") são geradas pelo
+app a partir desses eventos, não pelo servidor.
+
+## Chat
+
+| t | Direção | Campos |
+|---|---|---|
+| `chat.enviar` | C→S | `texto` (1–1000 caracteres), `cliente_id` (para confirmar o envio) |
+| `chat.mensagem` | S→C | `id`, `participante_id`, `nome`, `cor`, `texto`, `em`, `cliente_id?` (só para quem enviou) |
+| `chat.digitando` | ambos | C→S sem campos (no máx. 1 a cada 3 s); S→C `participante_id` |
+
+O servidor guarda as últimas 200 mensagens e as manda logo depois de `sala.estado`.
+
+## Trilhas (quem publica)
+
+| t | Direção | Campos | Notas |
+|---|---|---|---|
+| `trilha.publicar` | C→S | `local_id`, `tipo`, `titulo`, `camadas`, `audio?`, `endereco?` (Local) | `camadas` = escada completa que o app sabe produzir |
+| `trilha.publicada` | S→C | `trilha`, `local_id?` (só para quem publicou) | Para todos da sala |
+| `trilha.atualizar` | C→S | `trilha_id`, `titulo?`, `camadas?` | Troca de qualidade ao vivo, janela redimensionada |
+| `trilha.atualizada` | S→C | `trilha` | |
+| `trilha.remover` | C→S | `trilha_id` | |
+| `trilha.removida` | S→C | `trilha_id` | |
+| `camadas.pedidas` | S→C | `trilha_id`, `camadas: [{camada, kbps}]` | **Quais camadas codificar e com que bitrate.** Camada fora da lista = parar de codificar. Ver [`balanceamento.md`](balanceamento.md) |
+| `keyframe.pedir` | S→C | `trilha_id`, `camada` | Quem publica manda um keyframe dessa camada (máx. 1 por segundo por camada) |
+
+Regras:
+- Um participante tem no máximo uma trilha `tela` **ou** `janela`, uma `camera` e uma `audio`.
+- `camadas[0]` é a qualidade escolhida por quem transmite; o servidor **nunca** pede bitrate acima
+  do `kbps` anunciado em cada camada.
+
+## Assinaturas (quem assiste)
+
+| t | Direção | Campos | Notas |
+|---|---|---|---|
+| `assinar` | C→S | `trilha_id`, `tamanho`: `"miniatura"` \| `"principal"` \| `"cheia"`, `camada_max?` (0–2, ausente = automático), `audio?: bool` | Mandar de novo para mudar tamanho/teto |
+| `cancelar` | C→S | `trilha_id` | |
+| `midia.rota` | S→C | `trilha_id`, `rota`: `"ponte"` \| `"direta"`, `endereco?` | Onde a mídia vai chegar |
+| `camada.atual` | S→C | `trilha_id`, `camada`, `largura`, `altura`, `fps`, `motivo`: `"inicio"` \| `"banda"` \| `"teto"` \| `"tamanho"` \| `"publicador"` | Enviado quando a camada desse espectador muda |
+| `keyframe.pedir` | C→S | `trilha_id` | Perdeu referência; o servidor repassa (ou responde com o próximo keyframe que já tiver) |
+
+Tamanho → teto de camada: `miniatura` = 2, `principal` = 0, `cheia` = 0.
+
+## Rota direta (Online)
+
+| t | Direção | Campos |
+|---|---|---|
+| `p2p.meus_enderecos` | C→S | `enderecos: string[]` ("ip:porta" locais, Radmin e o público visto pelo servidor), `fingerprint` |
+| `p2p.candidatos` | S→C | `trilha_id`, `com`: participante_id, `papel`: `"cliente"` \| `"servidor"`, `enderecos`, `fingerprint` |
+| `midia.direta_ok` | C→S | `trilha_id` |
+| `midia.direta_falhou` | C→S | `trilha_id` |
+
+O app com `papel: "cliente"` (quem assiste) tenta conectar em todos os `enderecos` ao mesmo tempo
+por 3 s; o `"servidor"` (quem publica) manda um pacote QUIC para cada endereço do outro lado para
+abrir o NAT. Se nenhum responder, `midia.direta_falhou` e segue pela ponte.
+
+## Modo Local: conexão reversa
+
+| t | Direção | Campos |
+|---|---|---|
+| `conexao.reversa` | C→S | `trilha_id`, `endereco: "ip:porta"`, `token` |
+
+Quem assiste não alcança quem publica (firewall do outro lado): pede, via quem criou a sala, para
+o publicador conectar nele. A conexão QUIC aberta pelo publicador começa com `ola` contendo
+`token`, e daí em diante os papéis de mídia são os mesmos.
+
+## Estatísticas para a interface
+
+| t | Direção | Campos |
+|---|---|---|
+| `estatisticas` | C→S | a cada 2 s: `ping_ms`, `trilhas: [{trilha_id, camada, kbps, fps, suavizacao_ms, perdidos}]` |
+
+O servidor usa isso para atualizar `participante.atualizou` (latência, quem está assistindo) e
+pode guardar para métricas.
+
+## Descoberta local (UDP 47801, broadcast)
+
+Datagramas JSON (até 1200 bytes) em todas as interfaces, a cada 1,5 s; uma sala some da lista
+depois de 5 s sem anúncio.
+
+```json
+{ "app": "streamazap", "v": 4, "tipo": "sala",
+  "sala": { "id": "s_…", "nome": "Corrida em Interlagos", "acesso": "aberta" },
+  "dono": { "id": "…", "nome": "Rafa", "cor": "#5CD6FF" },
+  "endereco": { "enderecos": ["26.9.77.140"], "porta": 47800, "fingerprint": "ab12…" },
+  "participantes": 3, "destaque": { "altura": 1080, "fps": 60 }, "versao_app": "3.0.0" }
+```
+
+```json
+{ "app": "streamazap", "v": 4, "tipo": "presenca",
+  "instalacao_id": "…", "nome": "Heitor", "versao_app": "3.0.0",
+  "ouve": ["<instalacao_id de quem eu recebo>", "…"] }
+```
+
+`ouve` permite mostrar "recebe você" / "não recebe nada do seu PC" no Diagnóstico.
+Pacotes com `app` diferente ou `v` diferente de 4 são ignorados (mas `v` diferente é mostrado
+como "outra versão").

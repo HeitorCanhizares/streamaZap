@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>streamaZap — Salas</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style></style>
+<style>
+body{margin:0;background:#0A100E}
+a{color:#3BF08A}a:hover{color:#7CF7B0}
+.zp *{box-sizing:border-box}
+.zp button{font:inherit;color:inherit;cursor:pointer}
+.zp input{font:inherit}
+.zp input::placeholder{color:#7E978B}
+.zp button:focus-visible,.zp a:focus-visible,.zp input:focus-visible{outline:2px solid #3BF08A;outline-offset:2px}
+.zp-row{background:transparent;transition:background .15s}
+.zp-row:hover{background:#13211D}
+.zp-rail:hover{background:#15241F;color:#E6F4EC}
+.zp-dots{background-image:radial-gradient(rgba(59,240,138,.07) 1px,transparent 1.6px);background-size:18px 18px}
+.zp-cta:hover{background:#6CF5A8;color:#03140A}
+.zp-ghost:hover{background:#1A2C27}
+.zp-win:hover{background:#1A2C27}
+.zp-close:hover{background:#FF5D6E;color:#0A100E}
+@keyframes zpPulse{0%{transform:scale(.5);opacity:.8}100%{transform:scale(2.6);opacity:0}}
+.zp-pulse{animation:zpPulse 2s ease-out infinite}
+@keyframes zpBlink{50%{opacity:.3}}
+.zp-blink{animation:zpBlink 1.4s ease-in-out infinite}
+.zp-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</helmet>
+<div class="zp" style="width: 100%; min-height: 900px; display: flex; flex-direction: column; background: #0A100E; color: #E6F4EC; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 14px">
+
+<header style="height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 14px; padding: 0 0 0 14px; border-bottom: 1px solid #1F332D; background: #0C1412">
+<img src="icone.png" alt="" style="width: 24px; height: 24px; border-radius: 7px; display: block; margin-right: -4px">
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.02em">streama<span style="color: #3BF08A">Zap</span></span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7E978B">v0.1.0</span>
+<span style="flex: 1"></span>
+<span style="display: flex; align-items: center; gap: 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3BDB1">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3BF08A; box-shadow: 0 0 8px #3BF08A"></span>Servidor online · 42 ms</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #5CD6FF"></span>Radmin · 26.12.34.56</span>
+</span>
+<span style="display: flex; margin-left: 12px">
+<button class="zp-win" aria-label="Minimizar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"></path></svg></button>
+<button class="zp-win" aria-label="Maximizar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg></button>
+<button class="zp-close" aria-label="Fechar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</span>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap; min-height: 856px">
+
+<nav aria-label="Navegação principal" style="flex: 0 0 76px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px 0; background: #0C1412; border-right: 1px solid #1F332D">
+<img src="icone.png" alt="streamaZap" style="width: 52px; height: 52px; border-radius: 15px; display: block; margin-bottom: 10px; box-shadow: 0 0 0 1px #2A443C, 0 0 20px rgba(59,240,138,0.35)">
+<button class="zp-rail" aria-label="Salas" aria-current="page" title="Salas" style="width: 48px; height: 48px; border-radius: 14px; border: 0; background: rgba(59,240,138,0.13); color: #3BF08A; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"></path></svg></button>
+<a href="Create.dc.html" class="zp-rail" aria-label="Criar sala" title="Criar sala" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></a>
+<a href="Diagnostics.dc.html" class="zp-rail" aria-label="Diagnóstico de rede" title="Diagnóstico" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg></a>
+<a href="Settings.dc.html" class="zp-rail" aria-label="Configurações" title="Configurações" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="17" r="2"></circle></svg></a>
+<span style="flex: 1"></span>
+<button aria-label="Seu perfil: Heitor" title="Heitor" style="width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(59,240,138,0.16); color: #3BF08A; font-weight: 700; font-size: 15px; box-shadow: 0 0 0 2px #0C1412, 0 0 0 3px #2A443C">H</button>
+</nav>
+
+<section aria-label="Salas na rede" style="flex: 1 1 320px; max-width: 392px; min-width: 0; display: flex; flex-direction: column; background: #0F1916; border-right: 1px solid #1F332D">
+<div style="display: flex; align-items: center; gap: 10px; padding: 22px 20px 14px">
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: -0.01em">Salas</h1>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #3BF08A; padding: 3px 8px; border-radius: 999px; background: rgba(59,240,138,0.12)">{{ total }} salas</span>
+<span style="flex: 1"></span>
+<a href="Create.dc.html" class="zp-cta" style="height: 44px; padding: 0 16px; border-radius: 12px; background: #3BF08A; color: #03140A; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 6px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Nova sala</a>
+</div>
+
+<div role="tablist" aria-label="Onde procurar salas" style="margin: 0 20px 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px; border-radius: 14px; background: #0A100E; border: 1px solid #1F332D">
+<sc-for list="{{ modes }}" as="m" hint-placeholder-count="2">
+<button role="tab" aria-selected="{{ m.on }}" sc-camel-on-click="{{ m.pick }}" style="{{ m.style }}">
+<sc-if value="{{ m.isOnline }}" hint-placeholder-val="{{ true }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: 0 0 20px"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></svg></sc-if>
+<sc-if value="{{ m.isLocal }}" hint-placeholder-val="{{ false }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="flex: 0 0 20px"><path d="M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"></path></svg></sc-if>
+<span style="display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0"><span style="font-weight: 700; font-size: 14px">{{ m.label }}</span><span style="{{ m.subStyle }}">{{ m.sub }}</span></span>
+</button>
+</sc-for>
+</div>
+
+<div style="padding: 0 20px 12px">
+<label for="busca" class="zp-sr">Buscar sala</label>
+<div style="position: relative">
+<svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#7E978B" stroke-width="1.8" stroke-linecap="round" aria-hidden="true" style="position: absolute; left: 14px; top: 13px"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+<input id="busca" type="search" placeholder="Buscar sala ou pessoa" value="{{ query }}" sc-camel-on-change="{{ onQuery }}" style="width: 100%; height: 44px; padding: 0 14px 0 42px; border-radius: 12px; border: 1px solid #1F332D; background: #0A100E; color: #E6F4EC; font-size: 14px">
+</div>
+</div>
+
+<div role="group" aria-label="Filtrar salas" style="display: flex; gap: 8px; padding: 0 20px 14px">
+<sc-for list="{{ filters }}" as="f" hint-placeholder-count="3">
+<button sc-camel-on-click="{{ f.pick }}" aria-pressed="{{ f.on }}" style="{{ f.style }}">{{ f.label }}</button>
+</sc-for>
+</div>
+
+<div style="flex: 1; display: flex; flex-direction: column; border-top: 1px solid #18292A">
+<sc-for list="{{ rooms }}" as="r" hint-placeholder-count="5">
+<button class="zp-row" sc-camel-on-click="{{ r.pick }}" aria-pressed="{{ r.on }}" style="{{ r.rowStyle }}">
+<span style="{{ r.avStyle }}">{{ r.initials }}</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<span style="display: flex; align-items: center; gap: 6px">
+<span style="font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.name }}</span>
+<sc-if value="{{ r.locked }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="#A3BDB1" stroke-width="2" stroke-linecap="round" role="img" aria-label="com senha" style="flex: 0 0 14px"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></sc-if>
+<span style="flex: 1"></span>
+<span style="{{ r.timeStyle }}">{{ r.time }}</span>
+</span>
+<span style="display: flex; align-items: center; gap: 8px">
+<sc-if value="{{ r.typing }}" hint-placeholder-val="{{ false }}"><span style="color: #3BF08A; font-style: italic; font-size: 13px">{{ r.host }} está digitando…</span></sc-if>
+<sc-if value="{{ r.notTyping }}" hint-placeholder-val="{{ true }}"><span style="color: #A3BDB1; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ r.last }}</span></sc-if>
+<span style="flex: 1"></span>
+<sc-if value="{{ r.hasUnread }}" hint-placeholder-val="{{ false }}"><span style="min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; background: #3BF08A; color: #03140A; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{ r.unread }}</span></sc-if>
+</span>
+<span style="display: flex; align-items: center; gap: 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7E978B">
+<span style="display: flex; align-items: center; gap: 4px"><svg width="13" height="13" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>{{ r.viewers }}</span>
+<span>{{ r.quality }}</span>
+<span style="{{ r.pingStyle }}">{{ r.ping }} ms</span>
+<sc-if value="{{ r.versionWarn }}" hint-placeholder-val="{{ false }}"><span style="color: #FFB547">v{{ r.version }}</span></sc-if>
+</span>
+</span>
+</button>
+</sc-for>
+<sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+<p style="margin: 0; padding: 28px 20px; color: #A3BDB1; text-align: center">Nenhuma sala com esse nome.</p>
+</sc-if>
+<div style="display: flex; align-items: center; gap: 14px; padding: 18px 20px">
+<span style="position: relative; width: 24px; height: 24px; flex: 0 0 24px; display: flex; align-items: center; justify-content: center">
+<span class="zp-pulse" style="position: absolute; width: 12px; height: 12px; border-radius: 50%; border: 1px solid #3BF08A"></span>
+<span style="width: 6px; height: 6px; border-radius: 50%; background: #3BF08A"></span>
+</span>
+<span style="color: #7E978B; font-size: 12.5px; line-height: 1.45">{{ scanText }}</span>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid #1F332D">
+<div style="display: flex; align-items: center; gap: 10px">
+<label for="apelido" style="font-size: 12px; color: #A3BDB1; white-space: nowrap">Você aparece como</label>
+<input id="apelido" value="{{ nick }}" sc-camel-on-change="{{ onNick }}" style="flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid #1F332D; background: #0A100E; color: #E6F4EC; font-weight: 600">
+</div>
+<button class="zp-ghost" style="height: 44px; border-radius: 12px; border: 1px solid #2A443C; background: transparent; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16"></path></svg>{{ joinAlt }}</button>
+</div>
+</section>
+
+<main class="zp-dots" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 22px; padding: 28px 32px 32px">
+
+<sc-if value="{{ showFirewall }}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 12px 14px 12px 18px; border-radius: 14px; background: rgba(255,181,71,0.1); border: 1px solid rgba(255,181,71,0.35)">
+<svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="#FFB547" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 5 3 8.5 7 10 4-1.5 7-5 7-10V6z"></path><path d="M12 9v4M12 16h.01" stroke-linecap="round"></path></svg>
+<span style="flex: 1 1 300px; color: #F4E3C4">O Firewall do Windows está bloqueando quem tenta entrar nas suas salas.</span>
+<button style="height: 40px; padding: 0 16px; border-radius: 10px; border: 0; background: #FFB547; color: #1A1204; font-weight: 700">Corrigir firewall</button>
+</div>
+</sc-if>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px">
+<span style="{{ sel.avBig }}">{{ sel.initials }}</span>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #7E978B">Sala selecionada</span>
+<h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 28px; letter-spacing: -0.015em">{{ sel.name }}</h2>
+<span style="color: #A3BDB1">por <b style="color: #E6F4EC; font-weight: 600">{{ sel.host }}</b> · <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px">{{ sel.addr }}</span></span>
+</div>
+<span style="flex: 1"></span>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<span style="{{ sel.netChip }}">{{ sel.netLabel }}</span>
+<span style="height: 30px; padding: 0 12px; border-radius: 999px; background: rgba(255,93,110,0.14); color: #FF8592; font-weight: 700; font-size: 12px; letter-spacing: 0.08em; display: flex; align-items: center; gap: 7px"><span class="zp-blink" style="width: 7px; height: 7px; border-radius: 50%; background: #FF5D6E"></span>AO VIVO</span>
+<span style="height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid #2A443C; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3BDB1; display: flex; align-items: center">{{ sel.quality }}</span>
+<span style="height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid #2A443C; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3BDB1; display: flex; align-items: center">{{ sel.viewers }} assistindo</span>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start">
+<div style="flex: 1 1 480px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 18px; overflow: hidden; border: 1px solid #2A443C; background: #0C1412">
+<dc-import name="Thumb" scene="{{ sel.scene }}" hint-size="100%,100%"></dc-import>
+<span style="position: absolute; left: 12px; top: 12px; width: 20px; height: 20px; border-left: 2px solid #3BF08A; border-top: 2px solid #3BF08A"></span>
+<span style="position: absolute; right: 12px; top: 12px; width: 20px; height: 20px; border-right: 2px solid #3BF08A; border-top: 2px solid #3BF08A"></span>
+<span style="position: absolute; left: 12px; bottom: 12px; width: 20px; height: 20px; border-left: 2px solid #3BF08A; border-bottom: 2px solid #3BF08A"></span>
+<span style="position: absolute; right: 12px; bottom: 12px; width: 20px; height: 20px; border-right: 2px solid #3BF08A; border-bottom: 2px solid #3BF08A"></span>
+<span style="position: absolute; left: 22px; top: 22px; height: 26px; padding: 0 10px; border-radius: 8px; background: rgba(10,16,14,0.78); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; display: flex; align-items: center; gap: 7px"><span class="zp-blink" style="width: 6px; height: 6px; border-radius: 50%; background: #FF5D6E"></span>PRÉVIA</span>
+<span style="position: absolute; right: 22px; top: 22px; height: 26px; padding: 0 10px; border-radius: 8px; background: rgba(10,16,14,0.78); font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3BDB1; display: flex; align-items: center">{{ sel.bitrate }}</span>
+<sc-if value="{{ sel.hasCam }}" hint-placeholder-val="{{ true }}">
+<span style="position: absolute; right: 22px; bottom: 22px; width: 26%; border-radius: 12px; overflow: hidden; border: 2px solid #0A100E; box-shadow: 0 0 0 1px #3BF08A, 0 8px 24px rgba(0,0,0,0.5)">
+<dc-import name="Thumb" scene="{{ sel.camScene }}" hint-size="100%,100%"></dc-import>
+<span style="position: absolute; left: 6px; bottom: 6px; padding: 2px 7px; border-radius: 6px; background: rgba(10,16,14,0.8); font-size: 11px">cam · {{ sel.host }}</span>
+</span>
+</sc-if>
+</div>
+<span style="font-size: 12.5px; color: #7E978B">Prévia em baixa resolução, sem som. O áudio começa quando você entra.</span>
+</div>
+
+<div style="flex: 1 1 260px; max-width: 340px; display: flex; flex-direction: column; gap: 14px; padding: 22px; border-radius: 18px; background: #0F1916; border: 1px solid #1F332D">
+<sc-if value="{{ sel.locked }}" hint-placeholder-val="{{ false }}">
+<span style="display: flex; align-items: center; gap: 8px; font-weight: 600"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#FFB547" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>Sala com senha</span>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="senha" style="font-size: 12.5px; color: #A3BDB1">Senha da sala</label>
+<input id="senha" type="password" placeholder="Digite a senha" value="{{ pw }}" sc-camel-on-change="{{ onPw }}" style="height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid #2A443C; background: #0A100E; color: #E6F4EC; font-size: 15px; letter-spacing: 0.1em">
+<span style="font-size: 12px; color: #7E978B">Não sabe? Pede pro {{ sel.host }} no zap.</span>
+</div>
+</sc-if>
+<sc-if value="{{ sel.open }}" hint-placeholder-val="{{ true }}">
+<span style="display: flex; align-items: center; gap: 8px; font-weight: 600"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#3BF08A" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 7.5-2"></path></svg>Sala aberta</span>
+<span style="color: #A3BDB1; line-height: 1.5">{{ sel.openText }}</span>
+</sc-if>
+<sc-if value="{{ sel.versionWarn }}" hint-placeholder-val="{{ false }}">
+<span style="display: flex; gap: 10px; padding: 12px; border-radius: 12px; background: rgba(255,181,71,0.1); color: #F4E3C4; line-height: 1.45; font-size: 13px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="#FFB547" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 18px; margin-top: 1px"><path d="M12 3 2 21h20z"></path><path d="M12 10v5M12 18h.01" stroke-linecap="round"></path></svg>Essa sala está na versão {{ sel.version }}. Todo mundo precisa estar na mesma versão para entrar.</span>
+</sc-if>
+<sc-if value="{{ sel.canJoin }}" hint-placeholder-val="{{ true }}">
+<a href="Room.dc.html" class="zp-cta" style="height: 52px; border-radius: 14px; background: #3BF08A; color: #03140A; font-weight: 700; font-size: 16px; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 10px; box-shadow: 0 0 24px rgba(59,240,138,0.25)">Entrar na sala<svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+</sc-if>
+<sc-if value="{{ sel.versionWarn }}" hint-placeholder-val="{{ false }}">
+<button disabled="" style="height: 52px; border-radius: 14px; border: 1px solid #2A443C; background: #142320; color: #A3BDB1; font-weight: 600; cursor: not-allowed">Atualize para entrar</button>
+</sc-if>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 4px">
+<div style="display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 12px; background: #0A100E">
+<span style="font-size: 11px; color: #7E978B; letter-spacing: 0.08em; text-transform: uppercase">Ping</span>
+<span style="{{ sel.pingBig }}">{{ sel.ping }} ms</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 12px; background: #0A100E">
+<span style="font-size: 11px; color: #7E978B; letter-spacing: 0.08em; text-transform: uppercase">Suavização</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 16px; font-weight: 600">auto</span>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 22px">
+<section style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<h3 style="margin: 0; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #7E978B">Compartilhando agora · {{ sel.sharerCount }}</h3>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{ sel.sharers }}" as="s" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+<div style="position: relative; border-radius: 12px; overflow: hidden; border: 1px solid #1F332D">
+<dc-import name="Thumb" scene="{{ s.scene }}" hint-size="100%,100%"></dc-import>
+</div>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 13px; min-width: 0"><b style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{ s.name }}</b><span style="color: #7E978B">· {{ s.kind }}</span></span>
+</div>
+</sc-for>
+</div>
+</section>
+<section style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<h3 style="margin: 0; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #7E978B">Na sala · {{ sel.peopleCount }}</h3>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{ sel.people }}" as="p" hint-placeholder-count="4">
+<li style="display: flex; align-items: center; gap: 10px">
+<span style="{{ p.avStyle }}">{{ p.initials }}</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<span style="font-weight: 600">{{ p.name }}</span>
+<span style="font-size: 12px; color: #7E978B">{{ p.role }}</span>
+</span>
+<span style="{{ p.pingStyle }}">{{ p.ping }} ms</span>
+</li>
+</sc-for>
+</ul>
+</section>
+</div>
+
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;showFirewall&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false},&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: 'online', sel: 'r1', filter: 'all', query: '', pw: '', nick: 'Heitor' };
+  }
+  renderVals() {
+    const C = { 'Marcão': '#FFB547', Rafa: '#5CD6FF', Bia: '#FF8FB1', 'Léo': '#B79CFF', Dudu: '#FF9E5C', Ju: '#7CF2C0', Gabi: '#F2E86D', Nina: '#9FE870', Caio: '#FFB547' };
+    const initials = (n) => n.slice(0, 1).toUpperCase();
+    const av = (n, size, ring) => {
+      const c = C[n] || '#3BF08A';
+      return 'flex: 0 0 ' + size + 'px; width: ' + size + 'px; height: ' + size + 'px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: ' + Math.round(size * 0.4) + 'px; color: ' + c + '; background: ' + c + '24;' + (ring ? ' box-shadow: 0 0 0 2px #0F1916, 0 0 0 4px ' + c + ';' : '');
+    };
+    const pingColor = (ms) => ms < 60 ? '#3BF08A' : ms < 100 ? '#FFB547' : '#FF8592';
+    const ROOMS = [
+      { id: 'r1', name: 'Sexta do Rush', host: 'Marcão', addr: '26.14.2.88', scene: 'game', camScene: 'cama', hasCam: true, locked: false, viewers: 4, ping: 38, quality: '1080p60', bitrate: '6,2 Mbps', time: '22:14', last: 'Rafa: bora, entra logo', unread: 3,
+        sharers: [{ name: 'Marcão', kind: 'Tela', scene: 'game' }, { name: 'Ju', kind: 'Webcam', scene: 'camb' }, { name: 'Dudu', kind: 'Janela', scene: 'desktop' }],
+        people: [['Marcão', 'host · compartilhando', 12], ['Ju', 'webcam ligada', 38], ['Rafa', 'assistindo Marcão', 61], ['Dudu', 'compartilhando janela', 45]] },
+      { id: 'r2', name: 'Corrida em Interlagos', host: 'Rafa', addr: '26.9.77.140', scene: 'race', camScene: 'camc', hasCam: true, locked: true, viewers: 2, ping: 61, quality: '720p60', bitrate: '4,0 Mbps', time: '21:58', last: '', typing: true, unread: 0,
+        sharers: [{ name: 'Rafa', kind: 'Tela', scene: 'race' }, { name: 'Rafa', kind: 'Webcam', scene: 'camc' }],
+        people: [['Rafa', 'host · compartilhando', 9], ['Gabi', 'assistindo Rafa', 74]] },
+      { id: 'r3', name: 'Filminho de domingo', host: 'Bia', addr: '26.31.8.12', scene: 'movie', hasCam: false, locked: true, viewers: 6, ping: 24, quality: '1080p30', bitrate: '5,0 Mbps', time: '21:40', last: 'Bia: pausa de 5 min pra pipoca', unread: 12,
+        sharers: [{ name: 'Bia', kind: 'Janela', scene: 'movie' }],
+        people: [['Bia', 'host · compartilhando', 8], ['Nina', 'assistindo Bia', 24], ['Caio', 'assistindo Bia', 31], ['Gabi', 'assistindo Bia', 70]] },
+      { id: 'r4', name: 'Live de Python', host: 'Léo', addr: '26.5.190.3', scene: 'code', camScene: 'camd', hasCam: true, locked: false, viewers: 1, ping: 112, quality: '720p30', bitrate: '2,5 Mbps', time: '20:05', last: 'Léo: agora o loop de eventos', unread: 0,
+        sharers: [{ name: 'Léo', kind: 'Janela', scene: 'code' }, { name: 'Léo', kind: 'Webcam', scene: 'camd' }],
+        people: [['Léo', 'host · compartilhando', 15], ['Caio', 'assistindo Léo', 112]] },
+      { id: 'r5', name: 'Ranked até cair', host: 'Dudu', addr: '26.77.4.201', scene: 'game', hasCam: false, locked: false, versionWarn: true, version: '0.0.9', viewers: 3, ping: 45, quality: '720p30', bitrate: '2,5 Mbps', time: '19:47', last: 'Sala de outra versão', unread: 0,
+        sharers: [{ name: 'Dudu', kind: 'Tela', scene: 'game' }],
+        people: [['Dudu', 'host · compartilhando', 10], ['Nina', 'assistindo Dudu', 45], ['Ju', 'assistindo Dudu', 52]] }
+    ];
+    const NET = { r1: ['online', 'ZAP-7K2Q'], r2: ['local', '26.9.77.140'], r3: ['online', 'ZAP-M4XB'], r4: ['online', 'ZAP-P9TE'], r5: ['local', '26.77.4.201'] };
+    ROOMS.forEach((r) => { r.net = NET[r.id][0]; r.addr = NET[r.id][1]; });
+    const { mode, sel, filter, query, pw, nick } = this.state;
+    const inMode = ROOMS.filter((r) => r.net === mode);
+    const q = query.trim().toLowerCase();
+    const visible = inMode.filter((r) => (filter === 'all' || (filter === 'open' ? !r.locked : r.locked)) && (!q || (r.name + ' ' + r.host).toLowerCase().includes(q)));
+    const rooms = visible.map((r) => {
+      const on = r.id === sel;
+      return {
+        ...r,
+        on,
+        initials: initials(r.host),
+        avStyle: av(r.host, 48, true),
+        locked: !!r.locked,
+        typing: !!r.typing,
+        notTyping: !r.typing,
+        hasUnread: r.unread > 0,
+        versionWarn: !!r.versionWarn,
+        timeStyle: 'font-family: \'JetBrains Mono\', monospace; font-size: 11px; color: ' + (r.unread > 0 ? '#3BF08A' : '#7E978B'),
+        pingStyle: 'color: ' + pingColor(r.ping),
+        rowStyle: 'width: 100%; display: flex; gap: 14px; align-items: flex-start; padding: 14px 20px; border: 0; border-bottom: 1px solid #18292A; text-align: left;' + (on ? ' background: #12291F;' : ''),
+        pick: () => this.setState({ sel: r.id, pw: '' })
+      };
+    });
+    const s = inMode.find((r) => r.id === sel) || inMode[0];
+    const counts = { all: inMode.length, open: inMode.filter((r) => !r.locked).length, locked: inMode.filter((r) => r.locked).length };
+    const modes = [['online', 'Online', 'via servidor'], ['local', 'Local', 'Radmin / rede local']].map(([id, label, sub]) => {
+      const on = mode === id;
+      const n = ROOMS.filter((r) => r.net === id).length;
+      return {
+        label, sub: sub + ' · ' + n, on, isOnline: id === 'online', isLocal: id === 'local',
+        subStyle: 'font-size: 11.5px; color: ' + (on ? '#9FE8C0' : '#7E978B') + '; white-space: nowrap',
+        style: 'display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 12px; border-radius: 10px; border: 0; text-align: left; background: ' + (on ? '#1A3A2C' : 'transparent') + '; color: ' + (on ? '#3BF08A' : '#A3BDB1'),
+        pick: () => { const first = ROOMS.find((r) => r.net === id); this.setState({ mode: id, sel: first ? first.id : '', filter: 'all', pw: '' }); }
+      };
+    });
+    const isOnline = s.net === 'online';
+    const filters = [['all', 'Todas'], ['open', 'Abertas'], ['locked', 'Com senha']].map(([id, label]) => {
+      const on = filter === id;
+      return {
+        label: label + ' · ' + counts[id],
+        on,
+        style: 'height: 36px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 600; border: 1px solid ' + (on ? '#3BF08A' : '#1F332D') + '; background: ' + (on ? 'rgba(59,240,138,0.13)' : 'transparent') + '; color: ' + (on ? '#3BF08A' : '#A3BDB1'),
+        pick: () => this.setState({ filter: id })
+      };
+    });
+    return {
+      showFirewall: this.props.showFirewall ?? false,
+      total: inMode.length,
+      modes,
+      scanText: mode === 'online' ? 'Conectado ao servidor streamaZap. A lista atualiza sozinha.' : 'Procurando mais salas no Radmin e na rede local…',
+      joinAlt: mode === 'online' ? 'Entrar com código' : 'Entrar por IP',
+      filters,
+      rooms,
+      empty: rooms.length === 0,
+      query,
+      pw,
+      nick,
+      onQuery: (e) => this.setState({ query: e.target.value }),
+      onPw: (e) => this.setState({ pw: e.target.value }),
+      onNick: (e) => this.setState({ nick: e.target.value }),
+      sel: {
+        ...s,
+        initials: initials(s.host),
+        avBig: av(s.host, 56, true),
+        locked: !!s.locked && !s.versionWarn,
+        open: !s.locked && !s.versionWarn,
+        hasCam: !!s.hasCam,
+        versionWarn: !!s.versionWarn,
+        canJoin: !s.versionWarn,
+        netLabel: isOnline ? 'ONLINE' : 'LOCAL',
+        netChip: 'height: 30px; padding: 0 12px; border-radius: 999px; font-family: \'JetBrains Mono\', monospace; font-size: 11.5px; font-weight: 600; letter-spacing: 0.08em; display: flex; align-items: center; color: ' + (isOnline ? '#3BF08A' : '#5CD6FF') + '; background: ' + (isOnline ? 'rgba(59,240,138,0.12)' : 'rgba(92,214,255,0.12)'),
+        openText: isOnline ? 'Qualquer pessoa com o app entra pelo servidor, de qualquer lugar.' : 'Qualquer pessoa na mesma rede do Radmin entra direto, sem senha.',
+        pingBig: 'font-family: \'JetBrains Mono\', monospace; font-size: 16px; font-weight: 600; color: ' + pingColor(s.ping),
+        sharerCount: s.sharers.length,
+        peopleCount: s.people.length,
+        people: s.people.map(([n, role, ping]) => ({ name: n, role, ping, initials: initials(n), avStyle: av(n, 34, false), pingStyle: 'font-family: \'JetBrains Mono\', monospace; font-size: 12px; color: ' + pingColor(ping) }))
+      }
+    };
+  }
+}
+</script>
+
+
+</body></html>

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>streamaZap — Sexta do Rush</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style></style>
+<style>
+body{margin:0;background:#0A100E}
+a{color:#3BF08A}a:hover{color:#7CF7B0}
+.zp *{box-sizing:border-box}
+.zp button{font:inherit;color:inherit;cursor:pointer}
+.zp button:disabled{cursor:not-allowed}
+.zp input{font:inherit}
+.zp input::placeholder{color:#7E978B}
+.zp button:focus-visible,.zp a:focus-visible,.zp input:focus-visible{outline:2px solid #3BF08A;outline-offset:2px}
+.zp-rail:hover{background:#15241F;color:#E6F4EC}
+.zp-dots{background-color:#0C1513;background-image:radial-gradient(rgba(59,240,138,.07) 1px,transparent 1.6px);background-size:18px 18px}
+.zp-ghost:hover{background:#1A2C27;color:#E6F4EC}
+.zp-dock:hover{background:#22382F}
+.zp-leave:hover{background:#FF7A88;color:#1A0508}
+.zp-win:hover{background:#1A2C27}
+.zp-close:hover{background:#FF5D6E;color:#0A100E}
+.zp-x:hover{background:#FF5D6E;color:#0A100E;border-color:#FF5D6E}
+.zp-send:hover{background:#6CF5A8}
+.zp-range{accent-color:#3BF08A}
+.zp-range:disabled{opacity:.35}
+@keyframes zpBlink{50%{opacity:.3}}
+.zp-blink{animation:zpBlink 1.4s ease-in-out infinite}
+@keyframes zpDot{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+.zp-d{animation:zpDot 1.2s ease-in-out infinite}
+@keyframes zpEq{0%,100%{height:3px}50%{height:11px}}
+.zp-eq{animation:zpEq .9s ease-in-out infinite}
+.zp-d2{animation-delay:.15s}.zp-d3{animation-delay:.3s}
+</style>
+</helmet>
+<div class="zp" style="width: 100%; min-height: 900px; display: flex; flex-direction: column; background: #0A100E; color: #E6F4EC; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 14px">
+
+<header style="height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 14px; padding: 0 0 0 14px; border-bottom: 1px solid #1F332D; background: #0C1412">
+<img src="icone.png" alt="" style="width: 24px; height: 24px; border-radius: 7px; display: block; margin-right: -4px">
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.02em">streama<span style="color: #3BF08A">Zap</span></span>
+<span style="font-size: 13px; color: #7E978B">Salas <span aria-hidden="true">/</span> <span style="color: #E6F4EC">Sexta do Rush</span></span>
+<span style="flex: 1"></span>
+<span style="display: flex; align-items: center; gap: 14px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3BDB1">
+<span>via servidor sa-east · <span style="color: #3BF08A">38 ms</span></span>
+<span>suav. 120 ms auto</span>
+<span>1080p60 · 6,2 Mbps</span>
+</span>
+<span style="display: flex; margin-left: 12px">
+<button class="zp-win" aria-label="Minimizar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"></path></svg></button>
+<button class="zp-win" aria-label="Maximizar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg></button>
+<button class="zp-close" aria-label="Fechar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</span>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Navegação principal" style="flex: 0 0 76px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0 16px; background: #0C1412; border-right: 1px solid #1F332D">
+<img src="icone.png" alt="streamaZap" style="width: 52px; height: 52px; border-radius: 15px; display: block; margin-bottom: 10px; box-shadow: 0 0 0 1px #2A443C, 0 0 20px rgba(59,240,138,0.35)">
+<a href="Main.dc.html" class="zp-rail" aria-label="Salas" title="Salas" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"></path></svg></a>
+<span aria-current="page" title="Sala atual" style="position: relative; width: 48px; height: 48px; border-radius: 14px; background: rgba(59,240,138,0.13); color: #3BF08A; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" role="img" aria-label="Sala atual"><rect x="3" y="5" width="18" height="12" rx="2"></rect><path d="M8 21h8M12 17v4" stroke-linecap="round"></path><path d="m10.5 8.5 4 2.5-4 2.5z" fill="currentColor"></path></svg><span class="zp-blink" style="position: absolute; right: 8px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: #FF5D6E"></span></span>
+<a href="Diagnostics.dc.html" class="zp-rail" aria-label="Diagnóstico de rede" title="Diagnóstico" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg></a>
+<a href="Settings.dc.html" class="zp-rail" aria-label="Configurações" title="Configurações" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="17" r="2"></circle></svg></a>
+<span style="flex: 1"></span>
+<button aria-label="Seu perfil: Heitor" title="Heitor" style="width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(59,240,138,0.16); color: #3BF08A; font-weight: 700; font-size: 15px; box-shadow: 0 0 0 2px #0C1412, 0 0 0 3px #2A443C">H</button>
+</nav>
+
+<main style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 16px; padding: 20px 28px 28px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-height: 48px">
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0">
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 22px; letter-spacing: -0.015em">Sexta do Rush</h1>
+<span style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; color: #A3BDB1"><span style="height: 22px; padding: 0 8px; border-radius: 6px; background: rgba(59,240,138,0.12); color: #3BF08A; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; display: flex; align-items: center">ONLINE · ZAP-7K2Q</span><span>Assistindo <b style="color: #E6F4EC; font-weight: 600">{{ watched.name }}</b> · {{ watched.kind }}</span></span>
+</div>
+<span style="flex: 1"></span>
+<sc-if value="{{ sharing }}" hint-placeholder-val="{{ false }}">
+<span style="height: 40px; padding: 0 6px 0 14px; border-radius: 999px; background: rgba(59,240,138,0.12); border: 1px solid rgba(59,240,138,0.4); color: #3BF08A; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 10px"><span class="zp-blink" style="width: 7px; height: 7px; border-radius: 50%; background: #3BF08A"></span>Você está compartilhando · 3 assistindo<button class="zp-ghost" style="height: 30px; padding: 0 12px; border-radius: 999px; border: 0; background: rgba(59,240,138,0.16); color: #E6F4EC; font-size: 12px; font-weight: 600">Editar</button></span>
+</sc-if>
+<button class="zp-ghost" style="height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #2A443C; background: transparent; color: #E6F4EC; font-weight: 600; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>Copiar convite</button>
+<sc-if value="{{ panelClosed }}" hint-placeholder-val="{{ false }}">
+<button class="zp-ghost" sc-camel-on-click="{{ openPanel }}" style="height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #3BF08A; background: transparent; color: #3BF08A; font-weight: 600; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"></path></svg>Abrir chat</button>
+</sc-if>
+</div>
+
+<div style="position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 20px; overflow: hidden; border: 1px solid #2A443C; background: #0C1412">
+<sc-if value="{{ hasWatched }}" hint-placeholder-val="{{ true }}">
+<dc-import name="Thumb" scene="{{ watched.scene }}" hint-size="100%,100%"></dc-import>
+</sc-if>
+<sc-if value="{{ noWatched }}" hint-placeholder-val="{{ false }}">
+<div class="zp-dots" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px">
+<img src="icone.png" alt="" style="width: 104px; height: 104px; border-radius: 26px; display: block; box-shadow: 0 0 0 1px #2A443C, 0 0 36px rgba(59,240,138,0.35)">
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 20px">Nenhuma transmissão aberta</span>
+<span style="color: #A3BDB1">Reabra a tela ou a câmera de alguém aqui embaixo.</span>
+</div>
+</sc-if>
+<span style="position: absolute; left: 14px; top: 14px; width: 24px; height: 24px; border-left: 2px solid #3BF08A; border-top: 2px solid #3BF08A"></span>
+<span style="position: absolute; right: 14px; top: 14px; width: 24px; height: 24px; border-right: 2px solid #3BF08A; border-top: 2px solid #3BF08A"></span>
+<span style="position: absolute; left: 14px; bottom: 14px; width: 24px; height: 24px; border-left: 2px solid #3BF08A; border-bottom: 2px solid #3BF08A"></span>
+<span style="position: absolute; right: 14px; bottom: 14px; width: 24px; height: 24px; border-right: 2px solid #3BF08A; border-bottom: 2px solid #3BF08A"></span>
+<sc-if value="{{ hasWatched }}" hint-placeholder-val="{{ true }}">
+<span style="position: absolute; left: 26px; top: 26px; height: 30px; padding: 0 12px; border-radius: 9px; background: rgba(10,16,14,0.8); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; display: flex; align-items: center; gap: 8px"><span class="zp-blink" style="width: 7px; height: 7px; border-radius: 50%; background: #FF5D6E"></span>AO VIVO<span style="font-weight: 500; letter-spacing: 0; color: #A3BDB1">· {{ watched.name }}</span></span>
+<span style="position: absolute; right: 26px; top: 22px; display: flex; align-items: center; gap: 8px">
+<span style="height: 30px; padding: 0 12px; border-radius: 9px; background: rgba(10,16,14,0.8); font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #A3BDB1; display: flex; align-items: center; gap: 10px"><span>vol {{ watchedVol }}</span><span style="color: #3BF08A">38 ms</span>1080p60</span>
+<button class="zp-x" sc-camel-on-click="{{ closeWatched }}" aria-label="{{ closeWatchedLabel }}" title="{{ closeWatchedLabel }}" style="width: 40px; height: 40px; border-radius: 12px; border: 1px solid #2A443C; background: rgba(10,16,14,0.8); color: #E6F4EC; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</span>
+</sc-if>
+<sc-if value="{{ reconnecting }}" hint-placeholder-val="{{ false }}">
+<span role="status" style="position: absolute; left: 50%; top: 26px; transform: translateX(-50%); height: 34px; padding: 0 16px; border-radius: 999px; background: #FFB547; color: #1A1204; font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 8px"><span class="zp-blink" style="width: 7px; height: 7px; border-radius: 50%; background: #1A1204"></span>Conexão caiu — reconectando (tentativa 2)…</span>
+</sc-if>
+<sc-if value="{{ showPip }}" hint-placeholder-val="{{ true }}">
+<span style="position: absolute; right: 26px; bottom: 96px; width: 22%; border-radius: 14px; overflow: hidden; border: 2px solid #0A100E; box-shadow: 0 0 0 1px #3BF08A, 0 10px 30px rgba(0,0,0,0.5)">
+<dc-import name="Thumb" scene="{{ watched.cam }}" hint-size="100%,100%"></dc-import>
+<span style="position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 6px; background: rgba(10,16,14,0.8); font-size: 11.5px">cam · {{ watched.name }}</span>
+<button class="zp-x" sc-camel-on-click="{{ hidePip }}" aria-label="Fechar câmera de {{ watched.name }}" title="Fechar câmera" style="position: absolute; right: 6px; top: 6px; width: 36px; height: 36px; border-radius: 10px; border: 1px solid #2A443C; background: rgba(10,16,14,0.8); color: #E6F4EC; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</span>
+</sc-if>
+<sc-if value="{{ pipHiddenWithCam }}" hint-placeholder-val="{{ false }}">
+<button class="zp-ghost" sc-camel-on-click="{{ showPipAgain }}" style="position: absolute; right: 26px; bottom: 96px; height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid #2A443C; background: rgba(10,16,14,0.86); color: #E6F4EC; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="13" height="10" rx="2"></rect><path d="m16 11 5-3v8l-5-3z"></path></svg>Mostrar câmera de {{ watched.name }}</button>
+</sc-if>
+
+<div role="toolbar" aria-label="Controles da sala" style="position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 999px; background: rgba(10,16,14,0.86); border: 1px solid #2A443C; box-shadow: 0 12px 40px rgba(0,0,0,0.45)">
+<button class="zp-dock" sc-camel-on-click="{{ toggleMute }}" aria-label="{{ muteLabel }}" title="{{ muteLabel }}" style="{{ muteStyle }}">
+<sc-if value="{{ notMuted }}" hint-placeholder-val="{{ true }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"></path><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"></path></svg></sc-if>
+<sc-if value="{{ muted }}" hint-placeholder-val="{{ false }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"></path><path d="m17 9 5 6M22 9l-5 6"></path></svg></sc-if>
+</button>
+<label for="vol" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Volume geral da sala</label>
+<input id="vol" class="zp-range" type="range" min="0" max="100" value="{{ volume }}" sc-camel-on-change="{{ onVolume }}" title="Volume geral" style="width: 90px">
+<span aria-hidden="true" style="width: 1px; height: 28px; background: #2A443C; margin: 0 4px"></span>
+<button class="zp-dock" sc-camel-on-click="{{ toggleCam }}" aria-label="{{ camLabel }}" title="{{ camLabel }}" style="{{ camStyle }}">
+<sc-if value="{{ cam }}" hint-placeholder-val="{{ true }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="13" height="10" rx="2"></rect><path d="m16 11 5-3v8l-5-3z"></path></svg></sc-if>
+<sc-if value="{{ camOff }}" hint-placeholder-val="{{ false }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="13" height="10" rx="2"></rect><path d="m16 11 5-3v8l-5-3zM3 3l18 18"></path></svg></sc-if>
+</button>
+<button class="zp-dock" sc-camel-on-click="{{ toggleShare }}" aria-pressed="{{ sharing }}" style="{{ shareStyle }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4M12 13V7M9 10l3-3 3 3"></path></svg>{{ shareLabel }}</button>
+<button class="zp-dock" aria-label="Suavização automática, 120 milissegundos" title="Suavização" style="height: 48px; padding: 0 14px; border-radius: 999px; border: 0; background: #16241F; color: #A3BDB1; font-family: 'JetBrains Mono', monospace; font-size: 12px; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12c2.5-5 5.5-5 8 0s5.5 5 8 0"></path></svg>auto</button>
+<button class="zp-dock" aria-label="Tela cheia (F11)" title="Tela cheia (F11)" style="width: 48px; height: 48px; border-radius: 50%; border: 0; background: #16241F; color: #E6F4EC; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></button>
+<span aria-hidden="true" style="width: 1px; height: 28px; background: #2A443C; margin: 0 4px"></span>
+<a href="Main.dc.html" class="zp-leave" style="height: 48px; padding: 0 18px; border-radius: 999px; background: #FF5D6E; color: #1A0508; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10"></path></svg>Sair</a>
+</div>
+</div>
+
+<div role="group" aria-label="Transmissões na sala" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px">
+<sc-for list="{{ tiles }}" as="t" hint-placeholder-count="4">
+<div style="{{ t.cardStyle }}">
+<div style="position: relative">
+<sc-if value="{{ t.showVideo }}" hint-placeholder-val="{{ true }}">
+<button sc-camel-on-click="{{ t.pick }}" aria-pressed="{{ t.on }}" aria-label="{{ t.aria }}" style="display: block; width: 100%; padding: 0; border: 0; background: transparent">
+<dc-import name="Thumb" scene="{{ t.scene }}" hint-size="100%,100%"></dc-import>
+</button>
+</sc-if>
+<sc-if value="{{ t.showClosed }}" hint-placeholder-val="{{ false }}">
+<div class="zp-dots" style="width: 100%; aspect-ratio: 16 / 9; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; padding: 8px">
+<span style="font-weight: 600; font-size: 13px">{{ t.closedText }}</span>
+<span style="font-size: 11.5px; color: #8BA498">{{ t.closedSub }}</span>
+<button class="zp-ghost" sc-camel-on-click="{{ t.reopen }}" style="margin-top: 2px; height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid #3BF08A; background: transparent; color: #3BF08A; font-size: 12.5px; font-weight: 600">{{ t.reopenLabel }}</button>
+</div>
+</sc-if>
+<span style="position: absolute; left: 8px; bottom: 8px; max-width: calc(100% - 16px); padding: 3px 8px; border-radius: 7px; background: rgba(10,16,14,0.84); font-size: 12px; display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden">
+<sc-if value="{{ t.audible }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="display: flex; align-items: flex-end; gap: 2px; height: 11px"><span class="zp-eq" style="width: 2px; background: #3BF08A; border-radius: 1px"></span><span class="zp-eq zp-d2" style="width: 2px; background: #3BF08A; border-radius: 1px"></span><span class="zp-eq zp-d3" style="width: 2px; background: #3BF08A; border-radius: 1px"></span></span></sc-if>
+<b style="font-weight: 600">{{ t.name }}</b><span style="color: #A3BDB1; overflow: hidden; text-overflow: ellipsis">· {{ t.kind }}</span>
+</span>
+<sc-if value="{{ t.on }}" hint-placeholder-val="{{ false }}">
+<span style="position: absolute; left: 8px; top: 8px; padding: 2px 7px; border-radius: 6px; background: #3BF08A; color: #03140A; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em">ASSISTINDO</span>
+</sc-if>
+<sc-if value="{{ t.canClose }}" hint-placeholder-val="{{ true }}">
+<button class="zp-x" sc-camel-on-click="{{ t.close }}" aria-label="{{ t.closeLabel }}" title="{{ t.closeLabel }}" style="position: absolute; right: 6px; top: 6px; width: 36px; height: 36px; border-radius: 10px; border: 1px solid #2A443C; background: rgba(10,16,14,0.82); color: #E6F4EC; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</sc-if>
+</div>
+<sc-if value="{{ t.isOther }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 6px">
+<button class="zp-dock" sc-camel-on-click="{{ t.toggleMute }}" aria-label="{{ t.muteLabel }}" title="{{ t.muteLabel }}" disabled="{{ t.closed }}" style="{{ t.muteStyle }}">
+<sc-if value="{{ t.notMuted }}" hint-placeholder-val="{{ true }}"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"></path><path d="M16.5 8.5a5 5 0 0 1 0 7"></path></svg></sc-if>
+<sc-if value="{{ t.muted }}" hint-placeholder-val="{{ false }}"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"></path><path d="m17 9 5 6M22 9l-5 6"></path></svg></sc-if>
+</button>
+<label for="{{ t.volId }}" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Volume de {{ t.name }}</label>
+<input id="{{ t.volId }}" class="zp-range" type="range" min="0" max="100" value="{{ t.vol }}" sc-camel-on-change="{{ t.onVol }}" disabled="{{ t.closed }}" style="flex: 1; min-width: 0">
+<span style="flex: 0 0 38px; text-align: right; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #A3BDB1">{{ t.volText }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ t.isMe }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; gap: 8px; padding: 6px">
+<button sc-camel-on-click="{{ toggleCam }}" aria-pressed="{{ cam }}" aria-label="{{ camLabel }}" title="{{ camLabel }}" style="{{ meCamStyle }}">
+<sc-if value="{{ cam }}" hint-placeholder-val="{{ true }}"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="13" height="10" rx="2"></rect><path d="m16 11 5-3v8l-5-3z"></path></svg></sc-if>
+<sc-if value="{{ camOff }}" hint-placeholder-val="{{ false }}"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="13" height="10" rx="2"></rect><path d="m16 11 5-3v8l-5-3zM3 3l18 18"></path></svg></sc-if>
+Câmera</button>
+<button sc-camel-on-click="{{ toggleShare }}" aria-pressed="{{ sharing }}" aria-label="{{ shareAria }}" title="{{ shareAria }}" style="{{ meShareStyle }}"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg>Tela</button>
+</div>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</main>
+
+<sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ true }}">
+<aside aria-label="Chat e pessoas" style="flex: 1 1 340px; max-width: 400px; height: 856px; display: flex; flex-direction: column; background: #0F1916; border-left: 1px solid #1F332D">
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 16px; border-bottom: 1px solid #1F332D">
+<div role="tablist" aria-label="Painel" style="flex: 1; display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #0A100E; border: 1px solid #1F332D">
+<sc-for list="{{ ptabs }}" as="p" hint-placeholder-count="2">
+<button role="tab" aria-selected="{{ p.on }}" sc-camel-on-click="{{ p.pick }}" style="{{ p.style }}">{{ p.label }}</button>
+</sc-for>
+</div>
+<button class="zp-ghost" sc-camel-on-click="{{ closePanel }}" aria-label="Fechar painel" title="Fechar painel" style="width: 44px; height: 44px; border-radius: 12px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+
+<sc-if value="{{ tabChat }}" hint-placeholder-val="{{ true }}">
+<div class="zp-dots" role="log" aria-label="Mensagens" style="flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 16px 14px">
+<span style="margin-top: auto; align-self: center; padding: 4px 12px; border-radius: 8px; background: #16241F; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.12em; color: #A3BDB1">HOJE</span>
+<sc-for list="{{ msgs }}" as="m" hint-placeholder-count="8">
+<sc-if value="{{ m.isSys }}" hint-placeholder-val="{{ false }}">
+<span style="align-self: center; max-width: 90%; padding: 5px 12px; border-radius: 8px; background: rgba(22,36,31,0.9); color: #A3BDB1; font-size: 12px; text-align: center">{{ m.text }}</span>
+</sc-if>
+<sc-if value="{{ m.isIn }}" hint-placeholder-val="{{ true }}">
+<div style="align-self: flex-start; max-width: 82%; display: flex; flex-direction: column; gap: 2px; padding: 7px 10px 6px 12px; border-radius: 4px 16px 16px 16px; background: #16241F; box-shadow: 0 1px 0 rgba(0,0,0,0.25)">
+<span style="{{ m.nameStyle }}">{{ m.who }}</span>
+<span style="line-height: 1.4; font-size: 14px">{{ m.text }}</span>
+<span style="align-self: flex-end; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #8BA498">{{ m.time }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ m.isOut }}" hint-placeholder-val="{{ false }}">
+<div style="align-self: flex-end; max-width: 82%; display: flex; flex-direction: column; gap: 2px; padding: 7px 10px 6px 12px; border-radius: 16px 4px 16px 16px; background: #114A30; box-shadow: 0 1px 0 rgba(0,0,0,0.25)">
+<span style="line-height: 1.4; font-size: 14px">{{ m.text }}</span>
+<span style="align-self: flex-end; display: flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #A8D9BF">{{ m.time }}<svg width="16" height="12" sc-camel-view-box="0 0 18 12" fill="none" stroke="#5CD6FF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="visto por todos"><path d="m1 6.5 3 3 6-7M7 9.5l1 0 6-7"></path></svg></span>
+</div>
+</sc-if>
+</sc-for>
+<div style="align-self: flex-start; display: flex; align-items: center; gap: 10px">
+<span style="display: flex; gap: 4px; padding: 11px 12px; border-radius: 4px 16px 16px 16px; background: #16241F"><span class="zp-d" style="width: 6px; height: 6px; border-radius: 50%; background: #A3BDB1"></span><span class="zp-d zp-d2" style="width: 6px; height: 6px; border-radius: 50%; background: #A3BDB1"></span><span class="zp-d zp-d3" style="width: 6px; height: 6px; border-radius: 50%; background: #A3BDB1"></span></span>
+<span style="font-size: 12px; color: #7CF2C0; font-style: italic">Ju está digitando…</span>
+</div>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 12px; border-top: 1px solid #1F332D">
+<label for="msg" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Mensagem</label>
+<input id="msg" placeholder="Mensagem" value="{{ draft }}" sc-camel-on-change="{{ onDraft }}" sc-camel-on-key-down="{{ onKey }}" style="flex: 1; min-width: 0; height: 46px; padding: 0 16px; border-radius: 999px; border: 1px solid #1F332D; background: #0A100E; color: #E6F4EC; font-size: 14px">
+<button class="zp-send" sc-camel-on-click="{{ send }}" aria-label="Enviar mensagem" style="flex: 0 0 46px; width: 46px; height: 46px; border-radius: 50%; border: 0; background: #3BF08A; color: #03140A; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12 20 4l-4 16-4-7z"></path><path d="m12 13 8-9"></path></svg></button>
+</div>
+</sc-if>
+
+<sc-if value="{{ tabPeople }}" hint-placeholder-val="{{ false }}">
+<ul style="list-style: none; margin: 0; padding: 8px 0; flex: 1; overflow-y: auto">
+<sc-for list="{{ people }}" as="p" hint-placeholder-count="5">
+<li style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #18292A">
+<span style="{{ p.avStyle }}">{{ p.initials }}</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+<span style="display: flex; align-items: center; gap: 8px"><b style="font-weight: 600">{{ p.name }}</b><sc-if value="{{ p.isHost }}" hint-placeholder-val="{{ false }}"><span style="padding: 1px 7px; border-radius: 6px; background: rgba(255,181,71,0.15); color: #FFB547; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em">HOST</span></sc-if></span>
+<span style="font-size: 12px; color: #A3BDB1">{{ p.status }}</span>
+</span>
+<span style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">
+<span style="{{ p.pingStyle }}">{{ p.ping }} ms</span>
+<span style="color: #7E978B">suav. {{ p.smooth }}</span>
+</span>
+</li>
+</sc-for>
+</ul>
+</sc-if>
+</aside>
+</sc-if>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;reconnecting&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false},&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      watch: 'marcao', panel: true, tab: 'chat', sharing: false, cam: true, muted: false, volume: 80, draft: '',
+      vols: { marcao: 85, ju: 60, dudu: 35 }, tileMuted: { dudu: true }, closed: {}, pipHidden: false,
+      msgs: [
+        { t: 'sys', text: 'Marcão criou a sala · 21:30' },
+        { t: 'in', who: 'Ju', text: 'cheguei! tá liso aqui, 38 ms', time: '22:02' },
+        { t: 'sys', text: 'Ju ligou a webcam' },
+        { t: 'in', who: 'Rafa', text: 'o áudio do jogo tá vindo junto?', time: '22:05' },
+        { t: 'in', who: 'Marcão', text: 'tá sim, só o cs2.exe. o spotify fica de fora', time: '22:06' },
+        { t: 'out', text: 'aqui chegando 1080p60 de boa', time: '22:09' },
+        { t: 'sys', text: 'Dudu começou a compartilhar uma janela' },
+        { t: 'in', who: 'Dudu', text: 'abri o mapa, clica no meu quadrado embaixo', time: '22:11' },
+        { t: 'in', who: 'Rafa', text: 'bora, entra logo', time: '22:14' }
+      ]
+    };
+  }
+  renderVals() {
+    const st = this.state;
+    const C = { 'Marcão': '#FFB547', Rafa: '#5CD6FF', Ju: '#7CF2C0', Dudu: '#FF9E5C', 'Você': '#3BF08A' };
+    const av = (n, size) => {
+      const c = C[n] || '#3BF08A';
+      return 'flex: 0 0 ' + size + 'px; width: ' + size + 'px; height: ' + size + 'px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: ' + Math.round(size * 0.4) + 'px; color: ' + c + '; background: ' + c + '24';
+    };
+    const pingColor = (ms) => ms < 60 ? '#3BF08A' : ms < 100 ? '#FFB547' : '#FF8592';
+    const setIn = (key, id, val) => this.setState({ [key]: { ...st[key], [id]: val } });
+    const card = (on) => 'display: flex; flex-direction: column; min-width: 0; border-radius: 16px; overflow: hidden; background: #0F1916; border: 2px solid ' + (on ? '#3BF08A' : '#1F332D') + (on ? '; box-shadow: 0 0 20px rgba(59,240,138,0.22)' : '');
+    const small = (alert) => 'flex: 0 0 44px; width: 44px; height: 44px; border-radius: 12px; border: 0; display: flex; align-items: center; justify-content: center; background: ' + (alert ? '#3A1C21' : '#16241F') + '; color: ' + (alert ? '#FF8592' : '#E6F4EC');
+
+    const meScene = st.sharing ? 'desktop' : st.cam ? 'camc' : null;
+    const OTHERS = [
+      { id: 'marcao', name: 'Marcão', kind: 'Tela', what: 'tela', scene: 'game', cam: 'cama' },
+      { id: 'ju', name: 'Ju', kind: 'Webcam', what: 'câmera', scene: 'camb' },
+      { id: 'dudu', name: 'Dudu', kind: 'Janela', what: 'janela', scene: 'desktop' }
+    ];
+    const me = { id: 'me', name: 'Você', kind: st.sharing ? 'sua tela' : st.cam ? 'sua câmera' : 'desligado', scene: meScene, cam: st.sharing && st.cam ? 'camc' : null };
+    const candidates = OTHERS.filter((o) => !st.closed[o.id]).concat(meScene ? [me] : []);
+    const w = candidates.find((t) => t.id === st.watch) || candidates[0] || null;
+
+    const tiles = OTHERS.map((o) => {
+      const closed = !!st.closed[o.id];
+      const on = !!w && w.id === o.id;
+      const m = !!st.tileMuted[o.id];
+      const vol = st.vols[o.id] ?? 80;
+      const label = o.what === 'câmera' ? 'Câmera' : o.what === 'tela' ? 'Tela' : 'Janela';
+      return {
+        ...o, on, closed, isOther: true, isMe: false,
+        showVideo: !closed, showClosed: closed, canClose: !closed,
+        closedText: label + ' de ' + o.name + ' fechada',
+        closedSub: 'sem receber · economiza banda',
+        reopenLabel: 'Reabrir',
+        reopen: () => setIn('closed', o.id, false),
+        close: () => setIn('closed', o.id, true),
+        closeLabel: 'Fechar ' + o.what + ' de ' + o.name,
+        aria: 'Assistir ' + o.name + ', ' + o.kind,
+        pick: () => this.setState({ watch: o.id }),
+        audible: !closed && !m && vol > 0 && !st.muted,
+        muted: m, notMuted: !m,
+        muteLabel: (m ? 'Ativar som de ' : 'Silenciar ') + o.name,
+        muteStyle: small(m),
+        toggleMute: () => setIn('tileMuted', o.id, !m),
+        vol, volText: closed ? '—' : m ? 'mudo' : vol + '%',
+        volId: 'vol-' + o.id,
+        onVol: (e) => this.setState({ vols: { ...st.vols, [o.id]: Number(e.target.value) }, tileMuted: { ...st.tileMuted, [o.id]: false } }),
+        cardStyle: card(on)
+      };
+    });
+    const meOn = !!w && w.id === 'me';
+    tiles.push({
+      ...me, on: meOn, closed: !meScene, isOther: false, isMe: true,
+      showVideo: !!meScene, showClosed: !meScene, canClose: false,
+      closedText: 'Câmera e tela desligadas', closedSub: 'ninguém está te vendo',
+      reopenLabel: 'Ligar câmera', reopen: () => this.setState({ cam: true }),
+      aria: 'Ver sua prévia', pick: () => this.setState({ watch: 'me' }),
+      audible: false, muted: false, notMuted: true, cardStyle: card(meOn)
+    });
+
+    const watchedVolRaw = w && w.id !== 'me' ? (st.tileMuted[w.id] ? 'mudo' : (st.vols[w.id] ?? 80) + '%') : '—';
+    const closeWatched = () => {
+      if (!w) return;
+      if (w.id === 'me') { if (st.sharing) this.setState({ sharing: false }); else this.setState({ cam: false }); }
+      else setIn('closed', w.id, true);
+    };
+    const msgs = st.msgs.map((m) => ({
+      ...m, isSys: m.t === 'sys', isIn: m.t === 'in', isOut: m.t === 'out',
+      nameStyle: 'font-size: 12.5px; font-weight: 700; color: ' + (C[m.who] || '#3BF08A')
+    }));
+    const send = () => {
+      const text = st.draft.trim();
+      if (!text) return;
+      this.setState({ draft: '', msgs: st.msgs.concat([{ t: 'out', text, time: '22:15' }]) });
+    };
+    const seg = (on) => 'flex: 1; height: 36px; border-radius: 9px; border: 0; font-size: 13px; font-weight: 600; background: ' + (on ? '#1A3A2C' : 'transparent') + '; color: ' + (on ? '#3BF08A' : '#A3BDB1');
+    const ptabs = [['chat', 'Chat'], ['people', 'Pessoas · 5']].map(([id, label]) => ({ label, on: st.tab === id, style: seg(st.tab === id), pick: () => this.setState({ tab: id }) }));
+    const PEOPLE = [
+      ['Marcão', 'compartilhando a tela', 12, '80 ms', true],
+      ['Ju', 'webcam ligada · assistindo Marcão', 38, '120 ms'],
+      ['Dudu', 'compartilhando uma janela', 45, '120 ms'],
+      ['Rafa', 'assistindo Marcão', 61, '160 ms'],
+      ['Você', st.sharing ? 'compartilhando a tela' : 'assistindo ' + (w ? w.name : 'ninguém'), 38, '120 ms']
+    ];
+    const people = PEOPLE.map(([name, status, ping, smooth, host]) => ({ name, status, ping, smooth, isHost: !!host, initials: name.slice(0, 1), avStyle: av(name, 40), pingStyle: 'color: ' + pingColor(ping) }));
+    const round = (alert) => 'width: 48px; height: 48px; border-radius: 50%; border: 0; display: flex; align-items: center; justify-content: center; background: ' + (alert ? '#3A1C21' : '#16241F') + '; color: ' + (alert ? '#FF8592' : '#E6F4EC');
+    const meBtn = (on) => 'flex: 1; min-width: 0; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; border: 1px solid ' + (on ? '#3BF08A' : '#2A443C') + '; background: ' + (on ? 'rgba(59,240,138,0.12)' : 'transparent') + '; color: ' + (on ? '#3BF08A' : '#A3BDB1');
+    const hasCam = !!(w && w.cam);
+    return {
+      reconnecting: this.props.reconnecting ?? false,
+      hasWatched: !!w, noWatched: !w,
+      watched: w ? { ...w } : { name: 'ninguém', kind: 'nada aberto', scene: 'game', cam: null },
+      watchedVol: watchedVolRaw,
+      closeWatched,
+      closeWatchedLabel: w ? (w.id === 'me' ? 'Parar sua transmissão' : 'Fechar ' + (w.what || 'transmissão') + ' de ' + w.name) : 'Fechar',
+      showPip: hasCam && !st.pipHidden,
+      pipHiddenWithCam: hasCam && st.pipHidden,
+      hidePip: () => this.setState({ pipHidden: true }),
+      showPipAgain: () => this.setState({ pipHidden: false }),
+      tiles, msgs, people, ptabs,
+      panelOpen: st.panel, panelClosed: !st.panel,
+      openPanel: () => this.setState({ panel: true }),
+      closePanel: () => this.setState({ panel: false }),
+      tabChat: st.tab === 'chat', tabPeople: st.tab === 'people',
+      draft: st.draft,
+      onDraft: (e) => this.setState({ draft: e.target.value }),
+      onKey: (e) => { if (e.key === 'Enter') send(); },
+      send,
+      muted: st.muted, notMuted: !st.muted,
+      muteLabel: st.muted ? 'Ativar som da sala' : 'Silenciar a sala toda',
+      muteStyle: round(st.muted),
+      toggleMute: () => this.setState({ muted: !st.muted }),
+      volume: st.volume,
+      onVolume: (e) => this.setState({ volume: Number(e.target.value) }),
+      cam: st.cam, camOff: !st.cam,
+      camLabel: st.cam ? 'Desligar minha câmera' : 'Ligar minha câmera',
+      camStyle: round(!st.cam),
+      toggleCam: () => this.setState({ cam: !st.cam }),
+      meCamStyle: meBtn(st.cam),
+      meShareStyle: meBtn(st.sharing),
+      shareAria: st.sharing ? 'Parar de compartilhar a tela' : 'Compartilhar minha tela',
+      sharing: st.sharing,
+      shareLabel: st.sharing ? 'Parar' : 'Compartilhar tela',
+      shareStyle: 'height: 48px; padding: 0 18px; border-radius: 999px; border: 0; font-weight: 700; display: flex; align-items: center; gap: 8px; background: ' + (st.sharing ? '#3BF08A' : '#16241F') + '; color: ' + (st.sharing ? '#03140A' : '#E6F4EC'),
+      toggleShare: () => this.setState({ sharing: !st.sharing, watch: !st.sharing ? 'me' : 'marcao' })
+    };
+  }
+}
+</script>
+
+
+</body></html>

@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8">
+<title>streamaZap — Diagnóstico de rede</title>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style></style>
+<style>
+body{margin:0;background:#0A100E}
+a{color:#3BF08A}a:hover{color:#7CF7B0}
+.zp *{box-sizing:border-box}
+.zp button{font:inherit;color:inherit;cursor:pointer}
+.zp button:focus-visible,.zp a:focus-visible{outline:2px solid #3BF08A;outline-offset:2px}
+.zp-rail:hover{background:#15241F;color:#E6F4EC}
+.zp-dots{background-image:radial-gradient(rgba(59,240,138,.07) 1px,transparent 1.6px);background-size:18px 18px}
+.zp-ghost:hover{background:#1A2C27;color:#E6F4EC}
+.zp-cta:hover{background:#6CF5A8;color:#03140A}
+.zp-warnbtn:hover{background:#FFC870}
+.zp-win:hover{background:#1A2C27}
+.zp-close:hover{background:#FF5D6E;color:#0A100E}
+@keyframes zpSpin{to{transform:rotate(360deg)}}
+.zp-spin{animation:zpSpin .9s linear infinite}
+@keyframes zpPulse{0%{transform:scale(.6);opacity:.7}100%{transform:scale(1.35);opacity:0}}
+.zp-pulse{animation:zpPulse 2.2s ease-out infinite}
+</style>
+</helmet>
+<div class="zp" style="width: 100%; min-height: 900px; display: flex; flex-direction: column; background: #0A100E; color: #E6F4EC; font-family: 'Space Grotesk', system-ui, sans-serif; font-size: 14px">
+
+<header style="height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 14px; padding: 0 0 0 14px; border-bottom: 1px solid #1F332D; background: #0C1412">
+<img src="icone.png" alt="" style="width: 24px; height: 24px; border-radius: 7px; display: block; margin-right: -4px">
+<span style="font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.02em">streama<span style="color: #3BF08A">Zap</span></span>
+<span style="font-size: 13px; color: #7E978B">Diagnóstico de rede</span>
+<span style="flex: 1"></span>
+<span style="display: flex; align-items: center; gap: 18px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A3BDB1">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3BF08A; box-shadow: 0 0 8px #3BF08A"></span>Servidor online · 42 ms</span>
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #5CD6FF"></span>Radmin · 26.12.34.56</span>
+</span>
+<span style="display: flex; margin-left: 12px">
+<button class="zp-win" aria-label="Minimizar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"></path></svg></button>
+<button class="zp-win" aria-label="Maximizar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"></rect></svg></button>
+<button class="zp-close" aria-label="Fechar" style="width: 46px; height: 44px; border: 0; background: transparent; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</span>
+</header>
+
+<div style="flex: 1; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Navegação principal" style="flex: 0 0 76px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0 16px; background: #0C1412; border-right: 1px solid #1F332D">
+<img src="icone.png" alt="streamaZap" style="width: 52px; height: 52px; border-radius: 15px; display: block; margin-bottom: 10px; box-shadow: 0 0 0 1px #2A443C, 0 0 20px rgba(59,240,138,0.35)">
+<a href="Main.dc.html" class="zp-rail" aria-label="Salas" title="Salas" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"></path></svg></a>
+<a href="Create.dc.html" class="zp-rail" aria-label="Criar sala" title="Criar sala" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></a>
+<span aria-current="page" title="Diagnóstico" style="width: 48px; height: 48px; border-radius: 14px; background: rgba(59,240,138,0.13); color: #3BF08A; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Diagnóstico"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg></span>
+<a href="Settings.dc.html" class="zp-rail" aria-label="Configurações" title="Configurações" style="width: 48px; height: 48px; border-radius: 14px; color: #A3BDB1; display: flex; align-items: center; justify-content: center"><svg width="22" height="22" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="17" r="2"></circle></svg></a>
+<span style="flex: 1"></span>
+<button aria-label="Seu perfil: Heitor" title="Heitor" style="width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(59,240,138,0.16); color: #3BF08A; font-weight: 700; font-size: 15px; box-shadow: 0 0 0 2px #0C1412, 0 0 0 3px #2A443C">H</button>
+</nav>
+
+<main class="zp-dots" style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 20px; padding: 28px 32px 36px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #3BF08A">Diagnóstico</span>
+<h1 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 32px; letter-spacing: -0.02em">Tá tudo conectando?</h1>
+</div>
+<span style="flex: 1"></span>
+<button class="zp-ghost" sc-camel-on-click="{{ recheck }}" style="height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid #2A443C; background: transparent; color: #E6F4EC; font-weight: 600; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 13a8 8 0 0 0 14.6 4.5"></path><path d="M5 3v4h4M19 21v-4h-4"></path></svg>Verificar de novo</button>
+<button class="zp-cta" sc-camel-on-click="{{ copy }}" style="height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: #3BF08A; color: #03140A; font-weight: 700; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path></svg>{{ copyLabel }}</button>
+</div>
+
+<section aria-label="Resumo" style="display: flex; flex-wrap: wrap; align-items: center; gap: 24px; padding: 22px 24px; border-radius: 20px; background: #0F1916; border: 1px solid #1F332D">
+<span style="position: relative; width: 104px; height: 104px; flex: 0 0 104px; display: flex; align-items: center; justify-content: center">
+<span class="zp-pulse" style="{{ ringStyle }}"></span>
+<img src="icone.png" alt="" style="position: relative; width: 92px; height: 92px; border-radius: 24px; display: block; box-shadow: 0 0 0 1px #2A443C, 0 0 30px rgba(59,240,138,0.3)">
+</span>
+<div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-family: 'Unbounded', sans-serif; font-weight: 700; font-size: 24px; letter-spacing: -0.01em">{{ verdict }}</h2>
+<span style="color: #A3BDB1">{{ verdictSub }}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #7E978B">streamaZap 0.1.0 · protocolo 3 · Windows 11 64 bits</span>
+</div>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{ checks }}" as="c" hint-placeholder-count="5">
+<li style="{{ c.pillStyle }}">{{ c.short }}</li>
+</sc-for>
+</ul>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
+<sc-for list="{{ checks }}" as="c" hint-placeholder-count="5">
+<section style="flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 20px 22px; border-radius: 18px; background: #0F1916; border: 1px solid #1F332D">
+<div style="display: flex; align-items: center; gap: 12px">
+<span style="{{ c.iconStyle }}">
+<sc-if value="{{ c.isOk }}" hint-placeholder-val="{{ true }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"></path></svg></sc-if>
+<sc-if value="{{ c.isWarn }}" hint-placeholder-val="{{ false }}"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 6v8M12 18h.01"></path></svg></sc-if>
+<sc-if value="{{ c.isChecking }}" hint-placeholder-val="{{ false }}"><svg class="zp-spin" width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg></sc-if>
+</span>
+<h2 style="margin: 0; flex: 1; font-size: 16px; font-weight: 700">{{ c.title }}</h2>
+<span style="{{ c.chipStyle }}">{{ c.statusText }}</span>
+</div>
+<ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{ c.lines }}" as="l" hint-placeholder-count="3">
+<li style="display: flex; align-items: flex-start; gap: 10px">
+<span style="{{ l.dotStyle }}"></span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<span style="line-height: 1.4">{{ l.text }}</span>
+<sc-if value="{{ l.hasSub }}" hint-placeholder-val="{{ false }}"><span style="font-size: 12.5px; color: #8BA498; line-height: 1.4">{{ l.sub }}</span></sc-if>
+</span>
+<sc-if value="{{ l.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="{{ l.badgeStyle }}">{{ l.badge }}</span></sc-if>
+</li>
+</sc-for>
+</ul>
+<sc-if value="{{ c.hasAction }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: auto; padding-top: 4px">
+<button class="zp-warnbtn" sc-camel-on-click="{{ c.action }}" style="height: 44px; padding: 0 18px; border-radius: 12px; border: 0; background: #FFB547; color: #1A1204; font-weight: 700; display: flex; align-items: center; gap: 8px"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 5 3 8.5 7 10 4-1.5 7-5 7-10V6z"></path></svg>{{ c.actionLabel }}</button>
+<span style="font-size: 12px; color: #8BA498">{{ c.actionHint }}</span>
+</div>
+</sc-if>
+</section>
+</sc-for>
+
+<section aria-labelledby="h-ler" style="flex: 1 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 12px; padding: 20px 22px; border-radius: 18px; background: rgba(92,214,255,0.06); border: 1px solid rgba(92,214,255,0.25)">
+<h2 id="h-ler" style="margin: 0; display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700"><svg width="20" height="20" sc-camel-view-box="0 0 24 24" fill="none" stroke="#5CD6FF" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5h.01"></path></svg>Como ler isso</h2>
+<p style="margin: 0; color: #C6D9CF; line-height: 1.55">Se a sala de alguém aparece mas dá <b style="color: #E6F4EC">tempo esgotado</b>, e do lado do nome dele está “não recebe nada do seu PC”, o bloqueio está no PC <b style="color: #E6F4EC">dele</b>.</p>
+<p style="margin: 0; color: #C6D9CF; line-height: 1.55">Teste rápido no PC bloqueado: desligue o Firewall do Windows por 1 minuto. Funcionou? É o firewall, use <b style="color: #E6F4EC">Corrigir firewall</b>. Não funcionou? É antivírus ou o Radmin — veja se a conexão no Radmin está “direta”.</p>
+<p style="margin: 0; color: #C6D9CF; line-height: 1.55">No modo <b style="color: #E6F4EC">Online</b> nada disso importa tanto: o servidor faz a ponte quando a conexão direta falha.</p>
+</section>
+</div>
+
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1280}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { fixed: false, checking: false, copied: false };
+  }
+  renderVals() {
+    const st = this.state;
+    const TONE = { ok: '#3BF08A', warn: '#FFB547', bad: '#FF8592', info: '#7E978B' };
+    const line = (tone, text, sub, badge) => ({
+      text, sub: sub || '', hasSub: !!sub, badge: badge || '', hasBadge: !!badge,
+      dotStyle: 'flex: 0 0 8px; width: 8px; height: 8px; margin-top: 7px; border-radius: 50%; background: ' + TONE[tone] + (tone === 'ok' ? '; box-shadow: 0 0 8px ' + TONE[tone] : ''),
+      badgeStyle: 'flex: 0 0 auto; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; display: flex; align-items: center; white-space: nowrap; color: ' + TONE[tone] + '; background: ' + (tone === 'ok' ? 'rgba(59,240,138,0.12)' : tone === 'warn' ? 'rgba(255,181,71,0.12)' : 'rgba(255,133,146,0.12)')
+    });
+    const fw = st.fixed
+      ? [line('ok', 'Regra streamaZap: permitir entrada em todas as redes'), line('ok', '“Bloquear todas as conexões de entrada”: desligado'), line('info', 'Rede do Radmin classificada como: Pública', 'Tudo bem: a regra já cobre redes públicas.')]
+      : [line('bad', 'Regra streamaZap: bloquear entrada', 'Alguém clicou em “Cancelar” no aviso do Windows.'), line('warn', '“Bloquear todas as conexões de entrada”: ligado', 'Isso ignora qualquer liberação.'), line('info', 'Rede do Radmin classificada como: Pública')];
+    const RAW = [
+      { id: 'srv', title: 'Servidor online', short: 'Servidor', status: 'ok', lines: [
+        line('ok', 'Conectado em sa-east · 42 ms'),
+        line('ok', 'Senha do servidor aceita'),
+        line('ok', 'API compatível com o protocolo 3')
+      ] },
+      { id: 'net', title: 'Rede', short: 'Rede', status: 'warn', lines: [
+        line('ok', 'Radmin VPN · 26.12.34.56'),
+        line('ok', 'Ethernet · 192.168.0.12'),
+        line('warn', 'NordVPN detectado', 'Se o kill switch estiver ligado, ele bloqueia o Radmin mesmo com o firewall liberado. Teste com ele fechado.')
+      ] },
+      { id: 'fw', title: 'Firewall do Windows', short: 'Firewall', status: st.fixed ? 'ok' : 'warn', lines: fw,
+        action: st.fixed ? null : () => this.setState({ fixed: true }), actionLabel: 'Corrigir firewall', actionHint: 'Pede permissão de administrador uma vez.' },
+      { id: 'peers', title: 'Amigos com o app aberto', short: 'Amigos', status: 'warn', lines: [
+        line('ok', 'Marcão · 26.14.2.88 · v0.1.0', '', 'recebe você'),
+        line('ok', 'Ju · 26.40.11.7 · v0.1.0', '', 'recebe você'),
+        line('bad', 'Dudu · 26.77.4.201 · v0.0.9', 'Não recebe nada do seu PC — o bloqueio está no PC dele.', 'não recebe'),
+        line('ok', 'Rafa · 26.9.77.140 · v0.1.0', '', 'recebe você')
+      ] },
+      { id: 'rooms', title: 'Salas encontradas', short: 'Salas', status: 'ok', lines: [
+        line('ok', 'Sexta do Rush — Marcão', 'online · ZAP-7K2Q'),
+        line('ok', 'Corrida em Interlagos — Rafa', 'local · 26.9.77.140:47800'),
+        line('warn', 'Ranked até cair — Dudu', 'local · 26.77.4.201:47800 · versão 0.0.9')
+      ] }
+    ];
+    const statusText = { ok: 'Tudo certo', warn: 'Atenção', checking: 'Verificando…' };
+    const checks = RAW.map((c) => {
+      const s = st.checking ? 'checking' : c.status;
+      const col = s === 'ok' ? '#3BF08A' : s === 'warn' ? '#FFB547' : '#A3BDB1';
+      const bg = s === 'ok' ? 'rgba(59,240,138,0.12)' : s === 'warn' ? 'rgba(255,181,71,0.12)' : '#16241F';
+      return {
+        ...c,
+        isOk: s === 'ok', isWarn: s === 'warn', isChecking: s === 'checking',
+        statusText: statusText[s],
+        hasAction: !!c.action && !st.checking,
+        action: c.action || (() => {}),
+        actionLabel: c.actionLabel || '', actionHint: c.actionHint || '',
+        iconStyle: 'flex: 0 0 40px; width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: ' + col + '; background: ' + bg,
+        chipStyle: 'height: 28px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; display: flex; align-items: center; color: ' + col + '; background: ' + bg,
+        pillStyle: 'height: 32px; padding: 0 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; color: ' + col + '; border: 1px solid ' + col + '55; background: ' + bg
+      };
+    });
+    const warns = RAW.filter((c) => c.status !== 'ok').length;
+    const verdict = st.checking ? 'Verificando sua conexão…' : warns === 0 ? 'Tudo certo pra transmitir' : 'Quase lá · ' + warns + (warns === 1 ? ' aviso' : ' avisos');
+    const verdictSub = st.checking ? 'Olhando servidor, Radmin, firewall e quem está online.' : warns === 0 ? 'Seu PC recebe e envia sem bloqueio.' : 'Dá pra entrar nas salas, mas alguns amigos podem não te ver. Veja os itens em amarelo.';
+    const ringCol = st.checking ? '#A3BDB1' : warns === 0 ? '#3BF08A' : '#FFB547';
+    return {
+      checks, verdict, verdictSub,
+      ringStyle: 'position: absolute; inset: 0; border-radius: 30px; border: 2px solid ' + ringCol,
+      recheck: () => { this.setState({ checking: true }); setTimeout(() => this.setState({ checking: false }), 1500); },
+      copy: () => { this.setState({ copied: true }); setTimeout(() => this.setState({ copied: false }), 1800); },
+      copyLabel: st.copied ? 'Copiado!' : 'Copiar relatório'
+    };
+  }
+}
+</script>
+
+
+</body></html>

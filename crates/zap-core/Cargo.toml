@@ -1,0 +1,22 @@
+[package]
+name = "zap-core"
+description = "Orquestração do StreamaZap: sala, publicação, assinatura, threads e estado para a interface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+zap-proto.workspace = true
+zap-rate.workspace = true
+zap-net.workspace = true
+zap-media.workspace = true
+zap-sys.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

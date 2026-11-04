@@ -1,0 +1,74 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+# app/src-tauri entra no workspace no marco M3.
+
+[workspace.package]
+version = "3.0.0-alpha.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+repository = "https://github.com/HeitorCanhizares/streamaZap"
+
+[workspace.dependencies]
+# crates do projeto
+zap-proto = { path = "crates/zap-proto" }
+zap-rate = { path = "crates/zap-rate" }
+zap-net = { path = "crates/zap-net" }
+zap-media = { path = "crates/zap-media" }
+zap-sys = { path = "crates/zap-sys" }
+zap-core = { path = "crates/zap-core" }
+
+# base
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+bytes = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.9"
+
+# criptografia e codificação
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+
+# rede
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+rcgen = "0.14"
+webpki-roots = "1"
+socket2 = { version = "0.6", features = ["all"] }
+if-addrs = "0.15"
+
+# mídia (M2)
+rtrb = "0.3"
+rubato = "0.16"
+cpal = "0.16"
+windows = "0.62"
+
+# testes
+proptest = "1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2

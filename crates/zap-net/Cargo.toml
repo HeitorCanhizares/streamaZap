@@ -1,0 +1,31 @@
+[package]
+name = "zap-net"
+description = "Rede do StreamaZap: QUIC zap/4, mídia com prazo, relatórios e descoberta na LAN"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+zap-proto.workspace = true
+zap-rate.workspace = true
+tokio.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+webpki-roots.workspace = true
+sha2.workspace = true
+bytes.workspace = true
+socket2.workspace = true
+if-addrs.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,17 @@
+[package]
+name = "zap-sys"
+description = "Integração do StreamaZap com o Windows: firewall, interfaces de rede, Radmin e VPNs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

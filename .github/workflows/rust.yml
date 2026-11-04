@@ -1,0 +1,58 @@
+name: Rust (v3)
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "crates/**"
+      - "app/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "crates/**"
+      - "app/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
+      - name: Compilador cruzado (MinGW) para checar o código do Windows
+        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64
+      - name: Formatação
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Testes
+        run: cargo test --workspace
+      - name: Checar o código do Windows (x86_64-pc-windows-gnu)
+        run: cargo check --workspace --all-targets --target x86_64-pc-windows-gnu
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Testes (inclui captura, codificação e áudio reais)
+        run: cargo test --workspace -- --nocapture

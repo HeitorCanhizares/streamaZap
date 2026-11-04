@@ -1,0 +1,17 @@
+[package]
+name = "zap-rate"
+description = "Algoritmos de qualidade e latência do StreamaZap: estimador de banda, alocador de camadas, suavização e simulador de enlace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+zap-proto.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

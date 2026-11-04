@@ -1,0 +1,23 @@
+[package]
+name = "zap-proto"
+description = "Tipos e formatos do protocolo 4 do StreamaZap (sem I/O)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+base64.workspace = true
+bytes.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
