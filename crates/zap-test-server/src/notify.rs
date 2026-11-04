@@ -61,10 +61,10 @@ impl Inner {
         }
     }
 
-    /// `zap_proto::Participant` (`papel` = dono se for o dono da sala; `assistindo` vem do
-    /// campo de `ParticipantData` quando houver).
+    /// `zap_proto::Participant` (`papel` = dono se for o dono da sala; `assistindo` vem de
+    /// `ParticipantData::watching`).
     pub fn participant_view(&self, p: &ParticipantData, room: &RoomData) -> Participant {
-        // `ParticipantData` ainda não guarda latência nem `assistindo`: ficam ausentes.
+        // `ParticipantData` ainda não guarda latência: fica ausente.
         let role = if p.id == room.owner_id {
             Role::Owner
         } else {
@@ -79,7 +79,7 @@ impl Inner {
             app_version: p.app_version.clone(),
             protocol: p.protocol,
             latency_ms: None,
-            watching: None,
+            watching: p.watching.clone(),
         }
     }
 

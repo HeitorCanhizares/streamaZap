@@ -3,6 +3,7 @@
 App de compartilhamento de tela, janela, câmera e som por app, entre amigos (Radmin/LAN e servidor
 online). Estamos migrando do app Python (`streamazap/`) para a **v3 em Rust + Tauri**.
 
+- **Estado atual e próximos passos: `docs/ESTADO.md`** (leia primeiro).
 - Plano mestre: `docs/arquitetura-v3.md` (leia antes de qualquer mudança grande).
 - Contrato do servidor e do protocolo: `docs/api/`.
 - Planos dos marcos e tarefas: `docs/planos/`.

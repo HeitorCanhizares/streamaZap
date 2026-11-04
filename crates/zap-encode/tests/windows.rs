@@ -31,6 +31,11 @@ fn preparar() -> Option<(GpuDevice, Vec<zap_encode::EncoderInfo>)> {
             return None;
         }
     };
+    // Estes testes convertem BGRA → NV12 na GPU antes de codificar.
+    if !dev.has_video() {
+        eprintln!("pulando: GPU sem Video Processor ({})", dev.adapter().name);
+        return None;
+    }
     match zap_encode::list_encoders() {
         Ok(l) if !l.is_empty() => Some((dev, l)),
         Ok(_) => {

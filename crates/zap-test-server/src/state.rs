@@ -70,6 +70,9 @@ pub struct ParticipantData {
     pub joined_at: String,
     /// Canal de saída do WebSocket atual (um por participante; o mais novo vence).
     pub ws: Option<mpsc::UnboundedSender<ControlMsg>>,
+    /// Trilha de vídeo que o participante assiste em tamanho principal/cheia (`None` = nenhuma
+    /// ou só miniaturas). Vai em `Participant::watching`.
+    pub watching: Option<String>,
     /// Conexão QUIC da ponte atual, se houver.
     pub quic: Option<quinn::Connection>,
     /// Porta UDP de origem vista na conexão QUIC (`GET /v1/diagnostico`).
@@ -216,6 +219,7 @@ impl Hub {
                         ws_room: None,
                         joined_at: now_iso(),
                         ws: None,
+                        watching: None,
                         quic: None,
                         quic_port: None,
                         public_ip: remote_ip.to_string(),

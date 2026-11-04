@@ -83,7 +83,7 @@ impl Converter {
             Usage: D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
         };
         // SAFETY: `desc` é válido durante a chamada; o dispositivo de vídeo é válido.
-        let enumerator = unsafe { dev.video_device.CreateVideoProcessorEnumerator(&desc) }
+        let enumerator = unsafe { dev.video()?.0.CreateVideoProcessorEnumerator(&desc) }
             .map_err(|e| os("CreateVideoProcessorEnumerator", e))?;
 
         let suporta = |fmt: DXGI_FORMAT, flag: i32| -> Result<bool, GpuError> {
@@ -99,7 +99,7 @@ impl Converter {
         }
 
         // SAFETY: `enumerator` é válido; índice 0 de conversão de taxa sempre existe.
-        let processor = unsafe { dev.video_device.CreateVideoProcessor(&enumerator, 0) }
+        let processor = unsafe { dev.video()?.0.CreateVideoProcessor(&enumerator, 0) }
             .map_err(|e| os("CreateVideoProcessor", e))?;
 
         // Espaço de cor (versão bitfield). Entrada RGB: 0-255; entrada NV12: 16-235. Saída: BT.709 16-235.
@@ -120,7 +120,7 @@ impl Converter {
             right: out_w as i32,
             bottom: out_h as i32,
         };
-        let ctx = &dev.video_context;
+        let ctx = dev.video()?.1;
         // SAFETY: `processor` e `ctx` são válidos; os ponteiros apontam para locais vivos na chamada.
         unsafe {
             ctx.VideoProcessorSetStreamColorSpace(&processor, 0, &entrada);
@@ -196,14 +196,16 @@ impl Converter {
         let mut in_view: Option<ID3D11VideoProcessorInputView> = None;
         // SAFETY: textura, enumerador e descritor são válidos; `in_view` é saída local.
         unsafe {
-            dev.video_device
+            dev.video()?
+                .0
                 .CreateVideoProcessorInputView(src.raw(), &self.enumerator, &in_desc, Some(&mut in_view))
         }
         .map_err(|e| os("CreateVideoProcessorInputView", e))?;
         let mut out_view: Option<ID3D11VideoProcessorOutputView> = None;
         // SAFETY: idem acima, para a visão de saída.
         unsafe {
-            dev.video_device
+            dev.video()?
+                .0
                 .CreateVideoProcessorOutputView(dst.raw(), &self.enumerator, &out_desc, Some(&mut out_view))
         }
         .map_err(|e| os("CreateVideoProcessorOutputView", e))?;
@@ -230,7 +232,8 @@ impl Converter {
         let streams = [stream];
         // SAFETY: processador, visão de saída e o stream (com a visão de entrada viva) são válidos.
         let r = unsafe {
-            dev.video_context
+            dev.video()?
+                .1
                 .VideoProcessorBlt(&self.processor, &out_view, 0, &streams)
         };
         // Libera a visão de entrada: o ManuallyDrop não faz isso sozinho.
@@ -251,6 +254,10 @@ mod tests {
             eprintln!("pulando: sem GPU");
             return;
         };
+        if !dev.has_video() {
+            eprintln!("pulando: GPU sem Video Processor");
+            return;
+        }
         let r = Converter::new(&dev, 641, 360, PixelFormat::Bgra8, 640, 360);
         assert!(matches!(r, Err(GpuError::InvalidArgument(_))));
     }

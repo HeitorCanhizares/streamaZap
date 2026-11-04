@@ -37,4 +37,31 @@ describe('ServerStatus', () => {
     const primeiro = bolinhas[0] as HTMLElement
     expect(primeiro.style.background).toContain('var(--verde)')
   })
+
+  it('server online mostra o ping', () => {
+    render(<ServerStatus server={{ state: 'online', ping_ms: 42 }} radminIp={null} />)
+    expect(screen.getByText('Servidor online · 42 ms')).toBeTruthy()
+  })
+
+  it('server connecting mostra "conectando…"', () => {
+    render(<ServerStatus server={{ state: 'connecting' }} radminIp={null} />)
+    expect(screen.getByText('Servidor · conectando…')).toBeTruthy()
+  })
+
+  it('server error mostra "desconectado" e a mensagem no title', () => {
+    render(<ServerStatus server={{ state: 'error', message: 'sem rede' }} radminIp={null} />)
+    const texto = screen.getByText('Servidor · desconectado')
+    expect(texto.getAttribute('title')).toBe('sem rede')
+  })
+
+  it('server off mostra "não configurado"', () => {
+    render(<ServerStatus server={{ state: 'off' }} radminIp={null} />)
+    expect(screen.getByText('Servidor · não configurado')).toBeTruthy()
+  })
+
+  it('server tem prioridade sobre serverMs', () => {
+    render(<ServerStatus serverMs={99} server={{ state: 'connecting' }} radminIp={null} />)
+    expect(screen.getByText('Servidor · conectando…')).toBeTruthy()
+    expect(screen.queryByText('Servidor online · 99 ms')).toBeNull()
+  })
 })

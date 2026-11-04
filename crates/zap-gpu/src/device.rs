@@ -53,6 +53,7 @@ fn achar_adaptador(
 fn criar_d3d(
     adapter: &IDXGIAdapter,
     niveis: &[D3D_FEATURE_LEVEL],
+    com_video: bool,
 ) -> windows::core::Result<(ID3D11Device, ID3D11DeviceContext)> {
     let mut dev: Option<ID3D11Device> = None;
     let mut ctx: Option<ID3D11DeviceContext> = None;
@@ -63,7 +64,11 @@ fn criar_d3d(
             Some(adapter),
             D3D_DRIVER_TYPE_UNKNOWN,
             HMODULE::default(),
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
+            if com_video {
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT
+            } else {
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT
+            },
             Some(niveis),
             D3D11_SDK_VERSION,
             Some(&mut dev),
@@ -77,13 +82,15 @@ fn criar_d3d(
     }
 }
 
-/// Dispositivo D3D11 (HARDWARE, `BGRA_SUPPORT | VIDEO_SUPPORT`) com multithread protegido
-/// (`ID3D11Multithread::SetMultithreadProtected(TRUE)`).
+/// Dispositivo D3D11 com multithread protegido (`ID3D11Multithread::SetMultithreadProtected(TRUE)`).
+///
+/// Normalmente `BGRA_SUPPORT | VIDEO_SUPPORT` numa GPU de verdade. Sem suporte a vídeo (driver
+/// básico, máquina virtual, runner do CI) o dispositivo ainda serve para captura, texturas e leitura;
+/// só o `Converter` (Video Processor) fica indisponível (`video()` devolve `Unsupported`).
 pub struct GpuDevice {
     pub(crate) device: ID3D11Device,
     pub(crate) context: ID3D11DeviceContext,
-    pub(crate) video_device: ID3D11VideoDevice,
-    pub(crate) video_context: ID3D11VideoContext,
+    pub(crate) video: Option<(ID3D11VideoDevice, ID3D11VideoContext)>,
     pub(crate) adapter: AdapterInfo,
 }
 
@@ -96,27 +103,44 @@ unsafe impl Sync for GpuDevice {}
 impl GpuDevice {
     /// Adaptador padrão (primeiro de `IDXGIFactory1::EnumAdapters1`), driver HARDWARE.
     pub fn create_default() -> Result<Self, GpuError> {
-        // Pula o adaptador de software (WARP): queremos GPU de verdade.
-        let adapter = achar_adaptador(|d| (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) == 0)?;
-        Self::create(adapter)
+        // 1) GPU de verdade com vídeo; 2) a mesma sem vídeo; 3) qualquer adaptador (inclusive o
+        // "Microsoft Basic Render Driver" de máquinas virtuais e do CI), sem vídeo.
+        let real = achar_adaptador(|d| (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) == 0);
+        let mut ultimo = None;
+        if let Ok(adapter) = real {
+            match Self::create(adapter.clone(), true) {
+                Ok(dev) => return Ok(dev),
+                Err(e) => {
+                    tracing::warn!("GPU sem suporte a vídeo do D3D11 ({e}); tentando sem vídeo");
+                    match Self::create(adapter, false) {
+                        Ok(dev) => return Ok(dev),
+                        Err(e) => ultimo = Some(e),
+                    }
+                }
+            }
+        }
+        match achar_adaptador(|_| true) {
+            Ok(adapter) => Self::create(adapter, false).map_err(|e| ultimo.unwrap_or(e)),
+            Err(e) => Err(ultimo.unwrap_or(e)),
+        }
     }
     /// Adaptador com o LUID dado (`AdapterInfo::luid`, = HighPart<<32 | LowPart).
     /// LUID desconhecido: `GpuError::AdapterNotFound`.
     pub fn create_for_adapter(luid: i64) -> Result<Self, GpuError> {
         let adapter = achar_adaptador(|d| luid_de(d) == luid)?;
-        Self::create(adapter)
+        Self::create(adapter.clone(), true).or_else(|_| Self::create(adapter, false))
     }
 
-    fn create(adapter: IDXGIAdapter1) -> Result<Self, GpuError> {
+    fn create(adapter: IDXGIAdapter1, com_video: bool) -> Result<Self, GpuError> {
         // SAFETY: `adapter` é um objeto COM válido.
         let desc = unsafe { adapter.GetDesc1() }.map_err(|e| os("GetDesc1", e))?;
         let base: IDXGIAdapter = adapter.cast().map_err(|e| os("IDXGIAdapter", e))?;
 
         // Tenta 11_1 e, se o sistema não conhece esse nível (E_INVALIDARG), cai para 11_0.
-        let (device, context) = match criar_d3d(&base, &[D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0]) {
+        let (device, context) = match criar_d3d(&base, &[D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0], com_video) {
             Ok(par) => par,
             Err(e) if e.code() == E_INVALIDARG => {
-                criar_d3d(&base, &[D3D_FEATURE_LEVEL_11_0]).map_err(|e| os("D3D11CreateDevice", e))?
+                criar_d3d(&base, &[D3D_FEATURE_LEVEL_11_0], com_video).map_err(|e| os("D3D11CreateDevice", e))?
             }
             Err(e) => return Err(os("D3D11CreateDevice", e)),
         };
@@ -126,8 +150,13 @@ impl GpuDevice {
         // O retorno é o estado anterior, que não interessa.
         let _ = unsafe { mt.SetMultithreadProtected(true) };
 
-        let video_device: ID3D11VideoDevice = device.cast().map_err(|e| os("video device", e))?;
-        let video_context: ID3D11VideoContext = context.cast().map_err(|e| os("video device", e))?;
+        let video = if com_video {
+            let vd: ID3D11VideoDevice = device.cast().map_err(|e| os("video device", e))?;
+            let vc: ID3D11VideoContext = context.cast().map_err(|e| os("video context", e))?;
+            Some((vd, vc))
+        } else {
+            None
+        };
 
         let fim = desc
             .Description
@@ -143,8 +172,7 @@ impl GpuDevice {
         Ok(Self {
             device,
             context,
-            video_device,
-            video_context,
+            video,
             adapter: adapter_info,
         })
     }
@@ -156,6 +184,14 @@ impl GpuDevice {
     }
     pub fn context(&self) -> &ID3D11DeviceContext {
         &self.context
+    }
+    /// O dispositivo tem o Video Processor (conversão/escala para NV12 na GPU)?
+    pub fn has_video(&self) -> bool {
+        self.video.is_some()
+    }
+    /// Dispositivo e contexto de vídeo, ou `Unsupported` se a GPU/driver não oferece.
+    pub(crate) fn video(&self) -> Result<(&ID3D11VideoDevice, &ID3D11VideoContext), GpuError> {
+        self.video.as_ref().map(|(d, c)| (d, c)).ok_or(GpuError::Unsupported)
     }
 }
 

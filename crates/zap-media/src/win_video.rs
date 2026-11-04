@@ -498,8 +498,8 @@ mod tests {
 
     /// `None` (com aviso) quando o ambiente não tem GPU ou monitor.
     fn iniciar(ladder: Vec<LayerSpec>) -> Option<(VideoPipeline, Receiver<EncodedFrame>)> {
-        if GpuDevice::create_default().is_err() {
-            eprintln!("sem GPU: teste ignorado");
+        if !GpuDevice::create_default().is_ok_and(|d| d.has_video()) {
+            eprintln!("sem GPU com Video Processor: teste ignorado");
             return None;
         }
         match zap_capture::list_monitors() {

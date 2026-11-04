@@ -1,6 +1,6 @@
 // Tipos compartilhados da frente shell (barra de título e trilho lateral).
 import type { ReactNode } from 'react'
-import type { ShareView, TileView } from '../../bridge/types'
+import type { ServerStatus, ShareView, TileView } from '../../bridge/types'
 
 // Telas navegáveis. 'criar' e 'sala' têm item próprio no trilho.
 export type NavTarget = 'salas' | 'criar' | 'sala' | 'diag' | 'config'
@@ -10,6 +10,8 @@ export interface WindowControlsProps { onMinimize?: () => void; onMaximize?: () 
 export interface ServerStatusProps {
   /** Ping até o servidor em ms; undefined/null = mostra só "Servidor online". */
   serverMs?: number | null
+  /** Estado do servidor Online; tem prioridade sobre serverMs */
+  server?: ServerStatus
   /** IP do Radmin; null/undefined = "não detectado". */
   radminIp?: string | null
 }
