@@ -5,5 +5,14 @@
 //! tempo virtual. Especificação: `docs/arquitetura-v3.md` (seção 6) e `docs/api/balanceamento.md`.
 #![forbid(unsafe_code)]
 
+pub mod allocator;
+pub mod bwe;
+pub mod jitter;
+pub mod ladder;
+pub mod sim;
+pub mod trendline;
+pub mod unwrap;
+pub mod window;
+
 /// Instante ou duração em microssegundos.
 pub type Us = u64;

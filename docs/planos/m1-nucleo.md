@@ -432,3 +432,19 @@ Socket com `SO_REUSEADDR` e `SO_BROADCAST`. Ignora os próprios pacotes (`instal
 | Testes de tempo instáveis no CI | Algoritmos testados com relógio simulado; testes de rede com margens largas e `#[tokio::test(flavor = "multi_thread")]` |
 | BBR do quinn ainda é "experimental" | Opção de trocar para Cubic numa linha (`TransportConfig`); o estimador do app é quem manda no bitrate |
 | Broadcast UDP bloqueado no CI | Teste de descoberta usa unicast no loopback (`DiscoveryConfig` aceita destinos extras em teste) |
+
+## Estado de fechamento do M1
+
+**Fechado.** Gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo test --workspace` (todos os testes de aceite) e `cargo check --workspace --target x86_64-pc-windows-gnu`.
+
+Os 3 testes que o integrador deixou para o planejador foram resolvidos com decisões registradas em
+`docs/arquitetura-v3.md` (6.1 e 6.3) e `docs/api/midia.md`:
+- Convergência e volta de banda: fase inicial de 50%/s, esquecer a última sobrecarga após 5 s,
+  sobrecarga do GCC só com 2 grupos seguidos, filtro de rajada (keyframe) e fila persistente.
+  A faixa do teste de convergência passou a 0,8–1,1 × a capacidade (é a amplitude do dente de
+  serra do AIMD) e a detecção da queda, a 700 ms (filtro de rajada de 200 ms + relatório).
+- Rede ruim (net-23): fim de quadro = ACK, FIFO entre streams, admissão no `MediaSender`, Cubic,
+  `perda` só de datagramas de áudio, e descarte do emissor como sinal no estimador.
+- O teste de loopback usa prazo de 2 s (ele confere ordem e integridade; o prazo é testado no
+  `impaired.rs`).

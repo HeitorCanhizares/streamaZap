@@ -187,6 +187,22 @@ Combinação (inspirada no GCC do WebRTC):
    da última sobrecarga, sobe aditivo (~1 pacote por RTT) perto dela; ociosa → mantém.
 3. **Perda**: > 10% → reduz `(1 − 0,5·perda)`; < 2% → libera subida.
 4. Estimativa = mínimo dos dois, limitada a `[150 kbps, 1,5 × soma das L0]`.
+
+Ajustes decididos no fechamento do M1 (provados no simulador e no teste de rede ruim):
+- **Fase inicial**: até a primeira sobrecarga ou perda ≥ 2%, sobe **50%/s** (como o *slow start*);
+  acha 8 Mbps partindo de 1 Mbps em ~6 s. A "vizinhança da última sobrecarga" (subida aditiva,
+  `max(96 kbps, 3%)`/s) é esquecida 5 s depois da última sobrecarga.
+- **Sobrecarga do GCC só com 2 grupos seguidos** acima do limiar (o primeiro conta meio intervalo)
+  e a tendência ainda subindo.
+- **Filtro de rajada**: grupo com mais de 4× os bytes médios (keyframe) e os grupos logo atrás
+  dele ficam fora da tendência até o atraso voltar ao nível de antes (no máximo 200 ms); se o
+  atraso **piorar** além do da própria rajada, é congestionamento e o filtro sai na hora.
+- **Fila persistente** (ideia do CoDel): se o menor atraso dos últimos 300 ms está 30 ms acima da
+  base (menor atraso em 10 s), a fila nunca esvazia → sobrecarga, mesmo sem tendência (platô de
+  fila cheia, gargalo com fila curta).
+- **Descarte do emissor é sinal**: com ≥ 3 buracos de `seq` de vídeo por segundo, a estimativa vai
+  para 0,95 × a vazão que chega. Sem isso, a fila fica no emissor (admissão/prazo), o receptor
+  não vê atraso e a estimativa subiria até o dobro do que a rota aguenta.
 5. **Sondagem**: para saber se cabe uma camada maior sem arriscar, o Publisher envia rajadas de
    enchimento (datagramas de padding) de 200 ms na taxa alvo; o relatório do receptor mede.
 
@@ -214,9 +230,12 @@ publica roda a parte de subida (publicador → servidor). O algoritmo está espe
 
 ### 6.3 Prazo e descarte no envio
 
-- Cada quadro vai num stream QUIC próprio com prioridade (keyframe > quadro recente > antigo).
-- Quadro com mais de `max(150 ms, 2 × RTT)` na fila de um espectador: o stream é resetado
-  (`reset`, sem retransmitir). O espectador marca a trilha como "precisa de keyframe".
+- Cada quadro vai num stream QUIC próprio, em ordem FIFO (`send_fairness = false`), keyframe com
+  prioridade maior. Controle de congestionamento do QUIC: Cubic.
+- O quadro só termina quando o outro lado **confirma** todos os bytes. Sem confirmação em
+  `max(150 ms, 2 × RTT)`: o stream é resetado (`reset`, sem retransmitir). Antes de abrir o stream,
+  **admissão**: se a fila à frente não esvazia no prazo na taxa atual (cwnd/RTT), o quadro é
+  descartado na hora. O espectador marca a trilha como "precisa de keyframe".
 - Keyframe de recuperação: no máximo 1 a cada 2 s por espectador lento, para um espectador ruim não
   forçar keyframes caros para todo mundo (regra já usada no app Python).
 

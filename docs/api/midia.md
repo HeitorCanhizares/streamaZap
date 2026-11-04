@@ -18,7 +18,8 @@ Uma conexão leva **todas** as trilhas entre os dois lados, nos dois sentidos.
 | `initial_max_streams_uni` | ≥ 1024 |
 | Datagramas | obrigatórios (`max_datagram_frame_size` ≥ 1200) |
 | MTU inicial | 1200 (Radmin e VPNs), descoberta de MTU ligada |
-| Controle de congestionamento | BBR recomendado; Cubic aceito |
+| Controle de congestionamento | Cubic (o app usa Cubic; o BBR do quinn 0.11 ainda enche a fila do gargalo). Quem manda na taxa é o estimador de banda do app |
+| Ordem entre streams | FIFO (sem rodízio entre streams): o quadro mais velho termina primeiro |
 | RTT inicial | 100 ms |
 
 ## Streams e datagramas
@@ -53,9 +54,11 @@ Cabeçalho de 30 bytes + um *access unit* H.264 completo em Annex B (com start c
 
 Regras:
 - Todo keyframe traz SPS/PPS (`flags` = `0x03`).
-- **Prazo**: quem envia reseta o stream (código `0x10`, "atrasado") se o quadro não terminou de
-  ser escrito em `max(150 ms, 2 × RTT)` desde que entrou na fila. Quem recebe descarta streams
-  resetados ou incompletos.
+- **Prazo**: quem envia reseta o stream (código `0x10`, "atrasado") se o quadro não foi
+  **confirmado pelo outro lado** (todos os bytes com ACK) em `max(150 ms, 2 × RTT)` desde que
+  entrou na fila. Antes de abrir o stream, quem envia também pode descartar o quadro na hora
+  (admissão) se a fila à frente não esvazia dentro do prazo. Quem recebe descarta streams
+  resetados ou incompletos; o `seq` que faltou vai em `perdidos`.
 - Depois de um quadro perdido, a camada só volta a ser decodificável no próximo keyframe. Quem
   envia já sabe (resetou) e manda keyframe; quem recebe, se ficar 300 ms sem quadro decodificável,
   manda `keyframe.pedir`.
@@ -112,8 +115,8 @@ quando o estado vira `sobrecarga`):
 | `chegadas` | sim | `[trilha, camada, seq, envio_us, chegada_us, bytes]` de cada quadro (último byte) e pacote de áudio (`camada` = 0) recebidos desde o último relatório. `chegada_us` é o relógio de quem recebe |
 | `sondas` | se houve | `[cluster, seq, envio_us, chegada_us, bytes]` |
 | `perdidos` | sim | quadros resetados/incompletos |
-| `perda` | sim | fração de mídia perdida nos últimos 2 s (0–1) |
-| `banda_kbps` | app: sim; servidor: não | estimativa de banda **de recepção** feita por quem recebe |
+| `perda` | sim | fração de **datagramas de áudio** perdidos na rede nos últimos 2 s (0–1), por buraco de `seq`. Quadros de vídeo descartados por quem envia **não** contam (vão em `perdidos`) |
+| `banda_kbps` | app: sim; servidor: não | estimativa de banda **de recepção** feita por quem recebe. Leva em conta atraso (tendência e fila persistente) e quadros descartados pelo emissor (buracos de `seq`): com ≥ 3 por segundo, vai para 0,95 × a vazão que chega |
 | `estado` | app: sim; servidor: não | `sobrecarga` \| `normal` \| `ociosa` (detector de atraso) |
 | `buffer_ms` | app: sim | suavização atual de quem assiste |
 

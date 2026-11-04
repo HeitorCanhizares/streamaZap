@@ -22,6 +22,7 @@ if-addrs.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 parking_lot.workspace = true
+rand.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
