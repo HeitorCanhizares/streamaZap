@@ -21,6 +21,8 @@ describe('fixture snapshot_exemplo.json', () => {
   })
 
   it('mockSnapshot tem as mesmas chaves de topo', () => {
-    expect(Object.keys(mockSnapshot()).sort()).toEqual(Object.keys(snap).sort())
+    // `server` e opcional (ausente quando nao configurado); so o mock o traz.
+    const { server: _server, ...resto } = mockSnapshot()
+    expect(Object.keys(resto).sort()).toEqual(Object.keys(snap).sort())
   })
 })

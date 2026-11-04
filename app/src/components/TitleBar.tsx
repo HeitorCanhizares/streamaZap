@@ -10,7 +10,7 @@ export type { TitleBarProps } from './shell/types'
 // O próprio <header> e os textos são região de arrasto (Tauri); os botões
 // não têm o atributo, assim o clique neles não inicia arrasto.
 export function TitleBar(props: TitleBarProps): ReactNode {
-  const { version, crumb, right, onMinimize, onMaximize, onClose, serverMs, radminIp } = props
+  const { version, crumb, right, onMinimize, onMaximize, onClose, serverMs, server, radminIp } = props
 
   return (
     <header className="zp-titlebar" data-tauri-drag-region>
@@ -46,7 +46,7 @@ export function TitleBar(props: TitleBarProps): ReactNode {
         </span>
       ) : null}
       <span style={{ flex: 1 }} data-tauri-drag-region />
-      {right ?? <ServerStatus serverMs={serverMs} radminIp={radminIp} />}
+      {right ?? <ServerStatus serverMs={serverMs} server={server} radminIp={radminIp} />}
       <WindowControls onMinimize={onMinimize} onMaximize={onMaximize} onClose={onClose} />
     </header>
   )

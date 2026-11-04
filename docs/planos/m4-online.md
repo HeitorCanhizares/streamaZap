@@ -83,23 +83,46 @@ Binário e biblioteca para testes (`zap_test_server::spawn(config) -> Handle { b
 
 ## Estado do fechamento (revisor)
 
-M4 NAO esta fechado. Verificado:
-- `cargo fmt --all --check`: ok.
-- `app`: `npm run check` ok; `npm test` 78 arquivos / 617 testes ok. `vite build` nao rodado (disco).
-- `cargo clippy --workspace --all-targets -- -D warnings`: FALHA em zap-core (23 erros, quase todos
-  dead_code por itens online ainda nao ligados + 7 "doc list item without indentation").
-- Nao rodados: `cargo test --workspace`, clippy windows-gnu, xvfb do binario (ha `todo!` pendentes e
-  disco com ~330 MB livres; `target/` tem 26 GB).
-- `todo!(` restantes: zap-test-server (zt-08, 09, 10, 12, 13, 14, 16, 17), zap-core
-  (core-online-11, 15, 19: reconnect.rs, entry.rs, subscribe/pool.rs).
-- Tarefas nao concluidas: zt-12, zt-14, zt-08/09/10/13/16-19, core-online-04..11, 13..15, 18..27,
-  tauri-online-01..03, ui-online-02/03/04/05/07/08/11/12/15.
-- Bloqueio de ambiente: disco cheio (0 MB livres em varias tentativas). Liberar `target/` antes de
-  retomar. Dependencia observada: zt-05 depende de zt-11 (tracks.rs).
+**Atualização (2026-11-04, Windows 10, MSVC): o M4 ainda NÃO está fechado, mas quase.**
 
-**Atualização (nov/2026):** a frente `servidor-teste` foi concluída (zt-08 a zt-19). O
-`zap-test-server` não tem mais `todo!`; `cargo clippy -p zap-test-server --all-targets -D warnings`
-passa e `cargo test -p zap-test-server` roda 103 testes de unidade, 7 de REST/WebSocket e os 2 de
-aceite da ponte (camada por espectador e prévia só na camada 2). As tarefas `zt-*` saíram de
-`m4-tarefas-pendentes.json`. Os `todo!` e as tarefas restantes acima continuam valendo para
-`zap-core`, `tauri-online` e `ui-online`.
+Pronto:
+- Núcleo `core-online`: sem `todo!` em `crates/zap-core` nem em `app/src-tauri`. Tarefas 04 a 15,
+  18, 19, 20, 21, 23, 25 e 26 aprovadas ou corrigidas. A 21 (aceite 1) passa; prévia (25) e
+  reconexão (26) passam; o servidor de teste agora tolera 5 s de queda da ponte antes de tirar as
+  trilhas do participante (`TOLERANCIA_QUEDA` em `zap-test-server/src/bridge.rs`).
+- `tauri-online` 01 a 03 e `ui-online` 02, 03, 04, 05, 07, 08, 11, 12, 15 aprovadas.
+- Fechamento: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D warnings`
+  ok (corrigidos 5 "doc list item without indentation" em `bridge.rs`, `room_events.rs`,
+  `session.rs` e o campo `Feed::track` sem uso em `publish_bridge.rs`); `cargo check --workspace
+  --all-targets` ok; `app`: `npm run check` ok, `npx vitest run` 666 testes ok (ajustado
+  `DiagScreen.test.tsx`: o mock agora traz `server` online, então o teste fixa `server: undefined`
+  para o caso "não configurado").
+- `cargo test --workspace`: passam `zap-core` (366 de unidade e os aceites 1, 3, prévia,
+  reconexão e o harness), `zap-test-server`, `zap-rate`, `streamazap` (44) e o resto.
+
+Falta:
+- **core-online-22 (aceite 2, camadas por enlace)**: `aceite_online_camadas_por_enlace` falha.
+  Bug de produto, não de teste: em modo ponte nenhum espectador sai da camada 2 porque o `Bwe`
+  (`zap-rate/src/bwe.rs`) em estado Normal só cresce se `vazao >= 0,5 * alvo` (limita a ~2x a
+  vazão) e ninguém manda sondas ao espectador. Tarefa nova recomendada: (1) `Bwe::on_probe_cluster`
+  adotando 0,95 da taxa medida no grupo de sondas; (2) `zap-net/report.rs` agrupa sondas por
+  cluster; (3) `zap-test-server` (relay/ticker/bridge) e publicador em `Budget::Direct/Local`
+  mandam sonda de 200 ms a cada 5 s (`1,3*kbps(próxima) - kbps(atual)`); (4) corrigir a taxa da
+  sonda em `docs/api/balanceamento.md` §4.
+- **core-online-24 (aceite 4, rota direta)**: cenários A (direta funciona) e B (falha e fica na
+  ponte) e a primeira metade do C passam. `sem_use_relay_direta_com_candidatos` está `#[ignore]`:
+  o modo "só direta" (`use_relay=false`) não existe sem ponte (`subscribe/pool.rs` devolve "ponte
+  indisponível"; `online/direct.rs` exige `room.bridge`). Ou vira tarefa de produto (watch
+  pendente sem ponte, `on_candidates` reconhecendo trilha pendente, `Router` próprio para a PubConn
+  direta, queda volta a pendente), ou corta-se a segunda metade do C da spec (os documentos
+  divergem: `m4-online.md` diz "se `use_relay`", `arquitetura-v3.md` 7.2 diz "configurável").
+- **core-online-27**: pulada por dependência; é este fechamento, que só termina quando 22 e 24
+  forem resolvidas.
+- Testes que falham neste PC e **não são do M4** (nenhum arquivo do M4 toca neles; conferir antes
+  de culpar o M4): `zap-encode --test windows tamanho_medio_nao_chave` (codificador de software do
+  Media Foundation, média de 270 B contra 16666), `zap-net --test impaired
+  rede_ruim_3mbps_fonte_6mbps` (banda média 2032 kbps fora de 2200..3600; sensível a carga da
+  máquina) e `zap-capture --lib` com `STATUS_ACCESS_VIOLATION` quando roda junto dos demais (passa
+  sozinho, 33 testes).
+- Não rodados: `vite build`, clippy do alvo `windows-gnu` (substituído por `cargo check` nativo),
+  xvfb do binário. O endereço padrão do servidor continua sendo gravado só por `Core::start`.

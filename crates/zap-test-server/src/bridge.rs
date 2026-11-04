@@ -4,7 +4,9 @@
 //! Como no servidor de produção (`docs/api/mensagens.md`):
 //! - o `ola` com ingresso vale como `sala.entrar`: logo depois do `bem_vindo` a conexão recebe
 //!   `sala.estado` e, se não for prévia, o histórico do chat;
-//! - uma conexão por participante: a nova substitui a antiga;
+//! - uma conexão por participante: a nova substitui a antiga; quem cai tem `TOLERANCIA_QUEDA`
+//!   para voltar antes de as trilhas dele saírem da sala (a conexão nova recebe de novo
+//!   `camadas.pedidas` e `camada.atual`);
 //! - as mensagens da mídia (`camadas.pedidas`, `keyframe.pedir`, `camada.atual`, `relatorio`)
 //!   saem só por aqui, por um único escritor (`ParticipantData::quic_ctl`);
 //! - pelo stream de controle o servidor de teste aceita `relatorio`, `ping`/`pong`, `assinar`,
@@ -43,6 +45,8 @@ use crate::{
 const PROTOCOLO: u32 = 4;
 /// Espera antes de fechar uma conexão recusada, para o `recusado` chegar ao outro lado.
 const ESPERA_RECUSA: Duration = Duration::from_millis(50);
+/// Quanto a ponte espera a volta de quem caiu antes de tirar as trilhas dele da sala.
+const TOLERANCIA_QUEDA: Duration = Duration::from_secs(5);
 
 /// Quem passou pelo aperto de mão.
 pub struct Admitted {
@@ -84,7 +88,8 @@ pub async fn start(
 
 /// Uma conexão: aperto de mão (`handshake`), registro, depois os laços concorrentes (controle,
 /// vídeo, áudio; a prévia só tem o de controle). Ao fechar: se ainda é a conexão registrada do
-/// participante, limpa o registro e chama `drop_participant_tracks` na sala do ingresso.
+/// participante, limpa o registro e, se ele não voltar em `TOLERANCIA_QUEDA`, chama
+/// `drop_participant_tracks` na sala do ingresso.
 pub async fn serve_connection(hub: Arc<Hub>, conn: quinn::Connection) {
     let admitido = match handshake(&hub, &conn).await {
         Ok(a) => a,
@@ -198,9 +203,10 @@ fn registrar(
     }
 }
 
-/// Se `conn` ainda é a conexão registrada de `who`, limpa o registro e tira as trilhas e as
-/// assinaturas dele na sala (sem QUIC não há mídia). Uma conexão já substituída não mexe em nada.
-fn desregistrar(hub: &Hub, who: &str, room_id: &str, conn: &quinn::Connection) {
+/// Se `conn` ainda é a conexão registrada de `who`, limpa o registro e, se ele não reconectar à
+/// mesma sala em `TOLERANCIA_QUEDA`, tira as trilhas e as assinaturas dele (sem QUIC não há
+/// mídia). Uma conexão já substituída não mexe em nada.
+fn desregistrar(hub: &Arc<Hub>, who: &str, room_id: &str, conn: &quinn::Connection) {
     let era_a_atual = {
         let mut inner = hub.inner.lock();
         let Some(p) = inner.participants.get_mut(who) else {
@@ -214,9 +220,24 @@ fn desregistrar(hub: &Hub, who: &str, room_id: &str, conn: &quinn::Connection) {
         }
         atual
     };
-    if era_a_atual {
-        hub.drop_participant_tracks(who, room_id);
+    if !era_a_atual {
+        return;
     }
+    // O app reconecta logo (`online::reconnect`); as trilhas ficam para o `registrar` da conexão
+    // nova repetir `camadas.pedidas` e `camada.atual`.
+    let (hub, who, room_id) = (hub.clone(), who.to_string(), room_id.to_string());
+    tokio::spawn(async move {
+        tokio::time::sleep(TOLERANCIA_QUEDA).await;
+        let voltou = hub
+            .inner
+            .lock()
+            .participants
+            .get(&who)
+            .is_some_and(|p| p.quic.is_some() && p.quic_room.as_deref() == Some(room_id.as_str()));
+        if !voltou {
+            hub.drop_participant_tracks(&who, &room_id);
+        }
+    });
 }
 
 /// Aperto de mão do servidor (próprio, porque a sala só é conhecida pelo ingresso, e

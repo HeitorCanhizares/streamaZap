@@ -53,6 +53,10 @@ pub struct CoreOptions {
     /// Sobe a sessão com o servidor Online ao abrir (login se houver endereço). Falso nos testes
     /// que não usam o modo Online.
     pub online: bool,
+    /// Endereço gravado em `settings.server.address` na primeira execução (sem `settings.json`).
+    /// `Core::start` (o app) usa `settings::PRODUCTION_SERVER`; o padrão `None` deixa o endereço
+    /// vazio, e assim nenhum teste fala com o servidor de produção.
+    pub default_server: Option<String>,
 }
 
 impl Default for CoreOptions {
@@ -67,6 +71,7 @@ impl Default for CoreOptions {
             dev_cert_fp: None,
             dev_bridge_addr: None,
             online: true,
+            default_server: None,
         }
     }
 }
@@ -185,9 +190,14 @@ pub struct Core {
 }
 
 impl Core {
-    /// `start_with(data_dir, ui, CoreOptions::default())`.
+    /// `start_with` com `CoreOptions::default()` e o servidor de produção como endereço da
+    /// primeira execução. É o ponto de entrada do app; os testes usam `start_with`.
     pub fn start(data_dir: PathBuf, ui: Arc<dyn UiSink>) -> Result<Self, CoreError> {
-        Self::start_with(data_dir, ui, CoreOptions::default())
+        let options = CoreOptions {
+            default_server: Some(crate::settings::PRODUCTION_SERVER.into()),
+            ..CoreOptions::default()
+        };
+        Self::start_with(data_dir, ui, options)
     }
 
     /// Cria o runtime, carrega `settings::load` + identidade, monta `Shared` (UiState com `Me`,
@@ -206,9 +216,13 @@ impl Core {
         let _guard = rt.enter();
 
         std::fs::create_dir_all(&data_dir)?;
-        let settings = crate::settings::load(&data_dir);
-        // Grava na primeira execução para o `install_id` gerado não mudar na próxima.
+        let mut settings = crate::settings::load(&data_dir);
+        // Grava na primeira execução para o `install_id` gerado não mudar na próxima. O servidor
+        // padrão só entra aqui: quem apagar o endereço depois continua sem servidor.
         if !data_dir.join("settings.json").exists() {
+            if let Some(endereco) = &options.default_server {
+                settings.server.address = endereco.clone();
+            }
             crate::settings::save(&data_dir, &settings)?;
         }
         let identity = Arc::new(crate::settings::load_or_create_identity(
@@ -285,6 +299,10 @@ impl Core {
 
         rt.spawn(crate::engine_room::pump_room_events(shared.clone(), rx));
         rt.spawn(crate::engine_tick::run(shared.clone()));
+        // Sessão Online: só sobe com a opção ligada (testes sem o modo Online deixam desligada).
+        if options.online {
+            shared.online.start(&shared);
+        }
         shared.notifier.flush();
         Ok(Core {
             shared,
@@ -298,16 +316,22 @@ impl Core {
     /// Aplica `f`, salva (`settings::save`), atualiza `Me` e o nome/presença da descoberta e
     /// faz `touch()`. Erro de gravação: `push_error`.
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) {
-        let novo = {
+        let (novo, servidor_mudou) = {
             let mut guard = self.shared.settings.write();
+            let antes = (guard.server.address.clone(), guard.server.password.clone());
             f(&mut guard);
-            guard.clone()
+            let mudou = antes != (guard.server.address.clone(), guard.server.password.clone());
+            (guard.clone(), mudou)
         };
         if let Err(e) = crate::settings::save(&self.shared.data_dir, &novo) {
             self.shared
                 .state
                 .lock()
                 .push_error(format!("Não foi possível salvar as configurações: {e}"));
+        }
+        // Só endereço e senha do servidor reiniciam a sessão (trocar `use_relay` não).
+        if servidor_mudou && self.shared.options.online {
+            self.shared.online.restart(&self.shared);
         }
         self.shared.refresh_me();
         let discovery = self.shared.discovery.lock().clone();
@@ -376,6 +400,8 @@ impl Core {
             if shared.current_room().is_some() {
                 core_view.leave_room().await;
             }
+            // Depois da sala: `leave` ainda precisa do WebSocket e do cliente para avisar o servidor.
+            shared.online.stop();
             shared.pool.close_all().await;
             ShareSession::stop(&shared).await;
             if let Some(ms) = shared.media_server.lock().await.take() {
@@ -418,6 +444,33 @@ mod tests {
         assert!(!sink.snapshots.lock().is_empty());
         assert!(!sink.last_snapshot().unwrap().me.install_id.is_empty());
         assert!(d.join("settings.json").exists());
+        drop(core);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn servidor_padrao_so_na_primeira_execucao() {
+        let d = dir();
+        // `online: false`: o endereço é só gravado, ninguém tenta logar nele.
+        let com_padrao = CoreOptions {
+            online: false,
+            default_server: Some("https://servidor.invalido:7443".into()),
+            ..opts()
+        };
+        let core = Core::start_with(d.clone(), TestSink::new(), com_padrao.clone()).unwrap();
+        assert_eq!(core.settings().server.address, "https://servidor.invalido:7443");
+        // Quem apaga o endereço continua sem servidor nas próximas execuções.
+        core.update_settings(|s| s.server.address.clear());
+        drop(core);
+        let core2 = Core::start_with(d.clone(), TestSink::new(), com_padrao).unwrap();
+        assert_eq!(core2.settings().server.address, "");
+        drop(core2);
+        let _ = std::fs::remove_dir_all(d);
+
+        // Sem `default_server` (os testes), a primeira execução fica sem endereço.
+        let d = dir();
+        let core = Core::start_with(d.clone(), TestSink::new(), opts()).unwrap();
+        assert_eq!(core.settings().server.address, "");
         drop(core);
         let _ = std::fs::remove_dir_all(d);
     }
@@ -474,5 +527,91 @@ mod tests {
         assert!(core.shared.discovery.lock().is_none());
         drop(core);
         let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// Espera até `limite` segundos por `ok` (verifica a cada 50 ms).
+    async fn ate(limite: u64, mut ok: impl FnMut() -> bool) -> bool {
+        let fim = std::time::Instant::now() + std::time::Duration::from_secs(limite);
+        while std::time::Instant::now() < fim {
+            if ok() {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        ok()
+    }
+
+    /// `Core` criado fora do contexto assíncrono (derrubar o runtime dentro dele dá pânico).
+    async fn criar(options: CoreOptions) -> (Core, PathBuf) {
+        tokio::task::spawn_blocking(move || {
+            let d = dir();
+            let core = Core::start_with(d.clone(), TestSink::new(), options).unwrap();
+            (core, d)
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn encerrar(core: Core, d: PathBuf) {
+        tokio::task::spawn_blocking(move || {
+            drop(core);
+            let _ = std::fs::remove_dir_all(d);
+        })
+        .await
+        .unwrap();
+    }
+
+    fn esta_online(core: &Core) -> bool {
+        core.snapshot()
+            .server
+            .as_ref()
+            .is_some_and(|s| s.state == crate::online::ServerState::Online)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn start_com_online_false_nao_sobe_sessao() {
+        let (core, d) = criar(CoreOptions {
+            online: false,
+            ..opts()
+        })
+        .await;
+        assert!(core.shared.online.status().is_none());
+        assert!(core.shared.online.task.lock().is_none());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn update_settings_reinicia_sessao_quando_endereco_muda() {
+        let srv = zap_test_server::spawn(zap_test_server::Config::default())
+            .await
+            .unwrap();
+        let (core, d) = criar(opts()).await;
+        core.update_settings(|s| s.server.address = srv.base_url.clone());
+        assert!(
+            ate(5, || esta_online(&core)).await,
+            "status: {:?}",
+            core.snapshot().server
+        );
+        core.update_settings(|s| s.server.address = String::new());
+        assert!(ate(5, || core.snapshot().server.is_none()).await);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn update_settings_use_relay_nao_reinicia() {
+        let srv = zap_test_server::spawn(zap_test_server::Config::default())
+            .await
+            .unwrap();
+        let (core, d) = criar(opts()).await;
+        core.update_settings(|s| s.server.address = srv.base_url.clone());
+        assert!(ate(5, || esta_online(&core)).await);
+        // Deixa o primeiro WebSocket assentar antes de medir a época.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let epoca = *core.shared.online.epoch_rx().borrow();
+        core.update_settings(|s| s.server.use_relay = !s.server.use_relay);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(*core.shared.online.epoch_rx().borrow(), epoca);
+        assert!(esta_online(&core));
+        encerrar(core, d).await;
     }
 }

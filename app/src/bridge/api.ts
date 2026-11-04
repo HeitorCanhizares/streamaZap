@@ -3,7 +3,7 @@ import type * as Core from '@tauri-apps/api/core'
 import { mockDiagReport, mockDiagText } from './mockDiag'
 import { mockSettings, mockSnapshot, mockSources } from './mock'
 import { decodeThumbnail } from './thumbnail'
-import type { CreateRoom, DiagReport, FirewallResult, UpdateInfo, JoinTarget, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId } from './types'
+import type { CreateRoom, DiagReport, FirewallResult, UpdateInfo, JoinTarget, ServerTestResult, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId } from './types'
 
 export const isTauri = (): boolean => '__TAURI_INTERNALS__' in globalThis
 
@@ -110,6 +110,31 @@ export const api = {
   unwatch: async (tile: TileId): Promise<void> => {
     if (!isTauri()) return
     await call('unwatch', { tile })
+  },
+
+  // Testar conexão com o servidor Online: nunca rejeita; a falha vem em ok=false.
+  serverTest: async (address: string, password: string): Promise<ServerTestResult> => {
+    if (!isTauri()) {
+      if (address.trim() === '') {
+        return { ok: false, name: null, ping_ms: null, code: 'invalido', message: 'Informe o endereço do servidor' }
+      }
+      return { ok: true, name: 'Servidor de teste', ping_ms: 42, code: null, message: 'Conectado' }
+    }
+    return call<ServerTestResult>('server_test', { address, password })
+  },
+
+  // Prévia de uma sala na lista: pacotes de vídeo chegam pelo canal, como em watch.
+  roomPreview: async (code: string, tile: TileId, onPacket: (b: ArrayBuffer) => void): Promise<void> => {
+    if (!isTauri()) return
+    const { Channel } = await core()
+    const channel = new Channel<ArrayBuffer>()
+    channel.onmessage = onPacket
+    await call('room_preview', { code, tile, channel })
+  },
+
+  roomPreviewStop: async (tile: TileId): Promise<void> => {
+    if (!isTauri()) return
+    await call('room_preview_stop', { tile })
   },
 
   setVolume: async (participantId: string, volume: number, muted: boolean): Promise<void> => {

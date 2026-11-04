@@ -40,6 +40,16 @@ describe('TitleBar', () => {
     expect(screen.getByText('Radmin · 26.12.34.56')).toBeTruthy()
   })
 
+  it('server_online_com_ping: server online mostra o ping vindo do snapshot', () => {
+    render(<TitleBar server={{ state: 'online', ping_ms: 30 }} radminIp="26.12.34.56" />)
+    expect(screen.getByText('Servidor online · 30 ms')).toBeTruthy()
+  })
+
+  it('server_erro: server em erro mostra desconectado', () => {
+    render(<TitleBar server={{ state: 'error' }} radminIp="26.12.34.56" />)
+    expect(screen.getByText('Servidor · desconectado')).toBeTruthy()
+  })
+
   it('right_substitui: right substitui o bloco de status', () => {
     render(<TitleBar right={<span>XYZ</span>} />)
     expect(screen.getByText('XYZ')).toBeTruthy()

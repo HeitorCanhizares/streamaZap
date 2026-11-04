@@ -326,6 +326,13 @@ pub(crate) async fn pump_room_events(shared: Arc<Shared>, mut rx: UnboundedRecei
             }
             RoomEvent::Reconnected => {
                 shared.state.lock().clear_errors();
+                // Sala Online: a reconexão (WebSocket/ponte) já é tratada em `online::reconnect`,
+                // que reassina e republica; aqui só atualiza a tela.
+                if matches!(shared.current_room().as_deref(), Some(ActiveRoom::Online(_))) {
+                    shared.refresh_room_view();
+                    shared.notifier.flush();
+                    continue;
+                }
                 if let Err(e) = ShareSession::republish(&shared).await {
                     shared
                         .state

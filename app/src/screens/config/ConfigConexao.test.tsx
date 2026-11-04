@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ConfigConexao } from './ConfigConexao'
+import { api } from '../../bridge/api'
 import type { NetworkStatus, Settings } from '../../bridge/types'
 
 afterEach(() => cleanup())
@@ -89,17 +90,64 @@ describe('ConfigConexao', () => {
     expect(onChange).toHaveBeenCalledWith({ server: { address: 'zap.x.com:7443', password: 'p', use_relay: false } })
   })
 
-  it('teste de conexão: fail sem campos, ok com endereço e senha, volta a idle ao editar', () => {
-    const onChange = vi.fn()
-    const { unmount } = montar(onChange)
+  it('Testar conexão chama api.serverTest com os campos e mostra sucesso', async () => {
+    const spy = vi.spyOn(api, 'serverTest').mockResolvedValueOnce({ ok: true, name: 'x', ping_ms: 42, code: null, message: 'Conectado' })
+    montar(vi.fn(), rede, ajustes({ server: { address: 'zap.x.com:7443', password: 'segredo', use_relay: true } }))
     fireEvent.click(screen.getByText('Testar conexão'))
-    expect(screen.getByText('Preencha o endereço e a senha')).toBeTruthy()
-    unmount()
-    montar(onChange, rede, ajustes({ server: { address: 'zap.x.com:7443', password: 'segredo', use_relay: true } }))
+    expect(spy).toHaveBeenCalledWith('zap.x.com:7443', 'segredo')
+    expect(await screen.findByText('Conectado · senha aceita · 42 ms')).toBeTruthy()
+    spy.mockRestore()
+  })
+
+  it('falha mostra a message devolvida pelo servidor', async () => {
+    const spy = vi.spyOn(api, 'serverTest').mockResolvedValueOnce({ ok: false, name: null, ping_ms: null, code: 'senha', message: 'Senha incorreta' })
+    montar(vi.fn(), rede, ajustes({ server: { address: 'zap.x.com:7443', password: 'errada', use_relay: true } }))
     fireEvent.click(screen.getByText('Testar conexão'))
-    expect(screen.getByText('Conectado · senha aceita · 42 ms')).toBeTruthy()
+    expect(await screen.findByText('Senha incorreta')).toBeTruthy()
+    spy.mockRestore()
+  })
+
+  it('endereço vazio mostra a mensagem sem chamar a API', async () => {
+    const spy = vi.spyOn(api, 'serverTest')
+    montar()
+    fireEvent.click(screen.getByText('Testar conexão'))
+    expect(await screen.findByText('Preencha o endereço do servidor')).toBeTruthy()
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('durante o teste mostra Conectando e desativa o botão', async () => {
+    let liberar: (r: { ok: boolean; name: null; ping_ms: null; code: null; message: string }) => void = () => {}
+    const spy = vi.spyOn(api, 'serverTest').mockImplementationOnce(
+      () => new Promise((resolve) => { liberar = resolve }),
+    )
+    montar(vi.fn(), rede, ajustes({ server: { address: 'zap.x.com:7443', password: 'p', use_relay: true } }))
+    const botao = screen.getByText('Testar conexão') as HTMLButtonElement
+    fireEvent.click(botao)
+    expect(await screen.findByText('Conectando…')).toBeTruthy()
+    expect(botao.disabled).toBe(true)
+    liberar({ ok: true, name: null, ping_ms: null, code: null, message: '' })
+    await screen.findByText('Conectado · senha aceita')
+    spy.mockRestore()
+  })
+
+  it('editar o endereço volta para Ainda não testado', async () => {
+    const spy = vi.spyOn(api, 'serverTest').mockResolvedValueOnce({ ok: true, name: 'x', ping_ms: 42, code: null, message: 'Conectado' })
+    montar(vi.fn(), rede, ajustes({ server: { address: 'zap.x.com:7443', password: 'segredo', use_relay: true } }))
+    fireEvent.click(screen.getByText('Testar conexão'))
+    await screen.findByText('Conectado · senha aceita · 42 ms')
     fireEvent.change(screen.getByLabelText('Endereço do servidor'), { target: { value: 'outro.com' } })
     expect(screen.getByText('Ainda não testado')).toBeTruthy()
+    spy.mockRestore()
+  })
+
+  it('interruptor da ponte chama onChange com use_relay invertido', () => {
+    const onChange = vi.fn()
+    montar(onChange, rede, ajustes({ server: { address: 'zap.x.com:7443', password: 'segredo', use_relay: true } }))
+    const sw = screen.getByRole('switch', { name: /Usar o servidor como ponte/ })
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(sw)
+    expect(onChange).toHaveBeenCalledWith({ server: { address: 'zap.x.com:7443', password: 'segredo', use_relay: false } })
   })
 
   it('mostra network.radmin_ip', () => {

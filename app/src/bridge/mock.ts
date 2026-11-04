@@ -7,6 +7,7 @@ export const mockSnapshot = (): Snapshot => ({
   version: 1,
   me: { name: 'Você', color: '#3BF08A', install_id: 'mock-install' },
   network: { radmin_ip: '26.14.7.88', interfaces: ['Radmin VPN', 'Ethernet'] },
+  server: { state: 'online', ping_ms: 42 },
   rooms: [
     {
       room_id: 'zap-7k2q',

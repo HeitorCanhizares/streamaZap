@@ -65,6 +65,11 @@ cargo check --workspace --target x86_64-pc-windows-gnu   # pega erro no código 
 
 No front-end (`app/`): `npm run check` (tsc) e `npm test` (vitest).
 
+**Num PC Windows (toolchain MSVC):** o alvo nativo já compila todo o código `#[cfg(windows)]`, então
+troque o `--target x86_64-pc-windows-gnu` por `cargo check --workspace --all-targets` (o alvo GNU
+precisa do MinGW e fica para o CI, junto com os stubs do Linux). Num PC com GPU de vídeo, os testes
+de NV12/captura/H.264 rodam de verdade em vez de pular.
+
 **Disco cheio** ("No space left on device", "Disk full", ENOSPC): `target/` é só saída de build e
 pode ser apagado sem pedir — rode `cargo clean` (ou apague `target/debug/incremental`) e continue.
 Não apague mais nada.

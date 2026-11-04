@@ -9,6 +9,13 @@ use zap_net::tls::Identity;
 use crate::types::{EncoderPref, Preset, RoomMode, UpdateChannel};
 use crate::CoreError;
 
+/// Endereço do servidor Online de produção, **sem `/v1`** (o `ServerClient` acrescenta sozinho).
+///
+/// Não entra em `ServerSettings::default()`: o padrão continua vazio para os testes nunca
+/// falarem com a produção. Só o app de verdade (`Core::start`) o grava, na primeira execução,
+/// por `CoreOptions::default_server`.
+pub const PRODUCTION_SERVER: &str = "https://streamazap.heitorcanhizares.net:7443";
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct ServerSettings {

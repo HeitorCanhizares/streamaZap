@@ -25,7 +25,8 @@ const mocked = vi.mocked(useSnapshot)
 
 
 beforeEach(() => {
-  mocked.mockReturnValue(mockSnapshot())
+  // Sem `server` no snapshot = servidor não configurado (o mock padrão já traz um online).
+  mocked.mockReturnValue({ ...mockSnapshot(), server: undefined })
   run.mockReset().mockResolvedValue(mockDiagReport())
   texto.mockReset().mockResolvedValue('RELATORIO X')
   fix.mockReset().mockResolvedValue({ ok: true, mensagem: 'Firewall corrigido.', removidas: 1, perfis_liberados: [] })

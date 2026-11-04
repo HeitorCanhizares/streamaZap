@@ -17,7 +17,6 @@ use zap_rate::allocator::LayerRequest;
 use crate::publish::{PublishedTrack, ViewerLink, ViewerState};
 
 pub(crate) struct Feed {
-    pub track: Track,
     pub published: PublishedTrack,
     /// Link de ponte da trilha (vídeo ou áudio); `None` enquanto não há ponte.
     pub link: Option<Arc<ViewerLink>>,
@@ -74,14 +73,7 @@ impl BridgePublish {
         bridge: Option<(quinn::Connection, ControlTx, zap_net::Clock)>,
     ) {
         let link = bridge.map(|(conn, ctrl, clock)| self.make_link(&track.id, &published, conn, ctrl, clock));
-        let antigo = self.feeds.lock().insert(
-            track.id.clone(),
-            Feed {
-                track: track.clone(),
-                published,
-                link,
-            },
-        );
+        let antigo = self.feeds.lock().insert(track.id.clone(), Feed { published, link });
         // Fora do lock de `feeds`: o publicador tem os próprios locks.
         if let Some(Feed {
             published,

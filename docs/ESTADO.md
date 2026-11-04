@@ -101,6 +101,23 @@ Paridade com o app Python, remoção de `streamazap/` e, **antes da primeira rel
 `build.yml` de publicar o Python no `master`; senão a "última release" volta a ser a do Python e o
 updater da v3 não acha o `latest.json`.
 
+## Atualização do M4 (2026-11-04, fechamento no Windows)
+
+O núcleo Online, os comandos do Tauri e as telas estão implementados: não há `todo!(` em
+`crates/zap-core` nem em `app/src-tauri`. Clippy `-D warnings`, `cargo fmt`, `cargo check
+--workspace --all-targets`, `npm run check` e `vitest` (666 testes) passam. Os aceites 1 e 3, a
+prévia e a reconexão passam. A tabela de `todo!` acima está desatualizada (histórica).
+
+Faltam para fechar o M4 (detalhes em `docs/planos/m4-online.md`, "Estado do fechamento"):
+1. **Aceite 2** (camadas por enlace): precisa de sondagem de verdade no `Bwe` e no servidor de
+   teste; hoje todos os espectadores ficam na camada 2.
+2. **Aceite 4, cenário C**: o modo "só direta" (sem ponte) não existe; implementar ou cortar da
+   spec. A segunda metade está `#[ignore]`.
+3. Falhas que parecem ser do ambiente, fora do M4: `zap-encode` (`tamanho_medio_nao_chave`),
+   `zap-net` (`rede_ruim_3mbps_fonte_6mbps`) e uma violação de acesso intermitente em
+   `zap-capture --lib` quando roda junto dos demais testes.
+4. Conferir `vite build`, o clippy do alvo `windows-gnu` no CI e o binário no X virtual.
+
 ## O que está pronto no M4
 
 - **Contrato** (`docs/api/`): inclui o que o servidor de produção faz onde a especificação deixava

@@ -80,8 +80,7 @@ export function App(): ReactNode {
         version={VERSAO}
         crumb={crumb}
         radminIp={snap.network.radmin_ip}
-        // Valor de demonstração só no navegador/mock: a ponte ainda não informa o ping do servidor.
-        serverMs={isTauri() ? undefined : 42}
+        server={snap.server}
         right={view === 'sala' ? <SalaMetrics tile={snap.tiles[0] ?? null} share={snap.share} /> : undefined}
         onMinimize={() => acaoJanela((w) => w.minimize())}
         onMaximize={() => acaoJanela((w) => w.toggleMaximize())}

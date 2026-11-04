@@ -3,15 +3,8 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import type { NetworkStatus, RoomMode } from '../../bridge/types'
 import type { ConfigSecaoProps } from './ConfigPerfil'
-
-type TestState = 'idle' | 'testing' | 'ok' | 'fail'
-
-const TEST_MAP: Record<TestState, [string, string]> = {
-  idle: ['Ainda não testado', '#7E978B'],
-  testing: ['Conectando…', '#A3BDB1'],
-  ok: ['Conectado · senha aceita · 42 ms', '#3BF08A'],
-  fail: ['Preencha o endereço e a senha', '#FF8592'],
-}
+import { useServerTest } from './useServerTest'
+import { textoTeste } from '../../bridge/serverModel'
 
 const MODOS: Array<[RoomMode, string]> = [['online', 'Online'], ['local', 'Local']]
 
@@ -66,8 +59,7 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
   const senha = srv?.password ?? ''
   // Patch por seção: mantém os outros campos do servidor.
   const base = { address: endereco, password: senha, use_relay: srv?.use_relay ?? true }
-  const [testState, setTestState] = useState<TestState>('idle')
-  const [relay, setRelay] = useState(true)
+  const { testando, resultado, testar, limpar } = useServerTest()
   const [porta, setPorta] = useState(local.port > 0 ? String(local.port) : '')
 
   // Se a porta vier de fora com outro valor, o campo acompanha.
@@ -75,7 +67,7 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
     setPorta((atual) => (portaValida(atual) === local.port ? atual : local.port > 0 ? String(local.port) : ''))
   }, [local.port])
 
-  const [testeTexto, testeCor] = TEST_MAP[testState]
+  const { texto: testeTexto, cor: testeCor } = textoTeste(resultado, testando)
 
   return (
     <section
@@ -122,7 +114,7 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
               id="srv"
               placeholder="ex.: zap.seudominio.com:7443"
               value={endereco}
-              onChange={(e) => { onChange({ server: { ...base, address: e.target.value } }); setTestState('idle') }}
+              onChange={(e) => { onChange({ server: { ...base, address: e.target.value } }); limpar() }}
               style={{ ...campo, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
             />
           </div>
@@ -133,7 +125,7 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
               type="password"
               placeholder="pede pro dono do servidor"
               value={senha}
-              onChange={(e) => { onChange({ server: { ...base, password: e.target.value } }); setTestState('idle') }}
+              onChange={(e) => { onChange({ server: { ...base, password: e.target.value } }); limpar() }}
               style={{ ...campo, letterSpacing: '0.1em' }}
             />
             <span style={dica}>Barra bots e quem não foi convidado.</span>
@@ -141,15 +133,21 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
             <button
               className="zp-cta"
-              onClick={() => setTestState(endereco.trim() && senha ? 'ok' : 'fail')}
+              disabled={testando}
+              onClick={() => void testar(endereco, senha)}
               style={{ height: 44, padding: '0 18px', borderRadius: 12, border: 0, background: '#3BF08A', color: '#03140A', fontWeight: 700 }}
             >
               Testar conexão
             </button>
-            <span style={{ fontSize: 13, fontWeight: 600, color: testeCor }}>{testeTexto}</span>
+            <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, color: testeCor }}>{testeTexto}</span>
           </div>
-          <button role="switch" aria-checked={relay} onClick={() => setRelay(!relay)} style={botaoSwitch}>
-            <span style={swTrack(relay)}><span style={swKnob(relay)} /></span>
+          <button
+            role="switch"
+            aria-checked={base.use_relay}
+            onClick={() => onChange({ server: { ...base, use_relay: !base.use_relay } })}
+            style={botaoSwitch}
+          >
+            <span style={swTrack(base.use_relay)}><span style={swKnob(base.use_relay)} /></span>
             <span style={{ fontSize: 13, color: '#A3BDB1', lineHeight: 1.4 }}>
               <b style={{ color: '#E6F4EC', fontWeight: 600 }}>Usar o servidor como ponte</b> quando a conexão direta com alguém falhar.
             </span>

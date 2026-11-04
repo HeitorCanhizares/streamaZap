@@ -12,6 +12,12 @@ Uma conexão leva **todas** as trilhas entre os dois lados, nos dois sentidos. N
 participante tem uma conexão de mídia com o servidor: uma conexão nova substitui a antiga. O
 servidor manda `ping` de controle a cada 2 s nessa conexão.
 
+**Queda da conexão de mídia (Online, ponte).** Quando a conexão QUIC de um participante fecha ou
+morre, o servidor espera **5 s** antes de tirar as trilhas e as assinaturas dele da sala. Se ele
+reconectar à mesma sala nesse prazo, as trilhas continuam (nada de `trilha.removida`) e a conexão
+nova recebe de novo `camadas.pedidas` e `camada.atual`. Sair da sala (`sala.sair`) tira as trilhas
+na hora.
+
 ## Parâmetros de transporte
 
 | Parâmetro | Valor |

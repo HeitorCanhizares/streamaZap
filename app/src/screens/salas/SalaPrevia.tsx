@@ -3,6 +3,8 @@ import type { CSSProperties, ReactNode } from 'react'
 import { VideoFrame } from '../../components/VideoFrame'
 import { ScenePreview } from '../../components/ScenePreview'
 import type { SalaVM } from './model'
+import { isTauri } from '../../bridge/api'
+import { useRoomPreview } from '../../bridge/useRoomPreview'
 
 export interface SalaPreviaProps { sala: SalaVM }
 
@@ -25,10 +27,16 @@ const rotulo: CSSProperties = {
 
 export function SalaPrevia({ sala }: SalaPreviaProps): ReactNode {
   const info = sala.bitrate ? `${sala.qualidade} · ${sala.bitrate}` : sala.qualidade
+  // Previa real so na sala Online dentro do app Tauri; no navegador/mock e em sala local segue o ScenePreview.
+  const real = isTauri() && sala.modo === 'online' && /^ZAP-/.test(sala.addr)
+  // Hook sempre chamado (regra dos hooks); sem codigo real ele nao faz nada.
+  const canvasRef = useRoomPreview(real ? sala.addr : null)
   return (
     <div style={{ flex: '1 1 480px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
       <VideoFrame radius={18} corners={false}>
-        <ScenePreview scene={sala.cena} />
+        {real
+          ? <canvas ref={canvasRef} data-testid="previa-canvas" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', background: '#0A100E' }} />
+          : <ScenePreview scene={sala.cena} />}
         {CANTOS.map((c) => (
           <span key={c.id} data-corner={c.id} aria-hidden="true" style={{ position: 'absolute', width: 20, height: 20, ...c.estilo }} />
         ))}
@@ -37,7 +45,7 @@ export function SalaPrevia({ sala }: SalaPreviaProps): ReactNode {
           AO VIVO
         </span>
         <span style={{ ...rotulo, right: 22, color: '#A3BDB1' }}>{info}</span>
-        {sala.camCena != null && (
+        {!real && sala.camCena != null && (
           <span style={{ position: 'absolute', right: 22, bottom: 22, width: '26%', borderRadius: 12, overflow: 'hidden', border: '2px solid #0A100E', boxShadow: `0 0 0 1px ${VERDE}, 0 8px 24px rgba(0,0,0,0.5)` }}>
             <ScenePreview scene={sala.camCena} />
             <span style={{ position: 'absolute', left: 6, bottom: 6, padding: '2px 7px', borderRadius: 6, background: 'rgba(10,16,14,0.8)', fontSize: 11 }}>

@@ -53,11 +53,11 @@ pub struct Subscription {
 impl Subscription {
     /// Conecta ao publicador, registra os receptores no `Router` e envia `assinar`.
     pub async fn start(shared: &Arc<Shared>, spec: WatchSpec) -> Result<Self, CoreError> {
-        let address = spec.track.address.clone().ok_or(CoreError::TrackNotFound)?;
+        let address = spec.track.address.clone();
         let participant_id = spec.track.participant_id.clone();
         let conn = shared
             .pool
-            .get_or_connect(shared, &participant_id, &spec.track.id, &address)
+            .get_or_connect(shared, &participant_id, &spec.track.id, address.as_ref())
             .await?;
         let metrics = Arc::new(TileMetrics::new());
         let request_kf: Arc<dyn Fn() + Send + Sync> = Arc::new({

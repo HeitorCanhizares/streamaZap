@@ -6,6 +6,7 @@ import type { JoinTarget, RoomMode } from '../../bridge/types'
 import { Button } from '../../components/Button'
 import { TextField } from '../../components/TextField'
 import { DetalheSala } from './DetalheSala'
+import { EntrarCodigo } from './EntrarCodigo'
 import { ListaSalas } from './ListaSalas'
 import { contar, filtrarSalas, salasDoModo, type FiltroSala } from './model'
 
@@ -42,6 +43,8 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
   const [ocupado, setOcupado] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [promptManual, setPromptManual] = useState(false)
+  // Painel "Entrar com código" (modo Online), no lugar do prompt de IP do modo Local.
+  const [promptCodigo, setPromptCodigo] = useState(false)
   const [manual, setManual] = useState('')
   const [firewallOculto, setFirewallOculto] = useState(false)
 
@@ -58,6 +61,8 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
     setFiltro('todas')
     setSenha('')
     setErro(null)
+    setPromptManual(false)
+    setPromptCodigo(false)
     setSelectedId(salasDoModo(snap.rooms, m)[0]?.id ?? null)
   }
 
@@ -94,6 +99,10 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
     void entrar({ room_id: sala.id })
   }
 
+  function entrarPorCodigo(codigo: string, senhaSala: string | null): void {
+    void entrar({ code: codigo }, senhaSala ?? undefined)
+  }
+
   function confirmarManual(): void {
     const alvo = lerAlvoManual(manual)
     if (alvo === null) {
@@ -127,12 +136,30 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
         onApelido={setApelido}
         onApelidoConfirmar={confirmarApelido}
         onCriar={onCreate}
+        servidor={snap.server}
         onEntrarManual={() => {
           setErro(null)
-          setPromptManual(true)
+          if (modo === 'online') {
+            setPromptManual(false)
+            setPromptCodigo(true)
+          } else {
+            setPromptCodigo(false)
+            setPromptManual(true)
+          }
         }}
       />
       <div style={{ flex: '999 1 560px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        {promptCodigo ? (
+          <EntrarCodigo
+            onEntrar={entrarPorCodigo}
+            onCancelar={() => {
+              setPromptCodigo(false)
+              setErro(null)
+            }}
+            ocupado={ocupado}
+            erro={erro}
+          />
+        ) : null}
         {promptManual ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '16px 32px 0' }}>
             <TextField value={manual} onChange={setManual} placeholder="IP:porta (ex. 192.168.0.10:47800)" />
@@ -151,7 +178,7 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
           senha={senha}
           onSenha={setSenha}
           ocupado={ocupado}
-          erro={promptManual ? null : erro}
+          erro={promptManual || promptCodigo ? null : erro}
           onEntrar={onEntrar}
         />
       </div>
