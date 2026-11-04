@@ -36,6 +36,28 @@ describe('ConfigVideo', () => {
     expect(r[1].getAttribute('aria-checked')).toBe('false')
   })
 
+  it('card 1080p 30 fps seleciona 1080p30 ao clicar', () => {
+    const onChange = vi.fn()
+    const s = mockSettings()
+    render(<ConfigVideo settings={s} onChange={onChange} sources={mockSources()} />)
+    fireEvent.click(screen.getAllByRole('radio')[2])
+    expect(onChange).toHaveBeenCalledWith({ video: { ...s.video, default_preset: '1080p30' } })
+  })
+
+  it('default_preset 1080p30 marca o 3o card e nao o 4o', () => {
+    render(<ConfigVideo settings={com({ default_preset: '1080p30' })} onChange={vi.fn()} sources={mockSources()} />)
+    const r = screen.getAllByRole('radio')
+    expect(r[2].getAttribute('aria-checked')).toBe('true')
+    expect(r[3].getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('default_preset 1080p60 marca o 4o card', () => {
+    render(<ConfigVideo settings={com({ default_preset: '1080p60' })} onChange={vi.fn()} sources={mockSources()} />)
+    const r = screen.getAllByRole('radio')
+    expect(r[3].getAttribute('aria-checked')).toBe('true')
+    expect(r[2].getAttribute('aria-checked')).toBe('false')
+  })
+
   it('mudar câmera manda camera_id', () => {
     const onChange = vi.fn()
     const src = mockSources()

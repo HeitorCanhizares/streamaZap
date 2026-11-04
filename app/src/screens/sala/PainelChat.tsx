@@ -8,9 +8,14 @@ export interface PainelChatProps {
   meId: string
   onSend: (text: string) => void
   typing?: string
+  // Avisa a sala que eu comecei/parei de digitar (chat_typing).
+  onTyping?: (typing: boolean) => void
 }
 
 const MONO = "'JetBrains Mono', monospace"
+
+// Sem digitar por esse tempo, considera que parou.
+const PARADO_MS = 3000
 
 // Hora local HH:MM; timestamp inválido vira '--:--'.
 function hora(ts: number): string {
@@ -22,18 +27,58 @@ function hora(ts: number): string {
 
 const ponto = { width: 6, height: 6, borderRadius: '50%', background: '#A3BDB1' } as const
 
-export function PainelChat({ chat, meId, onSend, typing }: PainelChatProps): ReactNode {
+export function PainelChat({ chat, meId, onSend, typing, onTyping }: PainelChatProps): ReactNode {
   const [draft, setDraft] = useState('')
   const fim = useRef<HTMLDivElement>(null)
+  // Estado "digitando" fica em ref: o aviso sai uma vez por rodada, não a cada tecla.
+  const digitandoRef = useRef(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     // jsdom não implementa scrollIntoView
     fim.current?.scrollIntoView?.({ block: 'end' })
   }, [chat.length])
 
+  // Limpa o timer no unmount sem avisar a sala.
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  // Encerra a rodada de digitação: cancela o timer e avisa só se estava digitando.
+  function parar(): void {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    if (digitandoRef.current) {
+      digitandoRef.current = false
+      onTyping?.(false)
+    }
+  }
+
+  function aoMudar(valor: string): void {
+    setDraft(valor)
+    if (!valor) {
+      parar()
+      return
+    }
+    if (!digitandoRef.current) {
+      digitandoRef.current = true
+      onTyping?.(true)
+    }
+    if (timerRef.current !== null) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null
+      parar()
+    }, PARADO_MS)
+  }
+
   function enviar(): void {
     const t = draft.trim()
     if (!t) return
+    parar()
     onSend(t)
     setDraft('')
   }
@@ -89,7 +134,7 @@ export function PainelChat({ chat, meId, onSend, typing }: PainelChatProps): Rea
           aria-label="Mensagem"
           placeholder="Mensagem"
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => aoMudar(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') enviar()
           }}

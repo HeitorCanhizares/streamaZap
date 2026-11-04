@@ -60,11 +60,13 @@ async fn executa(
                 participant_id,
                 room,
                 clock_us,
+                media_secret,
             }) => {
                 let welcome = Welcome {
                     participant_id,
                     room,
                     clock_us,
+                    media_secret,
                 };
                 return Ok((tx, rx, welcome));
             }

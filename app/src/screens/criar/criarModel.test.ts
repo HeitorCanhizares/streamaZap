@@ -80,7 +80,11 @@ describe('criarModel: constantes', () => {
     expect(ACESSOS.map((a) => a.value)).toEqual(['aberta', 'senha'])
 
     expect(PRESETS_UI).toHaveLength(4)
-    expect(PRESETS_UI.map((p) => p.value)).toEqual(['480p30', '720p30', '720p60', '1080p60'])
-    expect(PRESETS_UI[1]).toEqual({ value: '720p30', res: '720p', fps: '30 fps · Radmin', bitrate: '2,5 Mbps' })
+    expect(PRESETS_UI.map((p) => p.value)).toEqual(['720p30', '720p60', '1080p30', '1080p60'])
+    expect(PRESETS_UI[0]).toEqual({ value: '720p30', res: '720p', fps: '30 fps · Radmin', bitrate: '2,5 Mbps' })
+  })
+
+  it('PRESETS_UI contem 1080p30 com bitrate 5,0 Mbps', () => {
+    expect(PRESETS_UI).toContainEqual({ value: '1080p30', res: '1080p', fps: '30 fps', bitrate: '5,0 Mbps' })
   })
 })

@@ -240,3 +240,24 @@ pela ponte:
    Playwright: diferença pequena de pixels nas áreas sem dados dinâmicos).
 3. Num PC com Windows: `npm run tauri dev`, criar sala, entrar de outro PC/instância, compartilhar
    tela e câmera, assistir, chat. Registrar latência e qualidade na tela de diagnóstico.
+
+## Estado no fechamento (revisor)
+
+**Verde**
+- Front-end: `npm run check`, `npm test` (71 arquivos, 538 testes) e `npx vite build`.
+- Rust: `cargo fmt --check`, `clippy --workspace --all-targets -D warnings` (nativo e
+  `x86_64-pc-windows-gnu`) e `cargo test --workspace` (inclui `streamazap`).
+- Snapshot: `app/src/bridge/fixtures/snapshot_exemplo.json` agora é cópia exata de
+  `crates/zap-core/tests/snapshot_exemplo.json` (antes era um JSON escrito à mão, divergente);
+  mesmas chaves do `mockSnapshot()` e dos tipos de `bridge/types.ts`.
+- Corrigidos testes desatualizados após a segunda passada de design: `SalaPrincipal.test.tsx`
+  (suavização agora só no aria-label; Mbps não aparece mais) e `snapshot.test.ts` (version 1).
+
+**Pendente (tarefas presas, ainda com `todo!`)**
+- core-38 a core-42, core-44 a core-47 (engine: base, sala, compartilhar, assistir, etc.).
+- tauri-04, 06 a 10 e 13 (settings, sources, room, share, etc.).
+- Atenção: `setup.rs` (tauri-05) e `commands/watch.rs` (tauri-11) constam como aprovadas mas
+  ainda têm `todo!`; conferir se o trabalho foi perdido.
+- Binário Tauri sob `xvfb-run`: abre a janela mas dá pânico em `setup.rs:14`
+  ("not yet implemented: tarefa tauri-05"). Marco M3 NÃO está fechado: falta a camada engine/comandos.
+- Aceite 2 (Playwright) e 3 (Windows real) não executados.

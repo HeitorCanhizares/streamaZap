@@ -21,9 +21,23 @@ pub async fn accept_handshake(
     room: &Room,
     participant_id: String,
 ) -> Result<(ControlTx, ControlRx, Hello), NetError> {
-    tokio::time::timeout(HANDSHAKE_TIMEOUT, executa(conn, auth, room, participant_id))
-        .await
-        .map_err(|_| NetError::Timeout)?
+    accept_handshake_with(conn, auth, room, participant_id, None).await
+}
+
+/// Igual a `accept_handshake`, mas envia `segredo_midia` no `bem_vindo` (modo Local).
+pub async fn accept_handshake_with(
+    conn: &quinn::Connection,
+    auth: &ServerAuth,
+    room: &Room,
+    participant_id: String,
+    media_secret: Option<&str>,
+) -> Result<(ControlTx, ControlRx, Hello), NetError> {
+    tokio::time::timeout(
+        HANDSHAKE_TIMEOUT,
+        executa(conn, auth, room, participant_id, media_secret),
+    )
+    .await
+    .map_err(|_| NetError::Timeout)?
 }
 
 /// Envia `recusado`, dá um tempo para o dado sair e devolve o erro correspondente.
@@ -44,6 +58,7 @@ async fn executa(
     auth: &ServerAuth,
     room: &Room,
     participant_id: String,
+    media_secret: Option<&str>,
 ) -> Result<(ControlTx, ControlRx, Hello), NetError> {
     let (send, recv) = conn.accept_bi().await?;
     let tx = ControlTx::new(send);
@@ -110,6 +125,7 @@ async fn executa(
         participant_id,
         room: room.clone(),
         clock_us: None,
+        media_secret: media_secret.map(str::to_owned),
     })
     .await?;
     Ok((tx, rx, hello))
@@ -278,6 +294,45 @@ mod tests {
             Some(ControlMsg::Refused { code, .. }) => assert_eq!(code, "versao"),
             outro => return Err(format!("inesperado: {outro:?}").into()),
         }
+        Ok(())
+    }
+
+    fn hello_cliente() -> Hello {
+        Hello {
+            app_version: "1.0".into(),
+            install_id: "inst".into(),
+            name: "Ana".into(),
+            color: "#fff".into(),
+            ticket: None,
+            room_id: None,
+            preview: None,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn segredo_midia_chega_ao_cliente() -> Result<(), Box<dyn std::error::Error>> {
+        let p = par().await?;
+        let s = sala();
+        let srv = accept_handshake_with(&p.srv, &ServerAuth::Open, &s, "p1".into(), Some("c2VncmVkbw=="));
+        let cli = crate::handshake::connect_handshake(&p.cli, hello_cliente(), None);
+        let (r, c) = tokio::join!(srv, cli);
+        r?;
+        let (_tx, _rx, welcome) = c?;
+        assert_eq!(welcome.media_secret.as_deref(), Some("c2VncmVkbw=="));
+        assert_eq!(welcome.participant_id, "p1");
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wrapper_sem_segredo_envia_none() -> Result<(), Box<dyn std::error::Error>> {
+        let p = par().await?;
+        let s = sala();
+        let srv = accept_handshake(&p.srv, &ServerAuth::Open, &s, "p1".into());
+        let cli = crate::handshake::connect_handshake(&p.cli, hello_cliente(), None);
+        let (r, c) = tokio::join!(srv, cli);
+        r?;
+        let (_tx, _rx, welcome) = c?;
+        assert!(welcome.media_secret.is_none());
         Ok(())
     }
 

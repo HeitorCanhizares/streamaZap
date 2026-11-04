@@ -32,9 +32,8 @@ describe('SalaPrincipal', () => {
     montar()
     const t = document.body.textContent ?? ''
     expect(t).toContain('42 ms')
-    expect(t).toContain('200 ms')
+    expect(screen.getByLabelText('Suavização automática, 200 milissegundos')).toBeTruthy()
     expect(t).toContain('camada 2')
-    expect(t).toContain('8,2 Mbps')
   })
 
   it('sem_main', () => {
@@ -94,6 +93,14 @@ describe('SalaPrincipal', () => {
     rerender(<SalaPrincipal room={room} main={main} share={null} smoothingAuto onSmoothingAuto={vi.fn()} onToggleCamera={vi.fn()} onToggleShare={vi.fn()} onLeave={vi.fn()} onFullscreen={vi.fn()} onTogglePip={onTogglePip} pipHidden />)
     expect(screen.queryByRole('button', { name: 'Fechar câmera de Ana' })).toBeNull()
     expect(screen.getByText('Mostrar câmera')).toBeTruthy()
+  })
+
+  it('repassa invite ao cabecalho', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    montar({ invite: 'Entra na sala "Sexta" no streamaZap: código ZAP-7K2Q' })
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar convite' }))
+    expect(writeText).toHaveBeenCalledWith('Entra na sala "Sexta" no streamaZap: código ZAP-7K2Q')
   })
 
   it('tecla_m', () => {

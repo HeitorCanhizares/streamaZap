@@ -7,6 +7,7 @@ import { Button } from '../../components/Button'
 import { SalaPainel } from './SalaPainel'
 import { SalaPrincipal } from './SalaPrincipal'
 import { SalaTiles } from './SalaTiles'
+import { inviteText } from './salaModel'
 
 export interface SalaScreenProps { onLeft: () => void }
 
@@ -30,6 +31,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     ? null
     : snap.tiles.some((t) => t.tile === mainTile) ? mainTile : (snap.tiles[0]?.tile ?? null)
   const main = snap.tiles.find((t) => t.tile === tileAtivo) ?? null
+  // Convite do cabeçalho: código da sala ou IP do Radmin, conforme o que existir.
+  const invite = room ? inviteText(room, snap.network) : undefined
 
   // Marca se já estivemos numa sala; ao cair para null (sala encerrada) avisa uma vez só.
   const estavaNaSala = useRef(false)
@@ -134,6 +137,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
           onToggleMute={() => setMuted((m) => !m)}
           onVolume={setVolume}
           onCloseMain={onCloseMain}
+          invite={invite}
         />
         <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
@@ -142,6 +146,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
             tiles={snap.tiles}
             mainTile={tileAtivo}
             onPick={onPick}
+            meId={snap.me.install_id}
             camOn={cameraOn}
             sharing={!!snap.share}
             onToggleCam={onToggleCamera}

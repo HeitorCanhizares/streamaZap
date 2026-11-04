@@ -1,7 +1,8 @@
 // Tarefa sala-01: cabeçalho da sala (3-sala.html 72-84).
 import type { ReactNode } from 'react'
 import type { RoomView, TileView } from '../../bridge/types'
-import { Ping } from '../../components/Ping'
+import { useEffect, useRef, useState } from 'react'
+import { roomChip, watching } from './salaModel'
 
 export interface SalaCabecalhoProps {
   room: RoomView
@@ -10,17 +11,37 @@ export interface SalaCabecalhoProps {
   panelOpen: boolean
   onOpenPanel: () => void
   onStop?: () => void
+  invite?: string
+  onCopied?: () => void
 }
 
 const MONO = { fontFamily: 'var(--font-mono)' } as const
 
-// kbps para Mbps com vírgula decimal, como no design (6,2 Mbps).
-function mbps(kbps: number): string {
-  return (kbps / 1000).toFixed(1).replace('.', ',')
-}
-
 export function SalaCabecalho(props: SalaCabecalhoProps): ReactNode {
-  const { room, main, sharing, panelOpen, onOpenPanel, onStop } = props
+  const { room, main, sharing, panelOpen, onOpenPanel, onStop, invite, onCopied } = props
+  const assistindo = watching(room, main)
+  const [copiado, setCopiado] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Limpa o timer ao desmontar para não atualizar estado de componente morto.
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current)
+    },
+    [],
+  )
+
+  function copiar(): void {
+    try {
+      void navigator.clipboard?.writeText(invite ?? room.name)?.catch(() => {})
+    } catch {
+      // falha ao copiar é ignorada
+    }
+    onCopied?.()
+    setCopiado(true)
+    if (timer.current !== null) clearTimeout(timer.current)
+    timer.current = setTimeout(() => setCopiado(false), 2000)
+  }
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, minHeight: 48 }}>
@@ -36,26 +57,40 @@ export function SalaCabecalho(props: SalaCabecalhoProps): ReactNode {
         >
           {room.name}
         </h1>
-        {main !== null && (
+        <span
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 10,
+            fontSize: 13,
+            color: 'var(--texto-2)',
+          }}
+        >
           <span
             style={{
-              display: 'flex',
-              flexWrap: 'wrap',
+              ...MONO,
+              height: 22,
+              padding: '0 8px',
+              borderRadius: 6,
+              background: 'rgba(59,240,138,0.12)',
+              color: 'var(--verde)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.06em',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: 10,
-              fontSize: 13,
-              color: 'var(--texto-2)',
             }}
           >
-            <span>{`via ${room.mode === 'local' ? 'Local' : 'Radmin'}`}</span>
-            <span>
-              Ping <Ping ms={main.ping_ms} />
-            </span>
-            <span style={MONO}>{`suav. ${Math.round(main.smoothing_ms)} ms`}</span>
-            <span style={MONO}>{`${mbps(main.kbps)} Mbps`}</span>
-            <span style={MONO}>{`${main.width}x${main.height}@${main.fps}`}</span>
+            {roomChip(room)}
           </span>
-        )}
+          {assistindo !== null && (
+            <span>
+              Assistindo <b style={{ color: 'var(--texto)', fontWeight: 600 }}>{assistindo.name}</b>
+              {` · ${assistindo.kind}`}
+            </span>
+          )}
+        </span>
       </div>
 
       <span style={{ flex: 1 }} />
@@ -101,6 +136,39 @@ export function SalaCabecalho(props: SalaCabecalhoProps): ReactNode {
           </button>
         </span>
       )}
+
+      <button
+        type="button"
+        className="zp-ghost"
+        onClick={copiar}
+        style={{
+          height: 44,
+          padding: '0 16px',
+          borderRadius: 12,
+          border: '1px solid var(--borda-forte)',
+          background: 'transparent',
+          color: 'var(--texto)',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.8}
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="8" y="8" width="12" height="12" rx="2" />
+          <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+        </svg>
+        {copiado ? 'Convite copiado' : 'Copiar convite'}
+      </button>
 
       {!panelOpen && (
         <button

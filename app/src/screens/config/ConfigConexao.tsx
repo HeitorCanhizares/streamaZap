@@ -60,9 +60,12 @@ function portaValida(texto: string): number | null {
 
 export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps & { network: NetworkStatus }): ReactNode {
   const local = settings.local
-  // Campos sem lugar em Settings ficam só no estado do componente.
-  const [server, setServer] = useState('')
-  const [key, setKey] = useState('')
+  // Servidor vem de settings.server; ausente significa campos vazios.
+  const srv = settings.server
+  const endereco = srv?.address ?? ''
+  const senha = srv?.password ?? ''
+  // Patch por seção: mantém os outros campos do servidor.
+  const base = { address: endereco, password: senha, use_relay: srv?.use_relay ?? true }
   const [testState, setTestState] = useState<TestState>('idle')
   const [relay, setRelay] = useState(true)
   const [porta, setPorta] = useState(local.port > 0 ? String(local.port) : '')
@@ -118,8 +121,8 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
             <input
               id="srv"
               placeholder="ex.: zap.seudominio.com:7443"
-              value={server}
-              onChange={(e) => { setServer(e.target.value); setTestState('idle') }}
+              value={endereco}
+              onChange={(e) => { onChange({ server: { ...base, address: e.target.value } }); setTestState('idle') }}
               style={{ ...campo, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
             />
           </div>
@@ -129,8 +132,8 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
               id="chave"
               type="password"
               placeholder="pede pro dono do servidor"
-              value={key}
-              onChange={(e) => { setKey(e.target.value); setTestState('idle') }}
+              value={senha}
+              onChange={(e) => { onChange({ server: { ...base, password: e.target.value } }); setTestState('idle') }}
               style={{ ...campo, letterSpacing: '0.1em' }}
             />
             <span style={dica}>Barra bots e quem não foi convidado.</span>
@@ -138,7 +141,7 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
             <button
               className="zp-cta"
-              onClick={() => setTestState(server.trim() && key ? 'ok' : 'fail')}
+              onClick={() => setTestState(endereco.trim() && senha ? 'ok' : 'fail')}
               style={{ height: 44, padding: '0 18px', borderRadius: 12, border: 0, background: '#3BF08A', color: '#03140A', fontWeight: 700 }}
             >
               Testar conexão

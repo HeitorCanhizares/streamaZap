@@ -4,12 +4,11 @@ import type { Preset, Sources } from '../../bridge/types'
 import { ScenePreview } from '../../components/ScenePreview'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 
-// Cards do design, na ordem. O tipo Preset não tem '1080p30', então o 3º card usa o valor
-// mais próximo existente ('1080p60'). Na seleção, o último card com o mesmo valor ganha.
+// Cards do design, na ordem.
 const PRESETS: { res: string; fps: string; value: Preset }[] = [
   { res: '720p', fps: '30 fps · Radmin', value: '720p30' },
   { res: '720p', fps: '60 fps', value: '720p60' },
-  { res: '1080p', fps: '30 fps', value: '1080p60' },
+  { res: '1080p', fps: '30 fps', value: '1080p30' },
   { res: '1080p', fps: '60 fps', value: '1080p60' },
 ]
 

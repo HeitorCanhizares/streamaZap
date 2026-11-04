@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*"]
-# app/src-tauri entra no workspace no marco M3.
+members = ["crates/*", "app/src-tauri"]
 
 [workspace.package]
 version = "3.0.0-alpha.0"
@@ -57,6 +56,13 @@ cpal = "0.16"
 opus = "0.3"
 windows = "0.62"
 windows-core = "0.62"
+
+# app (M3)
+tauri = { version = "2", features = [] }
+tauri-build = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-process = "2"
 
 # testes
 proptest = "1"

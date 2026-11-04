@@ -130,6 +130,9 @@ pub enum ControlMsg {
         room: Room,
         #[serde(rename = "relogio_us", default, skip_serializing_if = "Option::is_none")]
         clock_us: Option<u64>,
+        /// Base64 de 32 bytes; só no modo Local (`docs/api/mensagens.md`).
+        #[serde(rename = "segredo_midia", default, skip_serializing_if = "Option::is_none")]
+        media_secret: Option<String>,
     },
     #[serde(rename = "recusado")]
     Refused {

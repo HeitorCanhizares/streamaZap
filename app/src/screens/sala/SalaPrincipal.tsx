@@ -29,6 +29,8 @@ export interface SalaPrincipalProps {
   onVolume?: (v: number) => void
   onCloseMain?: () => void
   reconnecting?: boolean
+  // Texto copiado pelo botão Copiar convite (vem de inviteText na SalaScreen).
+  invite?: string
 }
 
 const noop = () => {}
@@ -118,6 +120,7 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
         panelOpen={p.panelOpen ?? true}
         onOpenPanel={p.onOpenPanel ?? noop}
         onStop={p.onToggleShare}
+        invite={p.invite}
       />
 
       <VideoFrame>

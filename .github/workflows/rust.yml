@@ -33,8 +33,16 @@ jobs:
           components: rustfmt, clippy
           targets: x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2
-      - name: Compilador cruzado (MinGW) para checar o código do Windows
-        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64
+      - name: Compilador cruzado (MinGW) e libs do WebKitGTK (Tauri)
+        run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64 libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Build da interface (o Tauri embute app/dist)
+        working-directory: app
+        run: npm ci && npx vite build
       - name: Formatação
         run: cargo fmt --all --check
       - name: Clippy

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { SalaPainel } from './SalaPainel'
 import { mockSnapshot } from '../../bridge/mock'
 import type { RoomView } from '../../bridge/types'
+import { api } from '../../bridge/api'
 
 afterEach(() => cleanup())
 
@@ -104,5 +105,24 @@ describe('SalaPainel', () => {
     render(<SalaPainel room={mockRoom()} onSend={() => {}} onClose={onClose} />)
     fireEvent.click(screen.getByRole('button', { name: 'Fechar painel' }))
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('digitar no chat chama api.chatTyping(true)', () => {
+    const spy = vi.spyOn(api, 'chatTyping').mockResolvedValue()
+    render(<SalaPainel room={mockRoom()} onSend={() => {}} />)
+    const campo = screen.getByPlaceholderText('Mensagem')
+    fireEvent.change(campo, { target: { value: 'a' } })
+    expect(spy).toHaveBeenCalledWith(true)
+    spy.mockRestore()
+  })
+
+  it('onTyping explicito substitui o padrao', () => {
+    const spy = vi.spyOn(api, 'chatTyping').mockResolvedValue()
+    const onTyping = vi.fn()
+    render(<SalaPainel room={mockRoom()} onSend={() => {}} onTyping={onTyping} />)
+    fireEvent.change(screen.getByPlaceholderText('Mensagem'), { target: { value: 'a' } })
+    expect(onTyping).toHaveBeenCalledWith(true)
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
   })
 })

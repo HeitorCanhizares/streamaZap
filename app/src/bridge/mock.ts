@@ -95,13 +95,14 @@ export const mockSnapshot = (): Snapshot => ({
   ],
   room: {
     id: 'zap-7k2q',
+    code: 'ZAP-7K2Q',
     name: 'Sexta do Rush',
     mode: 'online',
     participants: [
-      { id: 'p-marcao', name: 'Marcão', color: '#FFB547', ping_ms: 24, sharing: true, camera: false },
-      { id: 'p-ju', name: 'Ju', color: '#7CF2C0', ping_ms: 58, sharing: false, camera: true },
-      { id: 'p-rafa', name: 'Rafa', color: '#5CD6FF', ping_ms: 92, sharing: false, camera: false },
-      { id: 'p-dudu', name: 'Dudu', color: '#FF9E5C', ping_ms: 140, sharing: true, camera: false },
+      { id: 'p-marcao', name: 'Marcão', color: '#FFB547', ping_ms: 24, sharing: true, camera: false, volume: 0.8, muted: false },
+      { id: 'p-ju', name: 'Ju', color: '#7CF2C0', ping_ms: 58, sharing: false, camera: true, volume: 0.6, muted: false },
+      { id: 'p-rafa', name: 'Rafa', color: '#5CD6FF', ping_ms: 92, sharing: false, camera: false, volume: 0.8, muted: true },
+      { id: 'p-dudu', name: 'Dudu', color: '#FF9E5C', ping_ms: 140, sharing: true, camera: false, volume: 0.8, muted: false },
     ],
     tracks: [
       { id: 'trk-1', owner_id: 'p-marcao', kind: 'screen', title: 'Tela inteira', number: 1 },
@@ -146,6 +147,7 @@ export const mockSettings = (): Settings => ({
     default_preset: '720p30',
     smoothing_auto: true,
     smoothing_ms: 200,
+    encoder: 'Automatico',
   },
   sound: {
     initial_volume: 0.8,
@@ -154,6 +156,7 @@ export const mockSettings = (): Settings => ({
     mute_when_minimized: true,
   },
   update: { auto: true, channel: 'estavel' },
+  server: { address: '', password: '', use_relay: true },
 })
 
 export const mockSources = (): Sources => ({

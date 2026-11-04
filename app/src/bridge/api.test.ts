@@ -74,4 +74,42 @@ describe('api dentro do Tauri', () => {
     expect(erro).toBeInstanceOf(Error)
     expect((erro as Error).message).toBe('sala cheia')
   })
+
+  it('shareUpdate fora do Tauri nao chama invoke', async () => {
+    fora()
+    await api.shareUpdate({} as never)
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it('shareUpdate dentro chama share_update com { req }', async () => {
+    dentro()
+    const req = { fonte: 'tela' } as never
+    await api.shareUpdate(req)
+    expect(invokeMock).toHaveBeenCalledWith('share_update', { req })
+  })
+
+  it('chatTyping dentro chama chat_typing com { typing: true }', async () => {
+    dentro()
+    await api.chatTyping(true)
+    expect(invokeMock).toHaveBeenCalledWith('chat_typing', { typing: true })
+  })
+
+  it('sourceThumbnail fora do Tauri devolve null', async () => {
+    fora()
+    const t = await api.sourceThumbnail('s1', 160, 90)
+    expect(t).toBeNull()
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it('sourceThumbnail dentro chama source_thumbnail com { id, w, h } e decodifica o buffer', async () => {
+    dentro()
+    // cabecalho LE: largura 2, altura 1; depois 2 pixels RGBA
+    const bytes = new Uint8Array([2, 0, 0, 0, 1, 0, 0, 0, 255, 0, 0, 255, 0, 255, 0, 255])
+    invokeMock.mockResolvedValueOnce(bytes.buffer as never)
+    const t = await api.sourceThumbnail('s1', 160, 90)
+    expect(invokeMock).toHaveBeenCalledWith('source_thumbnail', { id: 's1', w: 160, h: 90 })
+    expect(t).not.toBeNull()
+    expect(t?.width).toBe(2)
+    expect(t?.height).toBe(1)
+  })
 })

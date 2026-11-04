@@ -48,6 +48,18 @@ describe('mockSnapshot', () => {
     expect(sala.mode).toBe('local')
   })
 
+  it('sala mock tem code ZAP-7K2Q', () => {
+    expect(mockSnapshot().room!.code).toBe('ZAP-7K2Q')
+  })
+
+  it('participantes mock trazem volume entre 0 e 1 e muted booleano', () => {
+    for (const p of mockSnapshot().room!.participants) {
+      expect(p.volume).toBeGreaterThanOrEqual(0)
+      expect(p.volume).toBeLessThanOrEqual(1)
+      expect(typeof p.muted).toBe('boolean')
+    }
+  })
+
   it('tem um tile com a qualidade do design', () => {
     const tiles = mockSnapshot().tiles
     expect(tiles).toHaveLength(1)
@@ -65,6 +77,16 @@ describe('mockSettings', () => {
     const b = mockSettings()
     expect(a).not.toBe(b)
     expect(a.local).not.toBe(b.local)
+  })
+
+  it('mockSettings tem server.use_relay true e video.encoder Automatico', () => {
+    const s = mockSettings()
+    expect(s.server!.use_relay).toBe(true)
+    expect(s.video.encoder).toBe('Automatico')
+  })
+
+  it('default_preset do mock e um dos 4 presets validos (720p30,720p60,1080p30,1080p60)', () => {
+    expect(['720p30', '720p60', '1080p30', '1080p60']).toContain(mockSettings().video.default_preset)
   })
 })
 

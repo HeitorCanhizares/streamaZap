@@ -2,6 +2,7 @@
 // Porte de docs/design/3-sala.html 196-223. O corpo é PainelChat (sala-05) ou PainelPessoas (sala-06).
 import { useState, type ReactNode } from 'react'
 import type { RoomView } from '../../bridge/types'
+import { api } from '../../bridge/api'
 import { Badge } from '../../components/Badge'
 import { PainelChat } from './PainelChat'
 import { PainelPessoas } from './PainelPessoas'
@@ -12,6 +13,13 @@ export interface SalaPainelProps {
   // install_id do próprio usuário. Sem ele (vazio), nenhuma mensagem vira "minha": tudo fica como entrada.
   meId?: string
   onClose?: () => void
+  // Avisa a sala que eu comecei/parei de digitar. Padrão: chama api.chatTyping.
+  onTyping?: (typing: boolean) => void
+}
+
+// Padrão do aviso de digitação: falha de rede não deve quebrar a digitação, então engole o erro.
+const digitarPadrao = (typing: boolean): void => {
+  void api.chatTyping(typing).catch(() => {})
 }
 
 type Aba = 'chat' | 'pessoas'
@@ -34,7 +42,7 @@ const ABA_BASE = {
 } as const
 const ABA_ATIVA = { background: '#1A3A2C', color: '#3BF08A' } as const
 
-export function SalaPainel({ room, onSend, meId = '', onClose }: SalaPainelProps): ReactNode {
+export function SalaPainel({ room, onSend, meId = '', onClose, onTyping = digitarPadrao }: SalaPainelProps): ReactNode {
   const [aba, setAba] = useState<Aba>('chat')
 
   const abas: { value: Aba; label: string; badge: number }[] = [
@@ -95,7 +103,7 @@ export function SalaPainel({ room, onSend, meId = '', onClose }: SalaPainelProps
       </div>
 
       {aba === 'chat' ? (
-        <PainelChat chat={room.chat} meId={meId} onSend={onSend} />
+        <PainelChat chat={room.chat} meId={meId} onSend={onSend} onTyping={onTyping} />
       ) : (
         <PainelPessoas participants={room.participants} meId={meId} />
       )}

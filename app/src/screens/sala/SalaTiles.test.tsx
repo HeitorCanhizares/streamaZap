@@ -111,4 +111,48 @@ describe('SalaTiles', () => {
     unmount()
     expect(unwatch).toHaveBeenCalledWith(1)
   })
+
+  it('volume inicial do tile vem do participante (Ju 60% mostra 60%)', () => {
+    spies()
+    const room60: RoomView = {
+      ...room,
+      participants: [
+        { id: 'p-ju', name: 'Ju', color: '#7CF2C0', ping_ms: 10, sharing: true, camera: false, volume: 0.6 },
+      ],
+      tracks: [{ id: 'trk-3', owner_id: 'p-ju', kind: 'camera', title: 'Cam', number: 3 }],
+    }
+    render(<SalaTiles room={room60} tiles={[tv(1, 'trk-3')]} mainTile={null} onPick={() => {}} />)
+    expect(screen.getByText('60%')).toBeTruthy()
+  })
+
+  it('participante muted inicia como mudo', () => {
+    spies()
+    const roomMudo: RoomView = {
+      ...room,
+      participants: [
+        { id: 'p-rafa', name: 'Rafa', color: '#5CD6FF', ping_ms: 20, sharing: true, camera: false, muted: true },
+      ],
+      tracks: [{ id: 'trk-4', owner_id: 'p-rafa', kind: 'screen', title: 'Tela', number: 4 }],
+    }
+    render(<SalaTiles room={roomMudo} tiles={[tv(2, 'trk-4')]} mainTile={null} onPick={() => {}} />)
+    expect(screen.getByText('mudo')).toBeTruthy()
+    expect(screen.getByLabelText('Ativar som de Rafa')).toBeTruthy()
+  })
+
+  it('renderiza o cartao Você via SalaVoce', () => {
+    const { watch } = spies()
+    const cam = vi.fn(); const share = vi.fn()
+    const roomMe: RoomView = {
+      ...room,
+      tracks: [...room.tracks, { id: 'trk-me', owner_id: 'me', kind: 'camera', title: 'Minha', number: 9 }],
+    }
+    render(<SalaTiles room={roomMe} tiles={[]} mainTile={null} onPick={() => {}} meId="me" camOn onToggleCam={cam} onToggleShare={share} />)
+    expect(screen.getByText('Você')).toBeTruthy()
+    expect(screen.getByText('sua câmera')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Câmera' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tela' }))
+    expect(cam).toHaveBeenCalled()
+    expect(share).toHaveBeenCalled()
+    expect(watch).toHaveBeenCalledWith('trk-me', 9001, [320, 180], 2, expect.any(Function))
+  })
 })

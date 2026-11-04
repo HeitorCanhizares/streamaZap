@@ -1,0 +1,485 @@
+//! Atendimento de uma conexão de espectador no publicador.
+
+use std::collections::HashMap;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+
+use zap_net::control::{ControlRx, ControlTx};
+use zap_net::media_tx::MediaSender;
+use zap_proto::{ControlMsg, TileSize};
+
+use super::viewer::{LayerInfo, ViewerLink};
+use super::{MediaServer, PublishedTrack};
+
+/// Laço de controle da conexão (`conn` já passou pelo aperto de mão). `label` = `instalacao_id`.
+/// - `Subscribe{track_id, size, max_layer, audio}`: acha a trilha em `server.tracks`
+///   (inexistente → `Error{codigo:"trilha_inexistente"}`); cria um `ViewerLink` (id de
+///   `next_viewer`, `MediaSender::new(conn.clone(), clock.clone())` compartilhado pela conexão)
+///   por trilha; se já existe para a trilha só chama `apply_subscribe`. Vídeo: `add_viewer` e
+///   `camada.atual` inicial ("inicio") com a camada mais barata; se `audio == Some(true)`,
+///   também liga o `ViewerLink` de áudio (primeira `PublishedTrack::Audio` registrada).
+/// - `Unsubscribe{track_id}`: remove o link. `KeyframeRequest{track_id}`: `request_keyframe` da
+///   camada atual do link. `Report`: `apply_report` em todos os links da conexão. `Ping`→`Pong`.
+/// - Ao terminar (stream fechado, erro): remove todos os links da conexão dos publicadores.
+pub(crate) async fn serve_viewer(
+    server: Arc<MediaServer>,
+    conn: quinn::Connection,
+    tx: ControlTx,
+    mut rx: ControlRx,
+    label: String,
+) {
+    let sender = Arc::new(MediaSender::new(conn.clone(), server.clock.clone()));
+    let mut links: HashMap<String, (Arc<ViewerLink>, PublishedTrack)> = HashMap::new();
+
+    // Fim de stream, erro de leitura ou conexão fechada encerram o laço do mesmo jeito.
+    while let Ok(Some(msg)) = rx.recv().await {
+        match msg {
+            ControlMsg::Subscribe {
+                track_id,
+                size,
+                max_layer,
+                audio,
+            } => {
+                assinar(
+                    &server, &sender, &tx, &label, &mut links, track_id, size, max_layer, audio,
+                )
+                .await;
+            }
+            ControlMsg::Unsubscribe { track_id } => {
+                if let Some((link, track)) = links.remove(&track_id) {
+                    remove_link(&link, &track);
+                }
+            }
+            ControlMsg::KeyframeRequest { track_id, .. } => {
+                if let Some((link, PublishedTrack::Video(p))) = links.get(&track_id) {
+                    let camada = link.state.lock().current;
+                    p.request_keyframe(camada);
+                }
+            }
+            ControlMsg::Report(r) => {
+                for (link, _) in links.values() {
+                    link.state.lock().apply_report(&r);
+                }
+            }
+            ControlMsg::Ping { ts_ms } if tx.send(&ControlMsg::Pong { ts_ms }).await.is_err() => break,
+            ControlMsg::Ping { .. } => {}
+            _ => {}
+        }
+    }
+
+    // Sem isso o publicador continuaria enviando para uma conexão morta.
+    for (link, track) in links.values() {
+        remove_link(link, track);
+    }
+}
+
+fn remove_link(link: &ViewerLink, track: &PublishedTrack) {
+    match track {
+        PublishedTrack::Video(p) => p.remove_viewer(link.id),
+        PublishedTrack::Audio(p) => p.remove_viewer(link.id),
+    }
+}
+
+/// Cria o link de uma trilha e o registra no publicador.
+fn novo_link(
+    server: &MediaServer,
+    sender: &Arc<MediaSender>,
+    tx: &ControlTx,
+    label: &str,
+    track_id: &str,
+    track: &PublishedTrack,
+    cheapest: u8,
+) -> Arc<ViewerLink> {
+    let link = ViewerLink::new(
+        server.next_viewer.fetch_add(1, Ordering::Relaxed),
+        label.to_owned(),
+        track_id.to_owned(),
+        sender.clone(),
+        tx.clone(),
+        cheapest,
+    );
+    match track {
+        PublishedTrack::Video(p) => p.add_viewer(link.clone()),
+        PublishedTrack::Audio(p) => p.add_viewer(link.clone()),
+    }
+    link
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn assinar(
+    server: &MediaServer,
+    sender: &Arc<MediaSender>,
+    tx: &ControlTx,
+    label: &str,
+    links: &mut HashMap<String, (Arc<ViewerLink>, PublishedTrack)>,
+    track_id: String,
+    size: TileSize,
+    max_layer: Option<u8>,
+    audio: Option<bool>,
+) {
+    // Copia a trilha e solta o lock na hora: nada de lock através de await.
+    let track = server.tracks.lock().get(&track_id).cloned();
+    let Some(track) = track else {
+        let _ = tx
+            .send(&ControlMsg::Error {
+                code: "trilha_inexistente".into(),
+                message: format!("trilha {track_id} não existe"),
+                reference: None,
+            })
+            .await;
+        return;
+    };
+
+    if let Some((link, _)) = links.get(&track_id) {
+        link.state.lock().apply_subscribe(size, max_layer, audio);
+    } else {
+        let (cheapest, info) = match &track {
+            PublishedTrack::Video(p) => match p.ladder().last() {
+                Some(l) => (l.layer, Some(LayerInfo::from_spec(l))),
+                None => (0, None),
+            },
+            PublishedTrack::Audio(_) => (0, None),
+        };
+        // Cria sem registrar ainda: o "inicio" precisa sair antes de qualquer decisão do alocador.
+        let link = ViewerLink::new(
+            server.next_viewer.fetch_add(1, Ordering::Relaxed),
+            label.to_owned(),
+            track_id.clone(),
+            sender.clone(),
+            tx.clone(),
+            cheapest,
+        );
+        link.state.lock().apply_subscribe(size, max_layer, audio);
+        if let Some(info) = info {
+            link.announce_layer(&info, "inicio").await;
+        }
+        match &track {
+            PublishedTrack::Video(p) => p.add_viewer(link.clone()),
+            PublishedTrack::Audio(p) => p.add_viewer(link.clone()),
+        }
+        links.insert(track_id.clone(), (link, track.clone()));
+    }
+
+    // O áudio do participante viaja junto com o vídeo assinado.
+    if !matches!(track, PublishedTrack::Video(_)) {
+        return;
+    }
+    match audio {
+        Some(true) => {
+            let candidata = {
+                let tracks = server.tracks.lock();
+                tracks
+                    .iter()
+                    .filter(|(id, t)| matches!(t, PublishedTrack::Audio(_)) && !links.contains_key(*id))
+                    .min_by(|a, b| a.0.cmp(b.0))
+                    .map(|(id, t)| (id.clone(), t.clone()))
+            };
+            if let Some((id, t)) = candidata {
+                let link = novo_link(server, sender, tx, label, &id, &t, 0);
+                link.state.lock().audio = true;
+                links.insert(id, (link, t));
+            }
+        }
+        Some(false) => {
+            let ids: Vec<String> = links
+                .iter()
+                .filter(|(_, (_, t))| matches!(t, PublishedTrack::Audio(_)))
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in ids {
+                if let Some((link, t)) = links.remove(&id) {
+                    remove_link(&link, &t);
+                }
+            }
+        }
+        None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use std::sync::atomic::AtomicU64;
+    use std::time::Duration;
+
+    use parking_lot::Mutex;
+    use tokio::sync::mpsc;
+    use zap_media::{EncoderChoiceSpec, VideoPipelineConfig, VideoSourceSpec};
+    use zap_net::handshake::{accept_handshake_with, connect_handshake, Hello, ServerAuth};
+    use zap_net::media_rx::{spawn_receiver, MediaEvent};
+    use zap_net::report::ReportBuilder;
+    use zap_net::tls::{self, Identity};
+    use zap_net::{endpoint, Clock};
+    use zap_proto::{Access, Room, RoomMode};
+    use zap_rate::ladder::{screen_ladder, Preset};
+
+    use crate::publish::{AudioPublisher, AudioSource, MediaAuth, VideoPublisher};
+    use crate::ticket::{make_ticket, verify_ticket};
+
+    const SEGREDO: &str = "c2VncmVkby1kZS10ZXN0ZQ==";
+
+    fn sala() -> Room {
+        Room {
+            id: "r1".into(),
+            code: None,
+            name: "Sala".into(),
+            owner_id: "alice".into(),
+            access: Access::Open,
+            mode: RoomMode::Local,
+            created_at: "2026-01-01T00:00:00Z".into(),
+        }
+    }
+
+    struct Cenario {
+        server: Arc<MediaServer>,
+        video: Arc<VideoPublisher>,
+        audio: Arc<AudioPublisher>,
+        cli: quinn::Connection,
+        tx: ControlTx,
+        rx: ControlRx,
+        eventos: mpsc::Receiver<MediaEvent>,
+        _cli_ep: quinn::Endpoint,
+    }
+
+    /// Monta o `MediaServer` na mão (sem `start`), com laço de aceite próprio, e conecta um cliente cru.
+    async fn cenario() -> Cenario {
+        let id = Arc::new(Identity::generate("zap").unwrap());
+        let (endpoint, port) = endpoint::bind_server(&id, 0).await.unwrap();
+        let clock = Clock::new();
+        let server = Arc::new(MediaServer {
+            endpoint: endpoint.clone(),
+            port,
+            fingerprint: id.fingerprint(),
+            tracks: Mutex::new(HashMap::new()),
+            auth: Mutex::new(Some(MediaAuth {
+                room: sala(),
+                secret: SEGREDO.into(),
+                members: Arc::new(|| vec!["bob".to_string()]),
+            })),
+            clock: clock.clone(),
+            next_viewer: AtomicU64::new(1),
+            identity: id.clone(),
+            rt: tokio::runtime::Handle::current(),
+        });
+
+        let video = VideoPublisher::start(
+            VideoPipelineConfig {
+                track: 1,
+                source: VideoSourceSpec::Synthetic {
+                    width: 1280,
+                    height: 720,
+                },
+                ladder: screen_ladder(Preset::P720p30, 1280, 720),
+                encoder: EncoderChoiceSpec::Auto,
+            },
+            tokio::runtime::Handle::current(),
+            clock.clone(),
+        )
+        .unwrap();
+        let audio = AudioPublisher::start(2, AudioSource::Synthetic).unwrap();
+        server
+            .tracks
+            .lock()
+            .insert("v1".into(), PublishedTrack::Video(video.clone()));
+        server
+            .tracks
+            .lock()
+            .insert("a1".into(), PublishedTrack::Audio(audio.clone()));
+
+        let s = server.clone();
+        tokio::spawn(async move {
+            while let Some(inc) = endpoint.accept().await {
+                let s = s.clone();
+                tokio::spawn(async move {
+                    let Ok(conn) = inc.await else { return };
+                    let s2 = s.clone();
+                    let auth = ServerAuth::Ticket(Box::new(move |t| {
+                        verify_ticket(SEGREDO, &["bob".to_string()], t) && s2.auth.lock().is_some()
+                    }));
+                    let Ok((tx, rx, hello)) = accept_handshake_with(&conn, &auth, &sala(), "alice".into(), None).await
+                    else {
+                        return;
+                    };
+                    serve_viewer(s, conn, tx, rx, hello.install_id).await;
+                });
+            }
+        });
+
+        let cli_ep = endpoint::client_endpoint().unwrap();
+        let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+        let cli = cli_ep
+            .connect_with(tls::client_config(Some(&id.fingerprint())).unwrap(), addr, "zap")
+            .unwrap()
+            .await
+            .unwrap();
+        let (tx, rx, _w) = connect_handshake(
+            &cli,
+            Hello {
+                app_version: "1.0".into(),
+                install_id: "inst-bob".into(),
+                name: "Bob".into(),
+                color: "#fff".into(),
+                ticket: Some(make_ticket(SEGREDO, "bob")),
+                room_id: None,
+                preview: None,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let (etx, eventos) = mpsc::channel(256);
+        spawn_receiver(cli.clone(), clock, etx, Arc::new(Mutex::new(ReportBuilder::new(false))));
+        Cenario {
+            server,
+            video,
+            audio,
+            cli,
+            tx,
+            rx,
+            eventos,
+            _cli_ep: cli_ep,
+        }
+    }
+
+    fn assinar(track: &str, size: TileSize, audio: Option<bool>) -> ControlMsg {
+        ControlMsg::Subscribe {
+            track_id: track.into(),
+            size,
+            max_layer: None,
+            audio,
+        }
+    }
+
+    fn encerra(c: &Cenario) {
+        c.video.stop();
+        c.audio.stop();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn assinar_trilha_inexistente_erro() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("nao_existe", TileSize::Main, None)).await.unwrap();
+        let m = tokio::time::timeout(Duration::from_secs(3), c.rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        match m {
+            ControlMsg::Error { code, .. } => assert_eq!(code, "trilha_inexistente"),
+            outra => panic!("esperava erro, veio {outra:?}"),
+        }
+        encerra(&c);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn assinar_video_recebe_camada_atual_inicio_e_quadros() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("v1", TileSize::Main, Some(false))).await.unwrap();
+        let m = tokio::time::timeout(Duration::from_secs(3), c.rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        match m {
+            ControlMsg::LayerCurrent { track_id, reason, .. } => {
+                assert_eq!(track_id, "v1");
+                assert_eq!(reason, "inicio");
+            }
+            outra => panic!("esperava camada.atual, veio {outra:?}"),
+        }
+        let mut seqs: Vec<u32> = Vec::new();
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        while seqs.len() < 3 && tokio::time::Instant::now() < fim {
+            if let Ok(Some(MediaEvent::Video { header, .. })) =
+                tokio::time::timeout(Duration::from_millis(500), c.eventos.recv()).await
+            {
+                seqs.push(header.seq);
+            }
+        }
+        assert!(seqs.len() >= 3, "poucos quadros: {seqs:?}");
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "seq não cresce: {seqs:?}");
+        encerra(&c);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn assinar_com_audio_recebe_datagramas() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("v1", TileSize::Main, Some(true))).await.unwrap();
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        let mut audio = 0;
+        while audio < 3 && tokio::time::Instant::now() < fim {
+            if let Ok(Some(MediaEvent::Audio { .. })) =
+                tokio::time::timeout(Duration::from_millis(500), c.eventos.recv()).await
+            {
+                audio += 1;
+            }
+        }
+        assert!(audio >= 3, "poucos datagramas de áudio: {audio}");
+        encerra(&c);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn miniatura_so_recebe_camada_2() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("v1", TileSize::Thumbnail, Some(false)))
+            .await
+            .unwrap();
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        let mut n = 0;
+        while n < 5 && tokio::time::Instant::now() < fim {
+            if let Ok(Some(MediaEvent::Video { header, .. })) =
+                tokio::time::timeout(Duration::from_millis(500), c.eventos.recv()).await
+            {
+                assert_eq!(header.layer, 2);
+                n += 1;
+            }
+        }
+        assert!(n >= 5, "poucos quadros: {n}");
+        encerra(&c);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancelar_para_de_receber() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("v1", TileSize::Main, Some(false))).await.unwrap();
+        let m = tokio::time::timeout(Duration::from_secs(3), c.eventos.recv()).await;
+        assert!(matches!(m, Ok(Some(MediaEvent::Video { .. }))));
+        c.tx.send(&ControlMsg::Unsubscribe { track_id: "v1".into() })
+            .await
+            .unwrap();
+        // Dá tempo de o remove chegar e dos quadros em voo esgotarem.
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        while !c.video.shared.viewers.lock().is_empty() && tokio::time::Instant::now() < fim {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(c.video.shared.viewers.lock().len(), 0);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        while c.eventos.try_recv().is_ok() {}
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(c.eventos.try_recv().is_err(), "ainda chegam quadros");
+        encerra(&c);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn fechar_conexao_remove_links() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("v1", TileSize::Main, Some(true))).await.unwrap();
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        while c.video.stats().viewers_per_layer.iter().sum::<u32>() == 0 && tokio::time::Instant::now() < fim {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(c.video.stats().viewers_per_layer.iter().sum::<u32>() > 0);
+        c.cli.close(0u32.into(), b"fim");
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        while tokio::time::Instant::now() < fim
+            && (c.video.stats().viewers_per_layer.iter().sum::<u32>() > 0 || !c.audio.viewers.lock().is_empty())
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(c.video.stats().viewers_per_layer.iter().sum::<u32>(), 0);
+        assert!(c.audio.viewers.lock().is_empty());
+        let _ = &c.server;
+        encerra(&c);
+    }
+}

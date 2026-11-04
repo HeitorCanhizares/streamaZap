@@ -18,6 +18,7 @@ export const meta = {
 //   so_frentes    ["rate", ...] — executa só essas frentes
 //   max_paralelo  tarefas simultâneas (padrão 4; nunca duas no mesmo crate)
 //   fechamento    instruções do fechamento no lugar do padrão (ex.: só verificações do front-end)
+//   tarefas       {frente_id: [tarefa]} já decompostas (continuar um marco sem decompor de novo)
 
 const A = args || {}
 if (!A.marco) throw new Error('args.marco é obrigatório (ex.: "M1")')
@@ -190,8 +191,13 @@ const falhas = new Set()
 const ocupados = new Set()
 const rodando = new Map()
 const resultados = []
+// `args.tarefas` = {frente_id: [tarefa, ...]}: frentes já decompostas (continuação de um marco
+// que parou no meio); essas frentes não passam pelo decompositor.
+const prontas = A.tarefas || {}
 const emDecomposicao = new Map(
-  frentes.map((f) => [f.id, decompor(f).then((r) => ({ decomp: true, f, r }))]),
+  frentes
+    .filter((f) => !prontas[f.id])
+    .map((f) => [f.id, decompor(f).then((r) => ({ decomp: true, f, r }))]),
 )
 function acolher(f, r) {
   if (!r) return log(`⚠ frente ${f.id}: decompositor sem resposta (pulada)`)
@@ -206,6 +212,14 @@ function acolher(f, r) {
   log(`frente ${f.id}: ${r.tarefas.length} tarefas (${sonnet} de nível sonnet)`)
 }
 const pendentes = () => [...tarefas.values()].filter((t) => !feitas.has(t.id) && !falhas.has(t.id))
+for (const f of frentes.filter((f) => prontas[f.id])) {
+  // Dependências fora da lista já estão prontas (de uma execução anterior).
+  const ids = new Set(Object.values(prontas).flat().map((t) => t.id))
+  acolher(f, {
+    esqueleto_ok: true,
+    tarefas: prontas[f.id].map((t) => ({ ...t, depende_de: t.depende_de.filter((d) => ids.has(d)) })),
+  })
+}
 while (emDecomposicao.size || pendentes().length) {
   for (const t of tarefas.values()) {
     if (rodando.size >= MAX) break
@@ -227,12 +241,25 @@ while (emDecomposicao.size || pendentes().length) {
   if (rodando.size === 0 && emDecomposicao.size === 0) {
     const presas = pendentes()
     if (!presas.length) break
-    log(`⚠ ${presas.length} tarefas presas em dependências: ${presas.map((t) => t.id).join(', ')}`)
-    presas.forEach((t) => {
-      falhas.add(t.id)
-      resultados.push({ id: t.id, ok: false, por: '-', veredito: 'presa' })
-    })
-    break
+    // Ninguém roda e ninguém pode rodar: ciclo de dependências (erro do decompositor). Como o
+    // esqueleto compila, a ordem é preferência, não exigência: força a tarefa presa de menor
+    // número, ignorando as dependências que ainda estão presas, e segue.
+    const ids = new Set(presas.map((t) => t.id))
+    const candidata = presas
+      .filter((t) => t.depende_de.every((d) => feitas.has(d) || ids.has(d)))
+      .sort((a, b) => a.id.localeCompare(b.id, 'pt', { numeric: true }))[0]
+    if (!candidata) {
+      log(`⚠ ${presas.length} tarefas presas sem saída: ${presas.map((t) => t.id).join(', ')}`)
+      presas.forEach((t) => {
+        falhas.add(t.id)
+        resultados.push({ id: t.id, ok: false, por: '-', veredito: 'presa' })
+      })
+      break
+    }
+    const ignoradas = candidata.depende_de.filter((d) => ids.has(d))
+    log(`⚠ ciclo de dependências: forçando ${candidata.id} (ignorando ${ignoradas.join(', ')})`)
+    candidata.depende_de = candidata.depende_de.filter((d) => !ids.has(d))
+    continue
   }
   const ev = await Promise.race([...emDecomposicao.values(), ...rodando.values()])
   if (ev.decomp) {

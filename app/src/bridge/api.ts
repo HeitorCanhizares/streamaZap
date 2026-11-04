@@ -1,7 +1,8 @@
 // Wrappers tipados de invoke (tarefa ui-08). Fora do Tauri delegam ao mock.
 import type * as Core from '@tauri-apps/api/core'
 import { mockSettings, mockSources } from './mock'
-import type { CreateRoom, JoinTarget, Settings, ShareRequest, Sources, TileId } from './types'
+import { decodeThumbnail } from './thumbnail'
+import type { CreateRoom, JoinTarget, Settings, ShareRequest, Sources, Thumbnail, TileId } from './types'
 
 export const isTauri = (): boolean => '__TAURI_INTERNALS__' in globalThis
 
@@ -118,5 +119,39 @@ export const api = {
   chatSend: async (text: string): Promise<void> => {
     if (!isTauri()) return
     await call('chat_send', { text })
+  },
+
+  shareUpdate: async (req: ShareRequest): Promise<void> => {
+    if (!isTauri()) return
+    await call('share_update', { req })
+  },
+
+  chatTyping: async (typing: boolean): Promise<void> => {
+    if (!isTauri()) return
+    await call('chat_typing', { typing })
+  },
+
+  // Miniatura de uma fonte: o Rust devolve bytes brutos (cabecalho + RGBA), decodificados aqui.
+  sourceThumbnail: async (id: string, w: number, h: number): Promise<Thumbnail | null> => {
+    if (!isTauri()) return null
+    const { invoke } = await core()
+    let bruto: unknown
+    try {
+      bruto = await invoke<ArrayBuffer>('source_thumbnail', { id, w, h })
+    } catch (e) {
+      throw e instanceof Error ? e : new Error(typeof e === 'string' ? e : String(e))
+    }
+    // Conforme o transporte, a resposta pode vir como ArrayBuffer, array de numeros ou Uint8Array.
+    let buffer: ArrayBuffer
+    if (bruto instanceof ArrayBuffer) {
+      buffer = bruto
+    } else if (bruto instanceof Uint8Array) {
+      buffer = bruto.slice().buffer
+    } else if (Array.isArray(bruto)) {
+      buffer = Uint8Array.from(bruto as number[]).buffer
+    } else {
+      return null
+    }
+    return decodeThumbnail(buffer)
   },
 }

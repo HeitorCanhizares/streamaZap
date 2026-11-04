@@ -12,11 +12,30 @@ zap-proto.workspace = true
 zap-rate.workspace = true
 zap-net.workspace = true
 zap-media.workspace = true
+zap-audio.workspace = true
+zap-capture.workspace = true
 zap-sys.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+tokio.workspace = true
+quinn.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+parking_lot.workspace = true
+crossbeam-channel.workspace = true
+uuid.workspace = true
+bytes.workspace = true
+base64.workspace = true
+hmac.workspace = true
+sha2.workspace = true
+rand.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

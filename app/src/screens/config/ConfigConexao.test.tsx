@@ -69,12 +69,33 @@ describe('ConfigConexao', () => {
     expect(onChange).toHaveBeenCalledWith({ local: { interface: null, port: 47800, announce: true } })
   })
 
-  it('teste de conexão: fail, ok e volta a idle ao editar', () => {
-    montar()
+  it('renderiza sem settings.server (undefined) sem erro', () => {
+    const s = ajustes()
+    delete (s as Partial<Settings>).server
+    montar(vi.fn(), rede, s)
+    expect((screen.getByLabelText('Endereço do servidor') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('Senha do servidor') as HTMLInputElement).value).toBe('')
+  })
+
+  it('renderiza com server.address do mock sem erro', () => {
+    montar(vi.fn(), rede, ajustes({ server: { address: 'zap.x.com:7443', password: 'segredo', use_relay: true } }))
+    expect((screen.getByLabelText('Endereço do servidor') as HTMLInputElement).value).toBe('zap.x.com:7443')
+  })
+
+  it('editar endereço chama onChange com { server: { address } }', () => {
+    const onChange = vi.fn()
+    montar(onChange, rede, ajustes({ server: { address: 'antigo', password: 'p', use_relay: false } }))
+    fireEvent.change(screen.getByLabelText('Endereço do servidor'), { target: { value: 'zap.x.com:7443' } })
+    expect(onChange).toHaveBeenCalledWith({ server: { address: 'zap.x.com:7443', password: 'p', use_relay: false } })
+  })
+
+  it('teste de conexão: fail sem campos, ok com endereço e senha, volta a idle ao editar', () => {
+    const onChange = vi.fn()
+    const { unmount } = montar(onChange)
     fireEvent.click(screen.getByText('Testar conexão'))
     expect(screen.getByText('Preencha o endereço e a senha')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Endereço do servidor'), { target: { value: 'zap.x.com:7443' } })
-    fireEvent.change(screen.getByLabelText('Senha do servidor'), { target: { value: 'segredo' } })
+    unmount()
+    montar(onChange, rede, ajustes({ server: { address: 'zap.x.com:7443', password: 'segredo', use_relay: true } }))
     fireEvent.click(screen.getByText('Testar conexão'))
     expect(screen.getByText('Conectado · senha aceita · 42 ms')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Endereço do servidor'), { target: { value: 'outro.com' } })

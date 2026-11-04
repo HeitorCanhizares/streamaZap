@@ -76,6 +76,22 @@ describe('SalaScreen', () => {
     expect(screen.getByRole('complementary', { name: 'Chat e pessoas' })).toBeTruthy()
   })
 
+  it('chip ONLINE · ZAP-7K2Q aparece', () => {
+    estado.snap = mockSnapshot()
+    render(<SalaScreen onLeft={() => {}} />)
+    expect(screen.getByText('ONLINE · ZAP-7K2Q')).toBeTruthy()
+  })
+
+  it('Copiar convite grava o texto do convite com o codigo ZAP-7K2Q no clipboard', () => {
+    estado.snap = mockSnapshot()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<SalaScreen onLeft={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Copiar convite' }))
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(writeText.mock.calls[0][0]).toContain('ZAP-7K2Q')
+  })
+
   it('painel: Fechar painel remove o aside e o botão Painel do cabeçalho o traz de volta', () => {
     estado.snap = mockSnapshot()
     render(<SalaScreen onLeft={() => {}} />)

@@ -6,7 +6,7 @@ mod client;
 mod server;
 
 pub use client::connect_handshake;
-pub use server::accept_handshake;
+pub use server::{accept_handshake, accept_handshake_with};
 
 /// Tempo máximo do aperto de mão.
 pub const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -36,4 +36,6 @@ pub struct Welcome {
     pub participant_id: String,
     pub room: Room,
     pub clock_us: Option<u64>,
+    /// `segredo_midia` (base64 de 32 bytes), só no modo Local.
+    pub media_secret: Option<String>,
 }

@@ -4,12 +4,15 @@ import { api } from '../../bridge/api'
 import { VideoPlayer } from '../../video/player'
 import { Avatar } from '../../components/Avatar'
 import { ScenePreview, type SceneName } from '../../components/ScenePreview'
+import { SalaVoce } from './SalaVoce'
+import { kindLabel } from './salaModel'
 
 export interface SalaTilesProps {
   room: RoomView
   tiles: TileView[]
   mainTile: number | null
   onPick: (tile: number) => void
+  meId?: string
   camOn?: boolean
   sharing?: boolean
   onToggleCam?: () => void
@@ -17,7 +20,6 @@ export interface SalaTilesProps {
 }
 
 const SCENA: Record<string, SceneName> = { camera: 'cama', window: 'desktop', screen: 'game' }
-const KIND: Record<string, string> = { camera: 'Webcam', window: 'Janela', screen: 'Tela' }
 
 // card(on) do script x-dc
 const card = (on: boolean): CSSProperties => ({
@@ -27,10 +29,6 @@ const card = (on: boolean): CSSProperties => ({
 const small = (alert: boolean): CSSProperties => ({
   flex: '0 0 18px', width: 18, height: 18, border: 0, padding: 0, background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
   color: alert ? '#FF8592' : '#E6F4EC',
-})
-const meBtn = (on: boolean): CSSProperties => ({
-  flex: 1, minWidth: 0, height: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, fontWeight: 600,
-  border: '1px solid ' + (on ? '#3BF08A' : '#2A443C'), background: on ? 'rgba(59,240,138,0.12)' : 'transparent', color: on ? '#3BF08A' : '#A3BDB1',
 })
 const BTN_X: CSSProperties = {
   position: 'absolute', right: 6, top: 6, width: 36, height: 36, borderRadius: 10, border: '1px solid #2A443C', background: 'rgba(10,16,14,0.82)',
@@ -43,16 +41,17 @@ const SR_ONLY: CSSProperties = { position: 'absolute', width: 1, height: 1, over
 interface TileProps { tile: TileView; room: RoomView; main: boolean; onPick: (tile: number) => void }
 
 function Tile({ tile, room, main, onPick }: TileProps): ReactNode {
-  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
-  const [vol, setVol] = useState(80)
-  const [muted, setMuted] = useState(false)
-  const [closed, setClosed] = useState(false)
-
   const track = room.tracks.find((x) => x.id === tile.track_id)
   const dono = track?.owner_id
   const pessoa = room.participants.find((x) => x.id === dono)
+  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
+  // Volume e mudo iniciais são os que EU já escolhi para esse participante (vêm do room).
+  const [vol, setVol] = useState(() => Math.round((pessoa?.volume ?? 0.8) * 100))
+  const [muted, setMuted] = useState(() => pessoa?.muted ?? false)
+  const [closed, setClosed] = useState(false)
+
   const nome = pessoa?.name ?? 'Alguém'
-  const tipo = KIND[track?.kind ?? 'screen'] ?? 'Tela'
+  const tipo = kindLabel(track?.kind ?? 'screen')
   const id = tile.tile
   const trackId = tile.track_id
 
@@ -126,29 +125,13 @@ function Tile({ tile, room, main, onPick }: TileProps): ReactNode {
   )
 }
 
-export function SalaTiles({ room, tiles, mainTile, onPick, camOn = false, sharing = false, onToggleCam, onToggleShare }: SalaTilesProps): ReactNode {
+export function SalaTiles({ room, tiles, mainTile, onPick, meId = '', camOn = false, sharing = false, onToggleCam, onToggleShare }: SalaTilesProps): ReactNode {
   return (
     <div role="group" aria-label="Transmissões na sala" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
       {tiles.map((t) => (
         <Tile key={t.tile} tile={t} room={room} main={t.tile === mainTile} onPick={onPick} />
       ))}
-      <div style={card(false)}>
-        <div style={{ padding: '10px 12px 0', fontWeight: 700 }}>Você</div>
-        <div style={{ display: 'flex', gap: 8, padding: 6 }}>
-          <button type="button" onClick={onToggleCam} aria-pressed={camOn} style={meBtn(camOn)}>
-            {camOn ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="7" width="13" height="10" rx="2" /><path d="m16 11 5-3v8l-5-3z" /></svg>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="7" width="13" height="10" rx="2" /><path d="m16 11 5-3v8l-5-3zM3 3l18 18" /></svg>
-            )}
-            Câmera
-          </button>
-          <button type="button" onClick={onToggleShare} aria-pressed={sharing} style={meBtn(sharing)}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
-            Tela
-          </button>
-        </div>
-      </div>
+      <SalaVoce room={room} meId={meId} camOn={camOn} sharing={sharing} onToggleCam={onToggleCam} onToggleShare={onToggleShare} />
     </div>
   )
 }

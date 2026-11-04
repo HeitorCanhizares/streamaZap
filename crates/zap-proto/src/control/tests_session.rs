@@ -181,6 +181,7 @@ fn bem_vindo() {
             participant_id,
             room,
             clock_us,
+            ..
         } => {
             assert_eq!(participant_id, "p_2");
             assert_eq!(room.id, "s_1");
@@ -195,6 +196,33 @@ fn bem_vindo() {
     let v = saida(&msg);
     assert_eq!(v["t"], "bem_vindo");
     assert_eq!(v["sala"]["modo"], "online");
+}
+
+#[test]
+fn welcome_com_segredo_midia() {
+    let com = roundtrip(
+        r#"{"t":"bem_vindo","participante_id":"p_2","sala":{"id":"s_1","codigo":"ZAP-7K2Q","nome":"Corrida","dono_id":"p_1","acesso":"aberta","modo":"local","criada_em":"2026-01-01T00:00:00Z"},"segredo_midia":"AAAA"}"#,
+    );
+    match &com {
+        ControlMsg::Welcome {
+            media_secret, clock_us, ..
+        } => {
+            assert_eq!(media_secret.as_deref(), Some("AAAA"));
+            assert!(clock_us.is_none());
+        }
+        outro => panic!("esperava bem_vindo, veio {outro:?}"),
+    }
+    assert_eq!(saida(&com)["segredo_midia"], "AAAA");
+
+    // Sem o campo: None, e a saída não o inclui.
+    let sem = roundtrip(
+        r#"{"t":"bem_vindo","participante_id":"p_2","sala":{"id":"s_1","codigo":"ZAP-7K2Q","nome":"Corrida","dono_id":"p_1","acesso":"aberta","modo":"online","criada_em":"2026-01-01T00:00:00Z"}}"#,
+    );
+    match &sem {
+        ControlMsg::Welcome { media_secret, .. } => assert!(media_secret.is_none()),
+        outro => panic!("esperava bem_vindo, veio {outro:?}"),
+    }
+    assert!(saida(&sem).get("segredo_midia").is_none());
 }
 
 #[test]

@@ -32,9 +32,9 @@ export const ACESSOS: AcessoInfo[] = [
 ]
 
 export const PRESETS_UI: PresetInfo[] = [
-  { value: '480p30', res: '480p', fps: '30 fps', bitrate: '1,5 Mbps' },
   { value: '720p30', res: '720p', fps: '30 fps · Radmin', bitrate: '2,5 Mbps' },
   { value: '720p60', res: '720p', fps: '60 fps', bitrate: '4,0 Mbps' },
+  { value: '1080p30', res: '1080p', fps: '30 fps', bitrate: '5,0 Mbps' },
   { value: '1080p60', res: '1080p', fps: '60 fps', bitrate: '8,0 Mbps' },
 ]
 
