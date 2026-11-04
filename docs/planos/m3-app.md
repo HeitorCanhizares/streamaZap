@@ -28,6 +28,36 @@ A interface foi feita antes do núcleo. O contrato é o que está em `app/src/br
   `RoomView`/`TileView` precisam crescer para o que a tela da sala ainda não mostra (tiles de cada
   participante com volume, código da sala e "Copiar convite").
 
+## Frente `ui-ligacao` (`app/src`, travas `app-ui-*` por área)
+
+Liga a interface pronta (M3/M3b) ao núcleo real:
+- `Preset` vira `'720p30' | '720p60' | '1080p30' | '1080p60'` (design e `zap-rate`); mock e telas
+  acompanham.
+- Tipos que faltam para a tela da sala: código da sala (`RoomView.code?`), volume/mudo por
+  participante, e cada participante que compartilha vira um tile (Tela/Janela/Webcam) com o
+  `VideoPlayer` ligado ao canal do `watch`; o tile "Você" mostra a própria câmera/tela pela mesma
+  via (camada 2). Cabeçalho da sala: chip `ONLINE · ZAP-XXXX` (ou `LOCAL`), "Assistindo X · Tela",
+  "Copiar convite"; métricas só na barra de título (sem duplicar no subtítulo).
+- `api.ts`: comandos `watch`/`unwatch` com `Channel` do `@tauri-apps/api/core` entregando
+  `ArrayBuffer` ao `VideoPlayer` (formato do pacote na frente `tauri`), `set_volume`,
+  `set_smoothing`, `chat_send`, `chat_typing`, `camera_set`, `share_update`, `source_thumbnail`.
+- Mock continua funcionando no navegador (sem vídeo real: cenas do design).
+
+## Detalhes da frente `tauri`
+
+- Crate `app/src-tauri` (pacote `streamazap`, binário `streamazap`) entra no `members` da raiz.
+  `tauri.conf.json`: `devUrl` `http://localhost:1420`, `frontendDist` `../dist`,
+  `beforeDevCommand` `npm run dev`, `beforeBuildCommand` `npm run build`, identificador
+  `com.streamazap.app`, janela sem moldura 1440×900 (mín. 1100×700), CSP restrita.
+  Ícones gerados com `npx tauri icon ../streamazap/assets/icon.png` (dentro de `app/`).
+- Capabilities (`capabilities/default.json`): só os comandos do app, eventos e janela.
+- CI Linux precisa de `libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev` (já
+  instalados neste ambiente); atualizar `.github/workflows/rust.yml`.
+- Verificação: `cargo clippy -p streamazap --all-targets -- -D warnings`, `cargo check -p streamazap
+  --target x86_64-pc-windows-gnu` (precisa de `app/dist` existir: rode `cd app && npx vite build`
+  antes) e `cargo test -p streamazap`.
+- Saída de áudio: `zap_audio::AudioOut` (Windows) criada pelo `Core`; em Linux, sem saída (stub).
+
 ---
 
 ## Frente `core` (`crates/zap-core`)
