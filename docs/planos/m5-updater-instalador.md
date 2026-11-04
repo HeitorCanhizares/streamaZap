@@ -25,6 +25,53 @@ Plano do arquiteto. Base: `docs/arquitetura-v3.md` seção 8 e os módulos Pytho
 | `diagnostico` | `crates/zap-core` + `app/src/screens` | Tela Diagnóstico completa (servidor, rede, firewall, amigos, salas) e "Copiar relatório" |
 | `pacote` | `.github/workflows/release-v3.yml`, `app/src-tauri/tauri.conf.json` | NSIS por usuário, ícones, `.zip` portátil, `latest.json`, assinatura, Release |
 
+## Frentes desta execução (estado do código depois do M3)
+
+O app Tauri já existe (`app/src-tauri`, comandos em `commands/`, `diagnostics_run` devolve erro
+"chega no M5"), `zap-sys` está vazio e o front-end já tem os botões (Configurações: "Procurar
+atualização", "Atualizar sozinho ao abrir"; Diagnóstico: cards de servidor/rede/firewall/amigos/
+salas, "Corrigir firewall", "Copiar relatório").
+
+| Id | Trava (`crate`) | Depende de | Arquivos principais |
+|---|---|---|---|
+| `sys` | `zap-sys` | — | `crates/zap-sys/src/{firewall,elevate,net,vpn}.rs` (+ stub não-Windows) |
+| `app-update` | `streamazap` | `sys` | `app/src-tauri/` (Cargo.toml, tauri.conf.json, capabilities, `commands/update.rs`, `commands/diag.rs`, `setup.rs` p/ `--corrigir-firewall`) |
+| `core-diag` | `zap-core` | `sys` | `crates/zap-core/src/diag.rs` (monta o relatório: rede, VPN, firewall, amigos/presença, salas, versão) |
+| `ui-m5` | `app-ui-*` por área | `app-update`, `core-diag` | `app/src/bridge` (tipos/comandos de update e diag), `screens/config` (atualização), `screens/diag` (dados reais), aviso de atualização pronta |
+| `pacote` | `pacote` | `app-update` | `.github/workflows/release-v3.yml`, `app/src-tauri/windows/hooks.nsh` (migração do Inno), `README.md` (seção v3) |
+
+Regras do updater no código:
+- `tauri-plugin-updater` 2 e `tauri-plugin-process` 2. Em `tauri.conf.json`:
+  `bundle.createUpdaterArtifacts: true`, `bundle.windows.nsis.installMode: "currentUser"`,
+  `plugins.updater.endpoints` = estável e beta (seção "CI de release") e
+  `plugins.updater.pubkey` = placeholder `"COLE_AQUI_A_CHAVE_PUBLICA"` (o dono gera com
+  `npx tauri signer generate` e cola; documentar no README). Com o placeholder, `update_check`
+  devolve erro claro "atualização não configurada nesta build" em vez de quebrar.
+- Comandos: `update_check() -> {disponivel, versao, notas, tamanho}`, `update_download()` (emite
+  `zap://update` com progresso 0–100), `update_install_now()` (recusa com erro se o núcleo está numa
+  sala), `update_install_on_exit()` (marca; o `RunEvent::Exit` instala). Estado da atualização vai
+  no evento `zap://update` `{fase: "nada"|"baixando"|"pronta"|"instalando"|"erro", progresso, versao, erro}`.
+- Ao abrir, se `settings.update.auto`: checa em segundo plano 10 s depois; se houver, baixa; quando
+  pronta, instala **ao fechar** (nunca reinicia sozinho), e a interface mostra "Atualização X
+  pronta — instala ao fechar" com botão "Reiniciar agora" (desabilitado numa sala).
+- Canal: `settings.update.channel` (`estavel`/`beta`) escolhe o endpoint.
+- Protocolo: se a descoberta vir `other_versions` com protocolo maior, o snapshot avisa
+  (`errors` ou campo próprio) e a interface oferece atualizar.
+
+Firewall (`zap-sys`, Windows, COM `INetFwPolicy2`, sem PowerShell):
+- `status(exe: &Path) -> FirewallStatus { suportado, bloqueado, liberado, bloquear_tudo_por_perfil: [dominio, privado, publico], categoria_radmin: Option<String>, regras: Vec<RegraResumo> }`.
+- `corrigir(exe) -> Resultado` (precisa de admin): remove regras de **bloqueio** do exe, cria
+  "streamaZap (UDP)" e "streamaZap (TCP)" de entrada para o exe em todos os perfis, e desliga
+  "Bloquear todas as conexões de entrada" só se estiver ligado no perfil da rede do Radmin.
+- `elevate::relaunch_elevated(args)` (`ShellExecuteExW` com `runas`, espera terminar, lê o
+  resultado de um arquivo JSON temporário).
+- `net`: interfaces IPv4 (nome amigável, IP, se é Radmin `26.0.0.0/8`), `vpn`: adaptadores de VPNs
+  conhecidas (NordVPN, ProtonVPN, Mullvad, WireGuard, OpenVPN/TAP, Surfshark, Windscribe,
+  ExpressVPN, Hamachi, ZeroTier, Tailscale) e antivírus com firewall próprio (WMI
+  `root/SecurityCenter2`, `FirewallProduct`), como o app Python faz.
+- Testes: lógica de interpretação (pura) em Linux; no Windows, `status` do próprio executável de
+  teste roda sem erro.
+
 ## Correção do firewall (elevada)
 O app relança a si mesmo com `ShellExecuteExW("runas", streamazap.exe, "--corrigir-firewall")`.
 Nesse modo, sem janela: remove regras de bloqueio do executável, cria regras de permissão
