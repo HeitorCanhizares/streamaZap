@@ -16,6 +16,10 @@ zap-proto = { path = "crates/zap-proto" }
 zap-rate = { path = "crates/zap-rate" }
 zap-net = { path = "crates/zap-net" }
 zap-media = { path = "crates/zap-media" }
+zap-gpu = { path = "crates/zap-gpu" }
+zap-capture = { path = "crates/zap-capture" }
+zap-encode = { path = "crates/zap-encode" }
+zap-audio = { path = "crates/zap-audio" }
 zap-sys = { path = "crates/zap-sys" }
 zap-core = { path = "crates/zap-core" }
 
@@ -50,7 +54,9 @@ if-addrs = "0.15"
 rtrb = "0.3"
 rubato = "0.16"
 cpal = "0.16"
+opus = "0.3"
 windows = "0.62"
+windows-core = "0.62"
 
 # testes
 proptest = "1"
