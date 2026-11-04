@@ -36,6 +36,7 @@ windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Thre
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true

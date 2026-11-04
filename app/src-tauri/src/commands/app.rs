@@ -1,4 +1,9 @@
+use std::sync::Arc;
+
 use serde::Serialize;
+use tauri::State;
+
+use crate::state::AppState;
 
 #[derive(Serialize)]
 pub struct AppInfo {
@@ -20,6 +25,13 @@ fn build_info() -> AppInfo {
 #[tauri::command]
 pub async fn app_info() -> Result<AppInfo, String> {
     Ok(build_info())
+}
+
+/// Estado atual do núcleo. A interface pede ao abrir: o primeiro `zap://state` pode ter saído
+/// antes de a página começar a ouvir.
+#[tauri::command]
+pub async fn snapshot_get(state: State<'_, Arc<AppState>>) -> Result<zap_core::Snapshot, String> {
+    Ok((*state.core.snapshot()).clone())
 }
 
 /// Diagnóstico completo é do M5: devolve `Err("Diagnóstico completo chega no M5")`.

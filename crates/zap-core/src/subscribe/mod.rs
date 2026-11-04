@@ -41,6 +41,8 @@ pub struct Subscription {
     pub track: Track,
     pub(crate) conn: Arc<PubConn>,
     pub(crate) metrics: Arc<TileMetrics>,
+    // Mantém o receptor de vídeo vivo enquanto a assinatura existir.
+    #[allow(dead_code)]
     pub(crate) video: Arc<VideoRx>,
     /// Número da trilha de áudio registrada no `Router`, se houve.
     pub(crate) audio_number: Option<u16>,

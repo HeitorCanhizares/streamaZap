@@ -42,6 +42,8 @@ pub struct MediaServer {
     pub(crate) auth: Mutex<Option<MediaAuth>>,
     pub(crate) clock: zap_net::Clock,
     pub(crate) next_viewer: AtomicU64,
+    // Mantém a identidade viva junto do servidor (posse), sem leitura direta.
+    #[allow(dead_code)]
     pub(crate) identity: Arc<Identity>,
     pub(crate) rt: tokio::runtime::Handle,
 }

@@ -43,6 +43,8 @@ pub struct CoreOptions {
     pub include_loopback: bool,
     /// Cria a saída de áudio (`AudioOutHandle::start`); false = stub.
     pub audio_out: bool,
+    /// Destinos unicast extras da descoberta (`DiscoveryConfig.extra_targets`; testes).
+    pub discovery_targets: Vec<std::net::SocketAddr>,
 }
 
 impl Default for CoreOptions {
@@ -53,6 +55,7 @@ impl Default for CoreOptions {
             discovery_port: zap_proto::DISCOVERY_PORT,
             include_loopback: false,
             audio_out: true,
+            discovery_targets: vec![],
         }
     }
 }
@@ -181,7 +184,99 @@ impl Core {
     /// habilitada (falha de descoberta = só log + `push_error`), `engine_room::pump_room_events`
     /// e `engine_tick::run`. Primeiro snapshot já entregue no fim.
     pub fn start_with(data_dir: PathBuf, ui: Arc<dyn UiSink>, options: CoreOptions) -> Result<Self, CoreError> {
-        todo!("tarefa core-38")
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .thread_name("zap-core")
+            .build()?;
+        let rt = runtime.handle().clone();
+        // Contexto do runtime ativo: `Notifier::spawn` e `PlayoutHub::start` usam timers/spawn.
+        let _guard = rt.enter();
+
+        std::fs::create_dir_all(&data_dir)?;
+        let settings = crate::settings::load(&data_dir);
+        // Grava na primeira execução para o `install_id` gerado não mudar na próxima.
+        if !data_dir.join("settings.json").exists() {
+            crate::settings::save(&data_dir, &settings)?;
+        }
+        let identity = Arc::new(crate::settings::load_or_create_identity(
+            &data_dir,
+            &settings.install_id,
+        )?);
+
+        let state = Arc::new(Mutex::new(UiState::new(Me {
+            name: settings.name.clone(),
+            color: settings.color.clone(),
+            install_id: settings.install_id.clone(),
+        })));
+        let notifier = Notifier::spawn(&rt, ui.clone(), state.clone());
+        let clock = zap_net::Clock::new();
+        let playout = Arc::new(PlayoutHub::start(clock.clone(), ui.clone()));
+        playout.set_smoothing(settings.video.smoothing_auto, settings.video.smoothing_ms);
+        // Fora do Windows `start()` já é um stub sem thread.
+        let audio_out = AudioOutHandle::start();
+        let audio_rx = AudioRegistry::new(
+            audio_out.clone(),
+            playout.clone(),
+            clock.clone(),
+            settings.sound.initial_volume,
+        );
+        let (room_events, rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let install_id = settings.install_id.clone();
+        let nome = settings.name.clone();
+        let shared = Arc::new(Shared {
+            rt: rt.clone(),
+            data_dir,
+            options: options.clone(),
+            settings: RwLock::new(settings),
+            identity,
+            ui,
+            state,
+            notifier,
+            clock,
+            discovery: Mutex::new(None),
+            room: Mutex::new(None),
+            room_events,
+            share: tokio::sync::Mutex::new(ShareSession::default()),
+            media_server: tokio::sync::Mutex::new(None),
+            subs: Mutex::new(HashMap::new()),
+            pool: ConnPool::default(),
+            playout,
+            audio_rx,
+            audio_out,
+            stop: AtomicBool::new(false),
+        });
+
+        if options.discovery {
+            let cfg = zap_net::discovery::DiscoveryConfig {
+                port: options.discovery_port,
+                broadcast: options.broadcast,
+                extra_targets: options.discovery_targets.clone(),
+                ..Default::default()
+            };
+            match rt.block_on(Discovery::start(cfg, install_id.clone())) {
+                Ok(d) => {
+                    d.set_presence(crate::discovery_view::presence_announcement(&install_id, &nome, vec![]));
+                    *shared.discovery.lock() = Some(Arc::new(d));
+                }
+                Err(e) => {
+                    tracing::warn!("descoberta indisponível: {e}");
+                    shared
+                        .state
+                        .lock()
+                        .push_error(format!("Descoberta de salas indisponível: {e}"));
+                }
+            }
+        }
+
+        rt.spawn(crate::engine_room::pump_room_events(shared.clone(), rx));
+        rt.spawn(crate::engine_tick::run(shared.clone()));
+        shared.notifier.flush();
+        Ok(Core {
+            shared,
+            runtime: Some(runtime),
+        })
     }
 
     pub fn settings(&self) -> Settings {
@@ -190,7 +285,27 @@ impl Core {
     /// Aplica `f`, salva (`settings::save`), atualiza `Me` e o nome/presença da descoberta e
     /// faz `touch()`. Erro de gravação: `push_error`.
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) {
-        todo!("tarefa core-38")
+        let novo = {
+            let mut guard = self.shared.settings.write();
+            f(&mut guard);
+            guard.clone()
+        };
+        if let Err(e) = crate::settings::save(&self.shared.data_dir, &novo) {
+            self.shared
+                .state
+                .lock()
+                .push_error(format!("Não foi possível salvar as configurações: {e}"));
+        }
+        self.shared.refresh_me();
+        let discovery = self.shared.discovery.lock().clone();
+        if let Some(d) = discovery {
+            d.set_presence(crate::discovery_view::presence_announcement(
+                &novo.install_id,
+                &novo.name,
+                vec![],
+            ));
+        }
+        self.shared.notifier.touch();
     }
     pub fn sources(&self) -> Sources {
         crate::sources::list_sources()
@@ -201,16 +316,150 @@ impl Core {
     pub fn snapshot(&self) -> Arc<Snapshot> {
         self.shared.state.lock().snapshot()
     }
+    /// Só para testes: derruba a conexão do membro com o dono **sem** `sala.sair`, como numa queda
+    /// de rede. `left` vai para `true` para o laço do membro não tentar reconectar.
+    #[doc(hidden)]
+    pub fn simulate_drop(&self) {
+        if let Some(sala) = self.shared.current_room() {
+            if let ActiveRoom::Member(m) = sala.as_ref() {
+                m.left.store(true, std::sync::atomic::Ordering::SeqCst);
+                let conn = m.conn.lock().take();
+                if let Some(conn) = conn {
+                    conn.close(0u32.into(), b"caiu");
+                }
+            }
+        }
+    }
     /// `audio_rx.set_volume(participant_id, volume, muted)`.
     pub fn set_volume(&self, participant_id: &str, volume: f32, muted: bool) {
-        todo!("tarefa core-38")
+        self.shared.audio_rx.set_volume(participant_id, volume, muted);
     }
     /// Guarda em `settings.video` (sem salvar de novo se igual) e `playout.set_smoothing`.
     pub fn set_smoothing(&self, auto: bool, ms: u32) {
-        todo!("tarefa core-38")
+        self.shared.playout.set_smoothing(auto, ms);
+        let mudou = {
+            let s = self.shared.settings.read();
+            s.video.smoothing_auto != auto || s.video.smoothing_ms != ms
+        };
+        if mudou {
+            self.update_settings(|s| {
+                s.video.smoothing_auto = auto;
+                s.video.smoothing_ms = ms;
+            });
+        }
     }
     /// Para tudo (sala, compartilhamento, assinaturas) e derruba o runtime.
     pub fn shutdown(&mut self) {
-        todo!("tarefa core-38")
+        let Some(runtime) = self.runtime.take() else {
+            return;
+        };
+        self.shared.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        let shared = self.shared.clone();
+        let core_view = Core {
+            shared: shared.clone(),
+            runtime: None,
+        };
+        runtime.block_on(async {
+            if shared.current_room().is_some() {
+                core_view.leave_room().await;
+            }
+            shared.pool.close_all().await;
+            ShareSession::stop(&shared).await;
+            if let Some(ms) = shared.media_server.lock().await.take() {
+                ms.shutdown();
+            }
+        });
+        runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+    }
+}
+
+impl Drop for Core {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::TestSink;
+
+    fn dir() -> PathBuf {
+        std::env::temp_dir().join(format!("zapcore-eng-{}", uuid::Uuid::new_v4()))
+    }
+    fn opts() -> CoreOptions {
+        CoreOptions {
+            discovery: false,
+            broadcast: false,
+            include_loopback: true,
+            audio_out: false,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn start_cria_arquivos_e_primeiro_snapshot() {
+        let d = dir();
+        let sink = TestSink::new();
+        let core = Core::start_with(d.clone(), sink.clone(), opts()).unwrap();
+        assert!(!sink.snapshots.lock().is_empty());
+        assert!(!sink.last_snapshot().unwrap().me.install_id.is_empty());
+        assert!(d.join("settings.json").exists());
+        drop(core);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn update_settings_persiste_e_atualiza_me() {
+        let d = dir();
+        let core = Core::start_with(d.clone(), TestSink::new(), opts()).unwrap();
+        core.update_settings(|s| s.name = "Novo".into());
+        assert_eq!(core.snapshot().me.name, "Novo");
+        drop(core);
+        let core2 = Core::start_with(d.clone(), TestSink::new(), opts()).unwrap();
+        assert_eq!(core2.settings().name, "Novo");
+        drop(core2);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn set_smoothing_guarda_nas_configuracoes() {
+        let d = dir();
+        let core = Core::start_with(d.clone(), TestSink::new(), opts()).unwrap();
+        core.set_smoothing(false, 350);
+        let s = core.settings();
+        assert!(!s.video.smoothing_auto);
+        assert_eq!(s.video.smoothing_ms, 350);
+        drop(core);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn set_volume_nao_panica_sem_participante() {
+        let d = dir();
+        let core = Core::start_with(d.clone(), TestSink::new(), opts()).unwrap();
+        core.set_volume("ninguem", 0.5, false);
+        core.set_volume("ninguem", f32::NAN, true);
+        drop(core);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn shutdown_idempotente() {
+        let d = dir();
+        let mut core = Core::start_with(d.clone(), TestSink::new(), opts()).unwrap();
+        core.shutdown();
+        core.shutdown();
+        drop(core);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn descoberta_desligada_nao_sobe_socket() {
+        let d = dir();
+        let core = Core::start_with(d.clone(), TestSink::new(), opts()).unwrap();
+        assert!(core.shared.discovery.lock().is_none());
+        drop(core);
+        let _ = std::fs::remove_dir_all(d);
     }
 }

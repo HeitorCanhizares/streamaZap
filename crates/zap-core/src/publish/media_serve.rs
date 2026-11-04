@@ -463,7 +463,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn fechar_conexao_remove_links() {
-        let mut c = cenario().await;
+        let c = cenario().await;
         c.tx.send(&assinar("v1", TileSize::Main, Some(true))).await.unwrap();
         let fim = tokio::time::Instant::now() + Duration::from_secs(3);
         while c.video.stats().viewers_per_layer.iter().sum::<u32>() == 0 && tokio::time::Instant::now() < fim {

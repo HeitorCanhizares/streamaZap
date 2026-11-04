@@ -12,12 +12,12 @@ describe('ServerStatus', () => {
     expect(screen.getByText('Radmin · 26.12.34.56')).toBeTruthy()
   })
 
-  it('sem ping (undefined ou null) mostra só "Servidor online"', () => {
+  it('sem ping (undefined ou null) mostra "Servidor · não configurado"', () => {
     const { unmount } = render(<ServerStatus radminIp="1.2.3.4" />)
-    expect(screen.getByText('Servidor online')).toBeTruthy()
+    expect(screen.getByText('Servidor · não configurado')).toBeTruthy()
     unmount()
     render(<ServerStatus serverMs={null} radminIp="1.2.3.4" />)
-    expect(screen.getByText('Servidor online')).toBeTruthy()
+    expect(screen.getByText('Servidor · não configurado')).toBeTruthy()
   })
 
   it('sem IP (null) mostra "Radmin · não detectado"', () => {

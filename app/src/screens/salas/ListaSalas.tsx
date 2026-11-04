@@ -101,7 +101,7 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
           <SalaItem key={s.id} sala={s} selecionada={props.selecionadaId === s.id} onSelect={props.onSelect} />
         ))}
         {salas.length === 0 ? (
-          <p style={{ margin: 0, padding: '28px 20px', color: '#A3BDB1', textAlign: 'center' }}>Nenhuma sala com esse nome.</p>
+          <p style={{ margin: 0, padding: '28px 20px', color: '#A3BDB1', textAlign: 'center' }}>{props.busca.trim() ? 'Nenhuma sala com esse nome.' : online ? 'Nenhuma sala no servidor agora.' : 'Nenhuma sala na rede ainda. Crie uma ou peça o IP de quem está transmitindo.'}</p>
         ) : null}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '18px 20px' }}>
           <span style={{ position: 'relative', width: 24, height: 24, flex: '0 0 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

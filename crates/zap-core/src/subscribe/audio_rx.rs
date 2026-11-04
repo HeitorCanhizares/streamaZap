@@ -19,7 +19,9 @@ pub struct AudioRx {
     pub(crate) input: Mutex<TrackInput>,
     pub(crate) decoder: Mutex<zap_audio::OpusDec>,
     pub(crate) playout: Arc<PlayoutHub>,
+    #[allow(dead_code)] // construtor de relatório preenchido sob demanda
     pub(crate) report: Mutex<Option<ReportBuilderHandle>>,
+    #[allow(dead_code)] // relógio guardado para uso futuro do receptor
     pub(crate) clock: zap_net::Clock,
     pub(crate) last_seq: Mutex<Option<u32>>,
     pub(crate) volume: Mutex<(f32, bool)>,

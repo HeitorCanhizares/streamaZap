@@ -8,6 +8,8 @@ pub struct AudioOutHandle {
     tx: Option<crossbeam_channel::Sender<AudioCmd>>,
 }
 
+// Os campos só são lidos na thread de áudio do Windows (cfg(windows)); em outros alvos não.
+#[allow(dead_code)]
 pub(crate) enum AudioCmd {
     Add(u64, std::sync::mpsc::Sender<TrackInput>),
     Remove(u64),

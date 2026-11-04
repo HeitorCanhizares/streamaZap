@@ -6,9 +6,7 @@ import type { ServerStatusProps } from './types'
 // Porte fiel de docs/design/1-salas.html (linhas 38-41).
 export function ServerStatus({ serverMs, radminIp }: ServerStatusProps): ReactNode {
   const temMs = typeof serverMs === 'number' && Number.isFinite(serverMs)
-  const textoServidor = temMs
-    ? `Servidor online · ${Math.round(serverMs)} ms`
-    : 'Servidor online'
+  const textoServidor = temMs ? `Servidor online · ${Math.round(serverMs)} ms` : 'Servidor · não configurado'
 
   const temIp = typeof radminIp === 'string' && radminIp.length > 0
   const textoRadmin = temIp ? `Radmin · ${radminIp}` : 'Radmin · não detectado'
@@ -31,8 +29,8 @@ export function ServerStatus({ serverMs, radminIp }: ServerStatusProps): ReactNo
             width: 8,
             height: 8,
             borderRadius: '50%',
-            background: 'var(--verde)',
-            boxShadow: '0 0 8px var(--verde)',
+            background: temMs ? 'var(--verde)' : 'var(--texto-3)',
+            boxShadow: temMs ? '0 0 8px var(--verde)' : 'none',
           }}
         />
         {textoServidor}

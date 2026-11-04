@@ -1,12 +1,28 @@
 // useSnapshot() sobre listen("zap://state") ou o mock (tarefa ui-09).
 import { useSyncExternalStore } from 'react'
-import { isTauri } from './api'
+import { api, isTauri } from './api'
 import { mockSnapshot } from './mock'
 import type { Snapshot } from './types'
 
 // Estado unico do front. Trocado so por setSnapshot, para getSnapshot devolver
 // sempre a mesma referencia enquanto nada mudar (exigido pelo useSyncExternalStore).
-let current: Snapshot = mockSnapshot()
+// Dentro do app começa vazio (versão -1: qualquer estado do núcleo vale mais) e busca o atual;
+// no navegador (dev/testes) mostra o mock com os dados do design.
+export function emptySnapshot(): Snapshot {
+  return {
+    version: -1,
+    me: { name: '', color: '#3BF08A', install_id: '' },
+    network: { radmin_ip: null, interfaces: [] },
+    rooms: [],
+    peers: [],
+    room: null,
+    tiles: [],
+    share: null,
+    errors: [],
+  }
+}
+
+let current: Snapshot = isTauri() ? emptySnapshot() : mockSnapshot()
 const listeners = new Set<() => void>()
 
 // Ouvinte do evento Tauri: existe so enquanto houver algum componente inscrito.
@@ -32,6 +48,8 @@ function startListening(): void {
     .then(
       (un) => {
         pending = null
+        // Já ouvindo: busca o estado atual (o núcleo pode ter emitido antes da página abrir).
+        api.snapshotGet().then(setSnapshot, () => undefined)
         // Se todos saíram enquanto o listen subia, desfaz logo.
         if (listeners.size === 0) un()
         else stopListen = un

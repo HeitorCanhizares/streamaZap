@@ -56,8 +56,11 @@ describe('ListaSalas', () => {
   })
 
   it('lista vazia mostra mensagem', () => {
-    render(<ListaSalas {...props({ salas: [] })} />)
+    const { unmount } = render(<ListaSalas {...props({ salas: [], busca: 'xyz' })} />)
     expect(screen.getByText('Nenhuma sala com esse nome.')).toBeTruthy()
+    unmount()
+    render(<ListaSalas {...props({ salas: [], busca: '', modo: 'local' })} />)
+    expect(screen.getByText(/Nenhuma sala na rede ainda/)).toBeTruthy()
   })
 
   it('modo local', () => {

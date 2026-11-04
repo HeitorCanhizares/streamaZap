@@ -1,8 +1,8 @@
 // Wrappers tipados de invoke (tarefa ui-08). Fora do Tauri delegam ao mock.
 import type * as Core from '@tauri-apps/api/core'
-import { mockSettings, mockSources } from './mock'
+import { mockSettings, mockSnapshot, mockSources } from './mock'
 import { decodeThumbnail } from './thumbnail'
-import type { CreateRoom, JoinTarget, Settings, ShareRequest, Sources, Thumbnail, TileId } from './types'
+import type { CreateRoom, JoinTarget, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId } from './types'
 
 export const isTauri = (): boolean => '__TAURI_INTERNALS__' in globalThis
 
@@ -38,6 +38,11 @@ function mergeSecoes(atual: Settings, patch: Partial<Settings>): Settings {
 }
 
 export const api = {
+  snapshotGet: async (): Promise<Snapshot> => {
+    if (!isTauri()) return mockSnapshot()
+    return call<Snapshot>('snapshot_get')
+  },
+
   settingsGet: async (): Promise<Settings> => {
     if (!isTauri()) return structuredClone(mockState)
     return call<Settings>('settings_get')

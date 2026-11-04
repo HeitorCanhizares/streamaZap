@@ -35,6 +35,7 @@ pub struct PubConn {
     pub report: ReportBuilderHandle,
     pub(crate) tasks: parking_lot::Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// Último `camada.atual` recebido do publicador.
+    #[allow(dead_code)] // escrito pela tarefa de controle; leitura reservada à interface
     pub(crate) last_layer: Arc<Mutex<Option<ControlMsg>>>,
     /// Handle do runtime, para `request_keyframe` ser síncrono.
     handle: tokio::runtime::Handle,

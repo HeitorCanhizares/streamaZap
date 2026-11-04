@@ -1,8 +1,5 @@
 //! App Tauri do StreamaZap: liga o `zap-core` à interface (comandos, eventos e canais de vídeo).
 
-// ESQUELETO: removido na tarefa tauri-13 (fechamento).
-#![allow(unused_variables, dead_code)]
-
 mod commands;
 pub mod convert;
 mod setup;
@@ -21,6 +18,7 @@ pub fn run() {
         .setup(|app| setup::init(app))
         .invoke_handler(tauri::generate_handler![
             commands::app::app_info,
+            commands::app::snapshot_get,
             commands::app::diagnostics_run,
             commands::settings::settings_get,
             commands::settings::settings_set,
@@ -54,6 +52,63 @@ pub fn run() {
         Err(e) => {
             tracing::error!("erro ao montar o app streamaZap: {e}");
             std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Extrai os nomes de comando chamados pelo `api.ts`: `call('x')`, `call<T>('x')`, `invoke<T>('x')`.
+    fn comandos_do_api(texto: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for chave in ["call", "invoke"] {
+            let mut inicio = 0;
+            while let Some(p) = texto[inicio..].find(chave) {
+                let pos = inicio + p;
+                inicio = pos + chave.len();
+                // evita casar pedaço de outra palavra (ex.: `recall`)
+                let antes_ok = texto[..pos]
+                    .chars()
+                    .next_back()
+                    .is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+                if !antes_ok {
+                    continue;
+                }
+                let mut s = &texto[inicio..];
+                if let Some(r) = s.strip_prefix('<') {
+                    match r.find('>') {
+                        Some(i) => s = &r[i + 1..],
+                        None => continue,
+                    }
+                }
+                let Some(r) = s.strip_prefix('(').and_then(|r| r.strip_prefix('\'')) else {
+                    continue;
+                };
+                if let Some(fim) = r.find('\'') {
+                    out.push(r[..fim].to_string());
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn comandos_do_api_ts_existem() {
+        const API: &str = include_str!("../../src/bridge/api.ts");
+        const LIB: &str = include_str!("lib.rs");
+        let nomes = comandos_do_api(API);
+        assert!(nomes.len() >= 17, "poucos comandos extraídos do api.ts: {nomes:?}");
+        assert!(nomes.iter().any(|n| n == "source_thumbnail"));
+        for nome in &nomes {
+            let sufixo = format!("::{nome},");
+            let registrado = LIB
+                .lines()
+                .map(str::trim)
+                .any(|l| l.starts_with("commands::") && l.ends_with(&sufixo));
+            assert!(
+                registrado,
+                "comando `{nome}` do api.ts sem `commands::<mod>::{nome}` no generate_handler!"
+            );
         }
     }
 }

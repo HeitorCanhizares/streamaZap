@@ -1,8 +1,33 @@
 //! `impl Core`: assistir trilhas.
 
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
+
+use parking_lot::Mutex;
+use zap_proto::TrackKind;
+
 use crate::engine::Core;
+use crate::subscribe::{Subscription, WatchSpec};
 use crate::types::*;
 use crate::CoreError;
+
+/// Geração do `watch` em andamento por `(Shared, tile)`. Evita a corrida entre a conexão
+/// assíncrona e um `unwatch` (ou novo `watch`) no mesmo tile: cada `watch` grava uma geração nova;
+/// `unwatch` apaga a entrada. Ao terminar de conectar, a tarefa só publica a assinatura em
+/// `shared.subs` se a geração ainda for a dela (conferido sob este mesmo lock, e `unwatch` apaga a
+/// entrada antes de mexer em `subs`); senão a assinatura é encerrada. A chave usa o endereço do
+/// `Shared` para não misturar Cores diferentes (ex.: testes); a entrada some ao fim de cada tarefa.
+fn generations() -> &'static Mutex<HashMap<(usize, TileId), u64>> {
+    static G: OnceLock<Mutex<HashMap<(usize, TileId), u64>>> = OnceLock::new();
+    G.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Contador global para gerações únicas.
+fn next_generation() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(1);
+    N.fetch_add(1, Ordering::Relaxed)
+}
 
 impl Core {
     /// Acha a trilha no modelo da sala (`TrackNotFound`); trilha própria → `Invalid`;
@@ -11,10 +36,238 @@ impl Core {
     /// falha de conexão vira `push_error` + remove o tile). Se já assistindo a mesma trilha no
     /// mesmo tile, só `Subscription::update` (tamanho/teto).
     pub fn watch(&self, track_id: &str, tile: TileId, size: TileSize, max_layer: Option<u8>) -> Result<(), CoreError> {
-        todo!("tarefa core-42")
+        let shared = self.shared.clone();
+        let room = shared.current_room().ok_or(CoreError::NoRoom)?;
+        let (track, audio_track) = {
+            let model = room.model();
+            let model = model.lock();
+            let track = model.track_by_id(track_id).cloned().ok_or(CoreError::TrackNotFound)?;
+            if track.participant_id == room.my_id() {
+                return Err(CoreError::Invalid("não dá para assistir a própria transmissão".into()));
+            }
+            if !matches!(track.kind, TrackKind::Screen | TrackKind::Window | TrackKind::Camera) {
+                return Err(CoreError::Invalid("só dá para assistir trilhas de vídeo".into()));
+            }
+            let audio = model
+                .tracks
+                .iter()
+                .find(|t| t.participant_id == track.participant_id && t.kind == TrackKind::Audio)
+                .cloned();
+            (track, audio)
+        };
+
+        // Mesma trilha no tile: só atualiza; outra trilha: tira a antiga.
+        let antiga = {
+            let mut subs = shared.subs.lock();
+            match subs.get(&tile) {
+                Some(sub) if sub.track.id == track.id => {
+                    let sub = sub.clone();
+                    drop(subs);
+                    shared.rt.spawn(async move {
+                        let _ = sub.update(size, max_layer).await;
+                    });
+                    return Ok(());
+                }
+                Some(_) => subs.remove(&tile),
+                None => None,
+            }
+        };
+        if let Some(old) = antiga {
+            let sh = shared.clone();
+            shared.rt.spawn(async move { old.stop(&sh).await });
+        }
+
+        let chave = (Arc::as_ptr(&shared) as usize, tile);
+        let geracao = next_generation();
+        generations().lock().insert(chave, geracao);
+        let spec = WatchSpec {
+            track,
+            audio_track,
+            tile,
+            size,
+            max_layer,
+        };
+        let sh = shared.clone();
+        shared.rt.spawn(async move {
+            let resultado = Subscription::start(&sh, spec).await;
+            // Decide sob o lock das gerações; `unwatch` apaga a entrada antes de tocar em `subs`.
+            let (vigente, sobra) = {
+                let mut gens = generations().lock();
+                let vigente = gens.get(&chave) == Some(&geracao);
+                if vigente {
+                    gens.remove(&chave);
+                }
+                match resultado {
+                    Ok(sub) => {
+                        let sub = Arc::new(sub);
+                        if vigente {
+                            sh.subs.lock().insert(tile, sub);
+                            (vigente, Ok(None))
+                        } else {
+                            (vigente, Ok(Some(sub)))
+                        }
+                    }
+                    Err(e) => (vigente, Err(e)),
+                }
+            };
+            match sobra {
+                // Cancelado enquanto conectava: não deixa assinatura órfã.
+                Ok(Some(sub)) => sub.stop(&sh).await,
+                Ok(None) => {}
+                Err(e) => {
+                    // Se outro watch/unwatch assumiu o tile, ele cuida do estado.
+                    if vigente {
+                        sh.state.lock().push_error(e.to_string());
+                        sh.state.lock().remove_tile(tile);
+                        sh.notifier.touch();
+                    }
+                }
+            }
+        });
+        Ok(())
     }
     /// Para a assinatura do tile, remove de `UiState.tiles`, `touch()`.
     pub fn unwatch(&self, tile: TileId) {
-        todo!("tarefa core-42")
+        let shared = self.shared.clone();
+        // Primeiro invalida o watch em andamento, depois tira de `subs` (ver `generations`).
+        generations().lock().remove(&(Arc::as_ptr(&shared) as usize, tile));
+        let sub = shared.subs.lock().remove(&tile);
+        if let Some(sub) = sub {
+            let sh = shared.clone();
+            shared.rt.spawn(async move { sub.stop(&sh).await });
+        }
+        shared.state.lock().remove_tile(tile);
+        shared.notifier.touch();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::CoreOptions;
+    use crate::testutil::TestSink;
+    use std::path::PathBuf;
+    use std::time::Duration;
+    use zap_proto::{MediaAddress, RoomMode, Track};
+
+    fn dir() -> PathBuf {
+        std::env::temp_dir().join(format!("zapcore-watch-{}", uuid::Uuid::new_v4()))
+    }
+    fn novo() -> (Core, PathBuf) {
+        let d = dir();
+        let opts = CoreOptions {
+            discovery: false,
+            broadcast: false,
+            include_loopback: true,
+            audio_out: false,
+            ..Default::default()
+        };
+        (Core::start_with(d.clone(), TestSink::new(), opts).expect("core"), d)
+    }
+    async fn encerrar(core: Core, d: PathBuf) {
+        let _ = tokio::task::spawn_blocking(move || drop(core)).await;
+        let _ = std::fs::remove_dir_all(d);
+    }
+    async fn sala(core: &Core) {
+        core.create_room(crate::types::CreateRoom {
+            name: "S".into(),
+            mode: RoomMode::Local,
+            password: None,
+        })
+        .await
+        .expect("sala");
+    }
+    fn trilha(id: &str, dono: &str, numero: u16, kind: TrackKind) -> Track {
+        Track {
+            id: id.into(),
+            participant_id: dono.into(),
+            number: numero,
+            kind,
+            title: "t".into(),
+            layers: vec![],
+            audio: None,
+            address: Some(MediaAddress {
+                addresses: vec!["127.0.0.1".into()],
+                port: 1,
+                fingerprint: "00".into(),
+            }),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn watch_sem_sala_no_room() {
+        let (core, d) = novo();
+        assert!(matches!(
+            core.watch("x", 1, TileSize::Main, None),
+            Err(CoreError::NoRoom)
+        ));
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn watch_trilha_inexistente() {
+        let (core, d) = novo();
+        sala(&core).await;
+        assert!(matches!(
+            core.watch("nao_existe", 1, TileSize::Main, None),
+            Err(CoreError::TrackNotFound)
+        ));
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn watch_propria_trilha_invalid() {
+        let (core, d) = novo();
+        sala(&core).await;
+        let room = core.shared.current_room().expect("sala");
+        let meu = room.my_id();
+        room.model()
+            .lock()
+            .upsert_track(trilha("t_meu", &meu, 1, TrackKind::Screen));
+        assert!(matches!(
+            core.watch("t_meu", 1, TileSize::Main, None),
+            Err(CoreError::Invalid(_))
+        ));
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn watch_trilha_de_audio_invalid() {
+        let (core, d) = novo();
+        sala(&core).await;
+        let room = core.shared.current_room().expect("sala");
+        room.model()
+            .lock()
+            .upsert_track(trilha("t_a", "outro", 2, TrackKind::Audio));
+        assert!(matches!(
+            core.watch("t_a", 1, TileSize::Main, None),
+            Err(CoreError::Invalid(_))
+        ));
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn unwatch_de_tile_inexistente_nao_panica() {
+        let (core, d) = novo();
+        core.unwatch(42);
+        sala(&core).await;
+        core.unwatch(42);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn unwatch_durante_conexao_nao_deixa_assinatura_orfa() {
+        let (core, d) = novo();
+        sala(&core).await;
+        let room = core.shared.current_room().expect("sala");
+        room.model()
+            .lock()
+            .upsert_track(trilha("t_v", "outro", 3, TrackKind::Screen));
+        core.watch("t_v", 7, TileSize::Main, None).expect("watch");
+        core.unwatch(7);
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(core.shared.subs.lock().is_empty());
+        assert!(core.shared.state.lock().tiles().is_empty());
+        encerrar(core, d).await;
     }
 }

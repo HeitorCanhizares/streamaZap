@@ -1,10 +1,17 @@
 //! Orquestração do StreamaZap: sala, publicação de trilhas, assinaturas, threads de mídia e o
 //! estado (snapshots) entregue à interface. Marco M3 (plano: docs/planos/m3-app.md).
 //!
+//! Módulos públicos usados pela frente `tauri`:
+//! - `engine`: `Core`, `CoreOptions` e `UiSink` (ponto de entrada e canal de eventos);
+//! - `settings`: `Settings` (configurações persistidas);
+//! - `snapshot`: `Snapshot` (estado entregue à interface);
+//! - `types`: tipos de dados compartilhados (reexportados na raiz);
+//! - `error`: `CoreError`;
+//! - `discovery_view`, `sources`, `ticket`, `notify`: visões auxiliares de descoberta, fontes,
+//!   convites e notificações.
+//!
 //! `unsafe` só em `thread_prio` (prioridade de thread no Windows).
 #![deny(unsafe_code)]
-// Esqueleto: a tarefa core-30 remove estes `allow` e deixa o clippy limpo.
-#![allow(unused, dead_code, clippy::todo)]
 
 pub mod audio_out;
 pub mod discovery_view;

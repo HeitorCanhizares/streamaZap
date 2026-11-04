@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use zap_media::EncodedFrame;
 use zap_net::{control::ControlTx, media_tx::MediaSender};
 use zap_proto::{ControlMsg, DelayState, Report, TileSize};
 use zap_rate::allocator::{ViewerDecision, ViewerInput};

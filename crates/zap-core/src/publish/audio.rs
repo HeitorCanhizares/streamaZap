@@ -119,6 +119,7 @@ mod tests {
     use super::*;
     use std::time::Instant;
     use tokio::sync::mpsc;
+    #[cfg(not(windows))]
     use zap_media::MediaError;
     use zap_net::{
         control::ControlTx,
