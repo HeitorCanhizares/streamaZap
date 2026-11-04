@@ -1,0 +1,333 @@
+/* tarefa ui-01: tokens e classes zp-* (ver docs/design/README.md) */
+
+/* Reset mínimo: caixas previsíveis e sem margens do navegador. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+h1,
+h2,
+h3,
+h4,
+p,
+ul,
+ol,
+figure {
+  margin: 0;
+}
+
+:root {
+  /* Superfícies */
+  --bg: #0a100e;
+  --bg-barra: #0c1412;
+  --superficie: #0f1916;
+  --superficie-2: #16241f;
+  --hover: #1a2c27;
+  --borda: #1f332d;
+  --borda-forte: #2a443c;
+
+  /* Texto */
+  --texto: #e6f4ec;
+  --texto-2: #a3bdb1;
+  --texto-3: #7e978b;
+
+  /* Destaque e estados */
+  --verde: #3bf08a;
+  --verde-hover: #6cf5a8;
+  --verde-texto: #03140a;
+  --amarelo: #ffb547;
+  --vermelho: #ff5d6e;
+  --vermelho-texto: #ff8592;
+  --azul: #5cd6ff;
+
+  /* Tipografia */
+  --font-titulo: 'Unbounded', sans-serif;
+  --font-ui: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+body {
+  background: var(--bg);
+  color: var(--texto);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Botões */
+.zp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--superficie-2);
+  color: var(--texto);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.zp-btn-primary {
+  background: var(--verde);
+  color: var(--verde-texto);
+}
+
+.zp-btn-primary:hover {
+  background: var(--verde-hover);
+}
+
+.zp-btn-ghost {
+  background: transparent;
+  color: var(--texto-2);
+}
+
+.zp-btn-ghost:hover {
+  background: var(--hover);
+  color: var(--texto);
+}
+
+.zp-btn-danger {
+  background: var(--vermelho);
+  color: var(--verde-texto);
+}
+
+.zp-btn-danger:hover {
+  background: var(--vermelho-texto);
+}
+
+/* Cartões e campos */
+.zp-card {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: 12px;
+}
+
+.zp-input {
+  height: 44px;
+  padding: 0 14px;
+  background: var(--superficie-2);
+  border: 1px solid var(--borda);
+  border-radius: 8px;
+  color: var(--texto);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  outline: none;
+}
+
+.zp-input::placeholder {
+  color: var(--texto-3);
+}
+
+.zp-input:focus {
+  border-color: var(--verde);
+}
+
+/* Selos */
+.zp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--borda);
+  background: var(--superficie-2);
+  color: var(--texto-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.zp-badge-green {
+  color: var(--verde);
+  background: rgba(59, 240, 138, 0.1);
+  border-color: rgba(59, 240, 138, 0.3);
+}
+
+.zp-badge-yellow {
+  color: var(--amarelo);
+  background: rgba(255, 181, 71, 0.1);
+  border-color: rgba(255, 181, 71, 0.3);
+}
+
+.zp-badge-red {
+  color: var(--vermelho-texto);
+  background: rgba(255, 93, 110, 0.1);
+  border-color: rgba(255, 93, 110, 0.3);
+}
+
+.zp-badge-blue {
+  color: var(--azul);
+  background: rgba(92, 214, 255, 0.1);
+  border-color: rgba(92, 214, 255, 0.3);
+}
+
+.zp-badge-neutral {
+  color: var(--texto-2);
+}
+
+/* Tipografia utilitária */
+.zp-mono {
+  font-family: var(--font-mono);
+}
+
+.zp-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--texto-3);
+}
+
+/* Interruptor */
+.zp-toggle {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--superficie-2);
+  border: 1px solid var(--borda-forte);
+  cursor: pointer;
+}
+
+.zp-toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--texto-3);
+  transition: transform 0.15s, background 0.15s;
+}
+
+.zp-toggle-on {
+  background: rgba(59, 240, 138, 0.2);
+  border-color: var(--verde);
+}
+
+.zp-toggle-on::after {
+  transform: translateX(20px);
+  background: var(--verde);
+}
+
+/* Controle segmentado */
+.zp-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--superficie-2);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+}
+
+.zp-seg-item {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--texto-2);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.zp-seg-active {
+  background: var(--hover);
+  color: var(--texto);
+}
+
+/* Controle deslizante */
+.zp-slider {
+  width: 100%;
+  accent-color: var(--verde);
+}
+
+/* Avatar */
+.zp-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--superficie-2);
+  color: var(--texto);
+  font-family: var(--font-titulo);
+  font-size: 13px;
+}
+
+/* Barra de título e trilho lateral */
+.zp-titlebar {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 12px;
+  gap: 10px;
+  background: var(--bg-barra);
+  border-bottom: 1px solid var(--borda);
+  color: var(--texto-2);
+  font-size: 12.5px;
+}
+
+.zp-navrail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 64px;
+  padding: 12px 0;
+  background: var(--bg-barra);
+  border-right: 1px solid var(--borda);
+}
+
+.zp-titlebar-title { flex: 1; font-size: 13px; color: var(--texto); letter-spacing: 0.02em; }
+.zp-titlebar-controls { display: flex; gap: 2px; margin-left: auto; }
+.zp-titlebar-controls button {
+  display: grid; place-items: center; width: 36px; height: 28px;
+  background: transparent; border: 0; border-radius: 6px; color: var(--texto-2); cursor: pointer;
+}
+.zp-titlebar-controls button:hover { background: var(--superficie-2); color: var(--texto); }
+.zp-titlebar-controls button:last-child:hover { background: var(--vermelho, #ff5a6a); color: #fff; }
+
+.zp-navrail { align-items: center; }
+.zp-nav-item {
+  display: grid; place-items: center; width: 44px; height: 44px;
+  background: transparent; border: 0; border-radius: 12px; color: var(--texto-3); cursor: pointer;
+}
+.zp-nav-item:hover { background: var(--superficie-2); color: var(--texto); }
+.zp-nav-active { background: rgba(59, 240, 138, 0.12); color: var(--verde); }
+
+label:has(> .zp-toggle) { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.zp-toggle > span { display: none; }
+
+/* Responsivo: sem rolagem horizontal, gutter de 16px no celular. */
+@media (max-width: 600px) {
+  body {
+    padding: 0 16px;
+    overflow-x: hidden;
+  }
+}
+
+/* Tema escuro: o app já é escuro; sem variante clara. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}

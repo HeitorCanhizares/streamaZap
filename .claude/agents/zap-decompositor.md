@@ -36,6 +36,15 @@ Cada tarefa:
 
 Ids: `<frente>-<nn>` (ex.: `rate-03`).
 
+## Tarefas de interface (porte do design)
+O implementador simplifica quando recebe só uma descrição. Para telas e componentes:
+- cite na `spec` o **trecho exato** do design: arquivo e linhas (`docs/design/3-sala.html`,
+  linhas 210–284) e mande portar **fielmente**: mesmos textos, ícones SVG (copiar o `path`),
+  tamanhos, espaçamentos, cores (via tokens do `theme.css`), estados de hover e animações `zp-*`;
+- diga quais dados vêm da ponte (`bridge/`) e o que fica fixo;
+- peça teste que renderize com o mock e confira os textos e elementos principais do trecho;
+- tarefa de tela inteira ou de trecho com muita lógica visual = `nivel: sonnet`.
+
 ## Regras
 - Não implemente as tarefas (só o esqueleto).
 - Se o plano estiver ambíguo, decida, escreva a decisão na spec e registre em `notas`.
