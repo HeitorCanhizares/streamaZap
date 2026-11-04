@@ -119,6 +119,7 @@ pub struct MediaAddress {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Track {
     pub id: String,
+    #[serde(rename = "participante_id")]
     pub participant_id: String,
     #[serde(rename = "numero")]
     pub number: u16,
@@ -260,7 +261,7 @@ mod tests {
     fn track_video() {
         let json = json!({
             "id": "t_1",
-            "participant_id": "p_1",
+            "participante_id": "p_1",
             "numero": 1,
             "tipo": "tela",
             "titulo": "Tela inteira",
@@ -299,7 +300,7 @@ mod tests {
     fn track_audio() {
         let json = json!({
             "id": "t_2",
-            "participant_id": "p_1",
+            "participante_id": "p_1",
             "numero": 2,
             "tipo": "audio",
             "titulo": "Microfone",
@@ -318,7 +319,7 @@ mod tests {
         // Sem o campo `camadas`, o padrão é lista vazia.
         let sem_camadas = json!({
             "id": "t_2",
-            "participant_id": "p_1",
+            "participante_id": "p_1",
             "numero": 2,
             "tipo": "audio",
             "titulo": "Microfone",

@@ -58,10 +58,10 @@ fn sala_estado() {
             "sala":{"id":"s_1","codigo":"ZAP-7K2Q","nome":"Corrida em Interlagos","dono_id":"p_1","acesso":"aberta","modo":"online","criada_em":"2026-11-04T18:00:00Z"},
             "participantes":[{"id":"p_1","nome":"Rafa","cor":"#5CD6FF","papel":"dono","entrou_em":"2026-11-04T18:00:00Z","versao_app":"3.0.0","protocolo":4,"latencia_ms":18}],
             "trilhas":[
-                {"id":"t_1","participant_id":"p_1","numero":1,"tipo":"tela","titulo":"Tela 1","camadas":[{"camada":0,"largura":1920,"altura":1080,"fps":60,"kbps":8000}]},
-                {"id":"t_2","participant_id":"p_1","numero":2,"tipo":"camera","titulo":"Câmera integrada","camadas":[{"camada":0,"largura":640,"altura":480,"fps":30,"kbps":1200}]},
-                {"id":"t_3","participant_id":"p_1","numero":3,"tipo":"audio","titulo":"Microfone","camadas":[],"audio":{"taxa":48000,"canais":2,"kbps":128}},
-                {"id":"t_4","participant_id":"p_2","numero":4,"tipo":"janela","titulo":"cs2.exe","camadas":[{"camada":0,"largura":1280,"altura":720,"fps":60,"kbps":4000}]}
+                {"id":"t_1","participante_id":"p_1","numero":1,"tipo":"tela","titulo":"Tela 1","camadas":[{"camada":0,"largura":1920,"altura":1080,"fps":60,"kbps":8000}]},
+                {"id":"t_2","participante_id":"p_1","numero":2,"tipo":"camera","titulo":"Câmera integrada","camadas":[{"camada":0,"largura":640,"altura":480,"fps":30,"kbps":1200}]},
+                {"id":"t_3","participante_id":"p_1","numero":3,"tipo":"audio","titulo":"Microfone","camadas":[],"audio":{"taxa":48000,"canais":2,"kbps":128}},
+                {"id":"t_4","participante_id":"p_2","numero":4,"tipo":"janela","titulo":"cs2.exe","camadas":[{"camada":0,"largura":1280,"altura":720,"fps":60,"kbps":4000}]}
             ]
         }"##,
     );

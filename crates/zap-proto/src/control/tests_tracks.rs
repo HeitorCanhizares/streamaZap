@@ -75,7 +75,7 @@ fn trilha_publicar_completa() {
 fn trilha_publicada() {
     // Com local_id: vai só para quem publicou.
     let msg = roundtrip(
-        r#"{"t":"trilha.publicada","trilha":{"id":"t1","participant_id":"p1","numero":3,"tipo":"janela","titulo":"cs2.exe","camadas":[{"camada":0,"largura":1920,"altura":1080,"fps":60,"kbps":8000}]},"local_id":"l1"}"#,
+        r#"{"t":"trilha.publicada","trilha":{"id":"t1","participante_id":"p1","numero":3,"tipo":"janela","titulo":"cs2.exe","camadas":[{"camada":0,"largura":1920,"altura":1080,"fps":60,"kbps":8000}]},"local_id":"l1"}"#,
     );
     match &msg {
         ControlMsg::TrackPublished { track, local_id } => {
@@ -89,7 +89,7 @@ fn trilha_publicada() {
     assert_eq!(saida(&msg)["t"], "trilha.publicada");
 
     // Sem local_id: é o que os demais da sala recebem.
-    let sem = r#"{"t":"trilha.publicada","trilha":{"id":"t1","participant_id":"p1","numero":3,"tipo":"janela","titulo":"cs2.exe","camadas":[]}}"#;
+    let sem = r#"{"t":"trilha.publicada","trilha":{"id":"t1","participante_id":"p1","numero":3,"tipo":"janela","titulo":"cs2.exe","camadas":[]}}"#;
     let msg = roundtrip(sem);
     match &msg {
         ControlMsg::TrackPublished { local_id, .. } => assert!(local_id.is_none()),
@@ -146,7 +146,7 @@ fn trilha_atualizar_camadas() {
 #[test]
 fn trilha_atualizada() {
     let msg = roundtrip(
-        r#"{"t":"trilha.atualizada","trilha":{"id":"t1","participant_id":"p1","numero":3,"tipo":"tela","titulo":"Tela 2","camadas":[{"camada":0,"largura":1920,"altura":1080,"fps":60,"kbps":6000}]}}"#,
+        r#"{"t":"trilha.atualizada","trilha":{"id":"t1","participante_id":"p1","numero":3,"tipo":"tela","titulo":"Tela 2","camadas":[{"camada":0,"largura":1920,"altura":1080,"fps":60,"kbps":6000}]}}"#,
     );
     match &msg {
         ControlMsg::TrackUpdated { track } => {
