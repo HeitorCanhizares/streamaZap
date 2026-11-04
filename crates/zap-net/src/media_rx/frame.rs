@@ -10,6 +10,8 @@ use crate::{media_rx::MAX_FRAME_BYTES, Clock, NetError};
 
 /// Teto da pré-alocação: o tamanho vem do remetente e não é confiável.
 const PREALOC_MAX: usize = 1024 * 1024;
+/// Bytes além do `size` anunciado que ainda lemos esperando o FIN.
+const MAX_SOBRA: usize = 64 * 1024;
 
 /// Lê um quadro de um stream uni: cabeçalho + `size` bytes (limite `crate::media_rx::MAX_FRAME_BYTES`).
 pub async fn read_frame(mut recv: quinn::RecvStream, clock: &Clock) -> Result<(VideoHeader, Bytes, u64), NetError> {
@@ -37,6 +39,17 @@ pub async fn read_frame(mut recv: quinn::RecvStream, clock: &Clock) -> Result<(V
 
     // Chegada medida ao fim da leitura (último byte), como em docs/api/midia.md
     let arrival_us = clock.now_us();
+
+    // Consome até o FIN antes de soltar o stream. Soltar um `RecvStream` que não terminou faz o
+    // quinn mandar STOP_SENDING, e o emissor (que espera a confirmação em `stopped()`) entenderia
+    // "não entregue". O FIN vem colado no último pacote; sobra além disso é descartada até um teto.
+    let mut sobra = 0usize;
+    while sobra <= MAX_SOBRA {
+        match recv.read_chunk(usize::MAX, true).await {
+            Ok(Some(pedaco)) => sobra += pedaco.bytes.len(),
+            Ok(None) | Err(_) => break,
+        }
+    }
     Ok((header, Bytes::from(corpo), arrival_us))
 }
 

@@ -9,9 +9,19 @@ publish = false
 
 [dependencies]
 zap-proto.workspace = true
+zap-rate.workspace = true
+zap-gpu.workspace = true
+zap-capture.workspace = true
+zap-encode.workspace = true
+zap-audio.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 bytes.workspace = true
+crossbeam-channel.workspace = true
+parking_lot.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
 

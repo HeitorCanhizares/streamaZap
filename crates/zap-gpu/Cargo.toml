@@ -1,0 +1,26 @@
+[package]
+name = "zap-gpu"
+description = "Dispositivo D3D11, anel de texturas e conversor BGRA/NV12 do StreamaZap (Windows; stub nos demais sistemas)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_Com",
+    "Win32_System_Performance",
+] }
+
+[lints]
+workspace = true

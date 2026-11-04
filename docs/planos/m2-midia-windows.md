@@ -263,3 +263,35 @@ de 20 ms com payload Opus de verdade (silêncio codificado).
 | Runner do CI sem GPU e talvez sem Media Foundation | Testes pulam com mensagem clara; bancada roda em PC real |
 | Borda amarela do WGC no Windows 10 para janelas | Documentar; monitor usa DXGI (sem borda) |
 | Câmera ocupada por outro app | Erro claro para a interface ("câmera em uso por outro programa") |
+
+## Estado do fechamento (revisor)
+
+**Pronto e verificado em Linux**: `zap-gpu`, `zap-capture`, `zap-audio`, `zap-encode` e `zap-media`
+compilam; a lógica portável (escolha de modo de câmera, ordenação de monitores, Opus, backend
+sintético, pipeline sintético) tem testes que passam. `cargo fmt --check`, `cargo clippy
+--workspace --all-targets -D warnings` e `cargo test --workspace` (exceto o item abaixo) verdes.
+Para `x86_64-pc-windows-gnu`: `cargo check`, `cargo clippy --all-targets -D warnings` e
+`cargo test --no-run` verdes (código Windows compila e linka os testes).
+
+**Só será validado no CI Windows / bancada**: tudo que usa WGC/DXGI, D3D11, Media Foundation
+(MFT de hardware e software), WASAPI/captura de app e câmera, e os testes `#![cfg(windows)]`
+(`zap-capture/tests`, `zap-encode/tests/windows.rs`, `zap-media` em Windows). A meta de p95 <= 8 ms
+na camada 0 e o exemplo `bancada` exigem PC real com GPU.
+
+**Riscos e pendências**
+- `zap-net/tests/media_loopback.rs` (M1, fora do M2) falha em Linux neste ambiente
+  ("quadro N atrasado em loopback"), inclusive no HEAD limpo sem as mudanças do M2: problema
+  preexistente, a investigar na rede (admissão por backlog em `media_tx/video.rs`).
+- Opus: o teste de ida e volta usa complexity 4 porque com >= 5 o pré-filtro de pitch do CELT
+  reduz o SNR de um seno puro a ~16 dB; produção usa complexity 8 (não coberta por esse teste).
+- Testes de integração Windows rodam com `allow(unwrap/expect)` (convenção do workspace).
+- Riscos de MFT por fabricante, runner sem GPU e câmera ocupada seguem como na tabela acima.
+
+### Revisão do arquiteto
+- Corrigido no fechamento: `zap-net` soltava o stream do quadro antes do FIN, o quinn mandava
+  STOP_SENDING e o emissor (que espera a confirmação) contava o quadro como não entregue. Agora o
+  receptor lê até o FIN (teto de 64 KiB de sobra). Era a falha intermitente do `media_loopback`.
+- A seguir (não bloqueia): o laço do MFT de hardware consulta `GetEvent` sem bloquear com
+  `sleep(1 ms)`; trocar por `GetEvent` bloqueante + `QueueEvent` para acordar no `stop`.
+- O roundtrip do Opus mede SNR com complexidade 4 (o pré-filtro de pitch do CELT, ligado a partir
+  da 5, deixa resíduo num tom puro); produção usa 8.
