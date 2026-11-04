@@ -30,6 +30,24 @@ describe('mockSnapshot', () => {
     expect(mockSnapshot().rooms[0].name).toBe('Sexta do Rush')
   })
 
+  it('cada sala tem endereço e qualidade', () => {
+    for (const r of mockSnapshot().rooms) {
+      expect(r.addr).toBeTruthy()
+      expect(r.quality).toBeTruthy()
+    }
+  })
+
+  it('Sexta do Rush tem 3 quem compartilha e 4 pessoas', () => {
+    const sala = mockSnapshot().rooms.find((r) => r.name === 'Sexta do Rush')!
+    expect(sala.sharers).toHaveLength(3)
+    expect(sala.people).toHaveLength(4)
+  })
+
+  it('Live de Python está em modo local', () => {
+    const sala = mockSnapshot().rooms.find((r) => r.name === 'Live de Python')!
+    expect(sala.mode).toBe('local')
+  })
+
   it('tem um tile com a qualidade do design', () => {
     const tiles = mockSnapshot().tiles
     expect(tiles).toHaveLength(1)

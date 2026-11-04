@@ -1,0 +1,12 @@
+/* Classes da tela Configurações portadas de docs/design/4-configuracoes.html (linhas 10-26). */
+.zp-cfg-dots { background-image: radial-gradient(rgba(59,240,138,.07) 1px, transparent 1.6px); background-size: 18px 18px; }
+.zp-cfg input::placeholder { color: #7E978B; }
+.zp-cfg .zp-range { accent-color: #3BF08A; }
+.zp-cfg .zp-range:disabled { opacity: .35; }
+.zp-cfg .zp-ghost:hover { background: #1A2C27; color: #E6F4EC; }
+.zp-cfg .zp-cta:hover { background: #6CF5A8; color: #03140A; }
+.zp-cfg kbd {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; min-width: 34px; height: 30px; padding: 0 9px;
+  border-radius: 8px; background: #0A100E; border: 1px solid #2A443C; border-bottom-width: 3px;
+  display: inline-flex; align-items: center; justify-content: center; color: #E6F4EC;
+}

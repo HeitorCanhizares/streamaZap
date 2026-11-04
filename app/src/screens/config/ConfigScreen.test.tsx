@@ -24,9 +24,18 @@ describe('ConfigScreen', () => {
   it('carrega: com o mock renderiza Configurações, Perfil, Conexão e o nome do mockSettings', async () => {
     render(<ConfigScreen />)
     expect(await screen.findByText('Configurações')).toBeTruthy()
-    expect(screen.getByText('Perfil')).toBeTruthy()
-    expect(screen.getByText('Conexão')).toBeTruthy()
+    for (const txt of ['Ajustes', 'Perfil', 'Sobre e atualizações', 'Conexão', 'Vídeo e câmera', 'Som e avisos', 'Atalhos']) {
+      expect(screen.getByText(txt)).toBeTruthy()
+    }
     expect(screen.getByDisplayValue(mockSettings().name)).toBeTruthy()
+  })
+
+  it('o main tem as classes zp-cfg e zp-cfg-dots', async () => {
+    const { container } = render(<ConfigScreen />)
+    await screen.findByText('Configurações')
+    const main = container.querySelector('main')
+    expect(main?.classList.contains('zp-cfg')).toBe(true)
+    expect(main?.classList.contains('zp-cfg-dots')).toBe(true)
   })
 
   it('autosave: mudar o nome chama settingsSet com {name} e mostra Salvo', async () => {

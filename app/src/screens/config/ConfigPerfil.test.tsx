@@ -1,73 +1,52 @@
-// Tarefa ui-23
+// Tarefa config-01
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ConfigPerfil } from './ConfigPerfil'
-import type { Settings } from '../../bridge/types'
+import { mockSettings } from '../../bridge/mock'
 
 afterEach(() => cleanup())
 
-function ajustes(over: Partial<Settings> = {}): Settings {
-  return {
-    name: 'marcao',
-    color: '#3BF08A',
-    install_id: 'x',
-    open_in: 'game' as Settings['open_in'],
-    local: { interface: null, port: 0, announce: false },
-    video: { camera_id: null, mirror_preview: false, default_preset: 'medio' as Settings['video']['default_preset'], smoothing_auto: true, smoothing_ms: 0 },
-    sound: { initial_volume: 50, message_sound: true, notify_room_open: true, mute_when_minimized: false },
-    update: { auto: true, channel: 'estavel' },
-    errors: [],
-    ...over,
-  } as Settings
-}
-
 describe('ConfigPerfil', () => {
-  it('nome: digitar no campo Nome chama onChange({name})', () => {
+  it('renderiza o título e o nome em um input', () => {
+    const s = { ...mockSettings(), name: 'marcao' }
+    render(<ConfigPerfil settings={s} onChange={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: 'Perfil' })).toBeTruthy()
+    expect(screen.getByDisplayValue('marcao')).toBeTruthy()
+  })
+
+  it('avatar mostra a inicial maiúscula e ? com nome vazio', () => {
+    const { rerender } = render(<ConfigPerfil settings={{ ...mockSettings(), name: 'marcao' }} onChange={vi.fn()} />)
+    expect(screen.getByTestId('perfil-avatar').textContent).toBe('M')
+    rerender(<ConfigPerfil settings={{ ...mockSettings(), name: '' }} onChange={vi.fn()} />)
+    expect(screen.getByTestId('perfil-avatar').textContent).toBe('?')
+  })
+
+  it('trocar o nome chama onChange({name})', () => {
     const onChange = vi.fn()
-    const { container } = render(<ConfigPerfil settings={ajustes()} onChange={onChange} />)
-    const input = container.querySelector('input') as HTMLInputElement
-    fireEvent.change(input, { target: { value: 'X' } })
+    render(<ConfigPerfil settings={{ ...mockSettings(), name: 'ana' }} onChange={onChange} />)
+    fireEvent.change(screen.getByDisplayValue('ana'), { target: { value: 'X' } })
     expect(onChange).toHaveBeenCalledWith({ name: 'X' })
   })
 
-  it('cor: clicar numa cor chama onChange({color})', () => {
+  it('6 botões de cor e clicar em Ciano chama onChange({color})', () => {
     const onChange = vi.fn()
-    render(<ConfigPerfil settings={ajustes()} onChange={onChange} />)
-    fireEvent.click(screen.getByRole('radio', { name: '#5CD6FF' }))
+    render(<ConfigPerfil settings={mockSettings()} onChange={onChange} />)
+    for (const n of ['Verde zap', 'Ciano', 'Âmbar', 'Rosa', 'Lilás', 'Laranja']) {
+      expect(screen.getByRole('radio', { name: n })).toBeTruthy()
+    }
+    expect(screen.getAllByRole('radio')).toHaveLength(6)
+    fireEvent.click(screen.getByRole('radio', { name: 'Ciano' }))
     expect(onChange).toHaveBeenCalledWith({ color: '#5CD6FF' })
   })
 
-  it('cor: a cor atual fica marcada com aria-checked', () => {
-    render(<ConfigPerfil settings={ajustes({ color: '#FFB547' })} onChange={vi.fn()} />)
-    expect(screen.getByRole('radio', { name: '#FFB547' }).getAttribute('aria-checked')).toBe('true')
-    expect(screen.getByRole('radio', { name: '#3BF08A' }).getAttribute('aria-checked')).toBe('false')
+  it('a cor selecionada tem aria-checked true', () => {
+    render(<ConfigPerfil settings={{ ...mockSettings(), color: '#FFB547' }} onChange={vi.fn()} />)
+    expect(screen.getByRole('radio', { name: 'Âmbar' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: 'Verde zap' }).getAttribute('aria-checked')).toBe('false')
   })
 
-  it('previa: o texto do nome atual aparece na prévia do chat', () => {
-    render(<ConfigPerfil settings={ajustes({ name: 'ana' })} onChange={vi.fn()} />)
-    expect(screen.getByText('ana')).toBeTruthy()
-  })
-
-  it('auto_update: alternar chama onChange com update.auto invertido e mantém channel', () => {
-    const onChange = vi.fn()
-    render(<ConfigPerfil settings={ajustes({ update: { auto: true, channel: 'beta' } })} onChange={onChange} />)
-    fireEvent.click(screen.getByRole('switch'))
-    expect(onChange).toHaveBeenCalledWith({ update: { auto: false, channel: 'beta' } })
-  })
-
-  it('canal: trocar para Beta chama onChange com update.channel beta', () => {
-    const onChange = vi.fn()
-    const { container } = render(<ConfigPerfil settings={ajustes()} onChange={onChange} />)
-    const select = container.querySelector('select') as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'beta' } })
-    expect(onChange).toHaveBeenCalledWith({ update: { auto: true, channel: 'beta' } })
-  })
-
-  it('não muta settings', () => {
-    const s = ajustes()
-    const copia = JSON.stringify(s)
-    render(<ConfigPerfil settings={s} onChange={vi.fn()} />)
-    fireEvent.click(screen.getByRole('switch'))
-    expect(JSON.stringify(s)).toBe(copia)
+  it('não renderiza Sobre e atualizações', () => {
+    render(<ConfigPerfil settings={mockSettings()} onChange={vi.fn()} />)
+    expect(screen.queryByText('Sobre e atualizações')).toBeNull()
   })
 })

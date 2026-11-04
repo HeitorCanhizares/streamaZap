@@ -1,0 +1,9 @@
+/* Estilos da tela Diagnóstico (5-diagnostico.html). Importado por DiagScreen.tsx. */
+@keyframes zpSpin { to { transform: rotate(360deg); } }
+.zp-spin { animation: zpSpin 0.9s linear infinite; }
+@keyframes zpPulse { 0% { transform: scale(0.6); opacity: 0.7; } 100% { transform: scale(1.35); opacity: 0; } }
+.zp-pulse { animation: zpPulse 2.2s ease-out infinite; }
+.zp-dots { background-image: radial-gradient(rgba(59, 240, 138, 0.07) 1px, transparent 1.6px); background-size: 18px 18px; }
+.zp-warnbtn:hover { background: #ffc870; }
+.zp-cta:hover { background: #6cf5a8; color: #03140a; }
+.zp-ghost:hover { background: #1a2c27; color: #e6f4ec; }

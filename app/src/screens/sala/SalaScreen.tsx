@@ -1,4 +1,5 @@
 // Tarefa ui-22: tela "Dentro da sala". Compõe SalaPrincipal, SalaTiles e SalaPainel.
+// sala-08: dono do estado compartilhado (mudo, volume, PiP, painel) e do layout flex-wrap do design 3-sala.html.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../bridge/api'
 import { useSnapshot } from '../../bridge/store'
@@ -14,12 +15,20 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const room = snap.room
 
   const [mainTile, setMainTile] = useState<number | null>(snap.tiles[0]?.tile ?? null)
+  // Verdadeiro quando o usuário fechou a principal e não havia outro tile para pôr no lugar.
+  const [principalFechada, setPrincipalFechada] = useState(false)
   const [smoothingAuto, setSmoothingAuto] = useState(true)
   const [cameraOn, setCameraOn] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  const [muted, setMuted] = useState(false)
+  const [volume, setVolume] = useState(80)
+  const [pipHidden, setPipHidden] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(true)
 
-  // Se o tile principal sumiu do snapshot, volta ao primeiro disponível.
-  const tileAtivo = snap.tiles.some((t) => t.tile === mainTile) ? mainTile : (snap.tiles[0]?.tile ?? null)
+  // Se o tile principal sumiu do snapshot, volta ao primeiro disponível (salvo se o usuário fechou a principal).
+  const tileAtivo = principalFechada
+    ? null
+    : snap.tiles.some((t) => t.tile === mainTile) ? mainTile : (snap.tiles[0]?.tile ?? null)
   const main = snap.tiles.find((t) => t.tile === tileAtivo) ?? null
 
   // Marca se já estivemos numa sala; ao cair para null (sala encerrada) avisa uma vez só.
@@ -40,6 +49,23 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
         <Button variant="ghost" onClick={onLeft}>Voltar</Button>
       </main>
     )
+  }
+
+  const onPick = (tile: number) => {
+    setMainTile(tile)
+    setPrincipalFechada(false)
+  }
+
+  const onCloseMain = () => {
+    if (tileAtivo === null) return
+    void api.unwatch(tileAtivo).catch(() => {})
+    // Escolhe o próximo tile; sem outro, a principal fica vazia em vez de reabrir o mesmo.
+    const proximo = snap.tiles.find((t) => t.tile !== tileAtivo)?.tile ?? null
+    if (proximo === null) {
+      setPrincipalFechada(true)
+    } else {
+      setMainTile(proximo)
+    }
   }
 
   const onSmoothingAuto = (v: boolean) => {
@@ -98,15 +124,39 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
           onToggleShare={onToggleShare}
           onLeave={() => { void onLeave() }}
           onFullscreen={onFullscreen}
+          muted={muted}
+          volume={volume}
+          camOn={cameraOn}
+          pipHidden={pipHidden}
+          onTogglePip={() => setPipHidden((h) => !h)}
+          panelOpen={panelOpen}
+          onOpenPanel={() => setPanelOpen(true)}
+          onToggleMute={() => setMuted((m) => !m)}
+          onVolume={setVolume}
+          onCloseMain={onCloseMain}
         />
         <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
-          <SalaTiles room={room} tiles={snap.tiles} mainTile={tileAtivo} onPick={setMainTile} />
+          <SalaTiles
+            room={room}
+            tiles={snap.tiles}
+            mainTile={tileAtivo}
+            onPick={onPick}
+            camOn={cameraOn}
+            sharing={!!snap.share}
+            onToggleCam={onToggleCamera}
+            onToggleShare={onToggleShare}
+          />
         </div>
       </div>
-      <div style={{ flex: '1 1 340px', maxWidth: 400, minWidth: 0, display: 'flex' }}>
-        <SalaPainel room={room} onSend={onSend} />
-      </div>
+      {panelOpen && (
+        <SalaPainel
+          room={room}
+          onSend={onSend}
+          meId={snap.me.install_id}
+          onClose={() => setPanelOpen(false)}
+        />
+      )}
     </div>
   )
 }

@@ -4,7 +4,16 @@ export type Preset = '480p30' | '720p30' | '720p60' | '1080p60'
 export type TileId = number
 
 export interface Me { name: string; color: string; install_id: string }
-export interface RoomListing { room_id: string; name: string; host: string; participants: number; has_password: boolean; mode: RoomMode; live_title?: string; scene?: SceneKind }
+export interface RoomSharer { name: string; kind: 'Tela' | 'Webcam' | 'Janela'; scene: SceneKind }
+export interface RoomPerson { name: string; role: string; ping_ms: number }
+// Campos opcionais alimentam a tela Salas (docs/design/1-salas.html); ausentes = valor neutro.
+export interface RoomListing {
+  room_id: string; name: string; host: string; participants: number; has_password: boolean; mode: RoomMode
+  live_title?: string; scene?: SceneKind
+  addr?: string; last_message?: string; last_time?: string; unread?: number; typing?: boolean
+  ping_ms?: number; quality?: string; bitrate?: string; viewers?: number; version_warn?: string
+  cam_scene?: SceneKind; sharers?: RoomSharer[]; people?: RoomPerson[]
+}
 export interface PeerListing { name: string; version: string; ip: string; receives_you: boolean }
 export interface Participant { id: string; name: string; color: string; ping_ms: number; sharing: boolean; camera: boolean }
 export interface TrackView { id: string; owner_id: string; kind: 'screen' | 'window' | 'camera'; title: string; number: number }
@@ -24,7 +33,7 @@ export interface Snapshot {
   share: ShareView | null
   errors: string[]
 }
-export type SceneKind = 'game' | 'race' | 'movie' | 'code'
+export type SceneKind = 'game' | 'race' | 'movie' | 'code' | 'desktop' | 'cama' | 'camb' | 'camc' | 'camd'
 
 export interface Settings {
   name: string; color: string; install_id: string; open_in: RoomMode

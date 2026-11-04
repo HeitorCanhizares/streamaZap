@@ -1,4 +1,3 @@
-// Tarefa ui-24
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ConfigConexao } from './ConfigConexao'
@@ -11,86 +10,79 @@ function ajustes(over: Partial<Settings> = {}): Settings {
     name: 'marcao',
     color: '#3BF08A',
     install_id: 'x',
-    open_in: 'local' as Settings['open_in'],
+    open_in: 'online',
     local: { interface: null, port: 47800, announce: false },
-    video: { camera_id: null, mirror_preview: false, default_preset: 'medio' as Settings['video']['default_preset'], smoothing_auto: true, smoothing_ms: 0 },
+    video: { camera_id: null, mirror_preview: false, default_preset: '720p30', smoothing_auto: true, smoothing_ms: 0 },
     sound: { initial_volume: 50, message_sound: true, notify_room_open: true, mute_when_minimized: false },
     update: { auto: true, channel: 'estavel' },
-    errors: [],
     ...over,
   } as Settings
 }
 
 const rede: NetworkStatus = { radmin_ip: null, interfaces: ['Radmin VPN', 'Ethernet'] }
 
+function montar(onChange = vi.fn(), network = rede, s = ajustes()) {
+  return render(<ConfigConexao settings={s} onChange={onChange} network={network} />)
+}
+
 describe('ConfigConexao', () => {
-  it('online_desativado: o texto em breve aparece e clicar na opção Online não chama onChange', () => {
-    const onChange = vi.fn()
-    render(<ConfigConexao settings={ajustes()} onChange={onChange} network={rede} />)
-    expect(screen.getAllByText(/em breve/).length).toBeGreaterThan(0)
-    fireEvent.click(screen.getByRole('button', { name: 'Online · em breve' }))
-    expect(onChange).not.toHaveBeenCalled()
+  it('renderiza título e textos fixos', () => {
+    montar()
+    expect(screen.getByText('Conexão')).toBeTruthy()
+    expect(screen.getByText('Abrir o app em')).toBeTruthy()
+    expect(screen.getByText('Online · servidor')).toBeTruthy()
+    expect(screen.getByText('Endereço do servidor')).toBeTruthy()
+    expect(screen.getByText('Senha do servidor')).toBeTruthy()
+    expect(screen.getByText('Barra bots e quem não foi convidado.')).toBeTruthy()
+    expect(screen.getByText('Testar conexão')).toBeTruthy()
+    expect(screen.getByText('Ainda não testado')).toBeTruthy()
+    expect(screen.getByText('Usar o servidor como ponte')).toBeTruthy()
+    expect(screen.getByText('Local · Radmin e rede de casa')).toBeTruthy()
+    expect(screen.getByText('Rede usada para as salas')).toBeTruthy()
+    expect(screen.getByText('Porta da transmissão')).toBeTruthy()
+    expect(screen.getByText('Anunciar minhas salas')).toBeTruthy()
   })
 
-  it('interface: trocar o Select para uma interface chama onChange com local.interface preenchido', () => {
+  it('clicar em Local chama onChange com open_in', () => {
     const onChange = vi.fn()
-    const { container } = render(<ConfigConexao settings={ajustes()} onChange={onChange} network={rede} />)
-    const select = container.querySelector('select') as HTMLSelectElement
-    fireEvent.change(select, { target: { value: 'Ethernet' } })
-    expect(onChange).toHaveBeenCalledWith({ local: { interface: 'Ethernet', port: 47800, announce: false } })
+    montar(onChange)
+    fireEvent.click(screen.getByRole('radio', { name: 'Local' }))
+    expect(onChange).toHaveBeenCalledWith({ open_in: 'local' })
   })
 
-  it('interface: escolher Todas as redes manda null', () => {
+  it('porta: 47801 chama onChange e letras são filtradas', () => {
     const onChange = vi.fn()
-    const { container } = render(
-      <ConfigConexao settings={ajustes({ local: { interface: 'Ethernet', port: 47800, announce: false } })} onChange={onChange} network={rede} />,
-    )
-    const select = container.querySelector('select') as HTMLSelectElement
-    fireEvent.change(select, { target: { value: '' } })
-    expect(onChange).toHaveBeenCalledWith({ local: { interface: null, port: 47800, announce: false } })
-  })
-
-  it('porta_valida: digitar 48000 chama onChange com port 48000', () => {
-    const onChange = vi.fn()
-    const { container } = render(<ConfigConexao settings={ajustes()} onChange={onChange} network={rede} />)
-    const input = container.querySelector('input') as HTMLInputElement
-    fireEvent.change(input, { target: { value: '48000' } })
-    expect(onChange).toHaveBeenCalledWith({ local: { interface: null, port: 48000, announce: false } })
-  })
-
-  it('porta_valida: digitar abc não chama onChange', () => {
-    const onChange = vi.fn()
-    const { container } = render(<ConfigConexao settings={ajustes()} onChange={onChange} network={rede} />)
-    const input = container.querySelector('input') as HTMLInputElement
+    montar(onChange)
+    const input = screen.getByLabelText('Porta da transmissão') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '47801' } })
+    expect(onChange).toHaveBeenCalledWith({ local: { interface: null, port: 47801, announce: false } })
+    onChange.mockClear()
     fireEvent.change(input, { target: { value: 'abc' } })
     expect(onChange).not.toHaveBeenCalled()
+    expect(input.value).toBe('')
   })
 
-  it('porta_fora: 70000 é ignorada', () => {
+  it('anunciar inverte local.announce', () => {
     const onChange = vi.fn()
-    const { container } = render(<ConfigConexao settings={ajustes()} onChange={onChange} network={rede} />)
-    const input = container.querySelector('input') as HTMLInputElement
-    fireEvent.change(input, { target: { value: '70000' } })
-    expect(onChange).not.toHaveBeenCalled()
-  })
-
-  it('anunciar: alternar chama onChange com announce invertido', () => {
-    const onChange = vi.fn()
-    render(<ConfigConexao settings={ajustes({ local: { interface: null, port: 47800, announce: false } })} onChange={onChange} network={rede} />)
-    fireEvent.click(screen.getByRole('switch'))
+    montar(onChange)
+    fireEvent.click(screen.getByRole('switch', { name: /Anunciar minhas salas/ }))
     expect(onChange).toHaveBeenCalledWith({ local: { interface: null, port: 47800, announce: true } })
   })
 
-  it('radmin: network.radmin_ip mostra Radmin com o IP', () => {
-    render(<ConfigConexao settings={ajustes()} onChange={vi.fn()} network={{ ...rede, radmin_ip: '26.1.2.3' }} />)
-    expect(screen.getByText('Radmin 26.1.2.3')).toBeTruthy()
+  it('teste de conexão: fail, ok e volta a idle ao editar', () => {
+    montar()
+    fireEvent.click(screen.getByText('Testar conexão'))
+    expect(screen.getByText('Preencha o endereço e a senha')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Endereço do servidor'), { target: { value: 'zap.x.com:7443' } })
+    fireEvent.change(screen.getByLabelText('Senha do servidor'), { target: { value: 'segredo' } })
+    fireEvent.click(screen.getByText('Testar conexão'))
+    expect(screen.getByText('Conectado · senha aceita · 42 ms')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Endereço do servidor'), { target: { value: 'outro.com' } })
+    expect(screen.getByText('Ainda não testado')).toBeTruthy()
   })
 
-  it('não muta settings', () => {
-    const s = ajustes()
-    const copia = JSON.stringify(s)
-    render(<ConfigConexao settings={s} onChange={vi.fn()} network={rede} />)
-    fireEvent.click(screen.getByRole('switch'))
-    expect(JSON.stringify(s)).toBe(copia)
+  it('mostra network.radmin_ip', () => {
+    montar(vi.fn(), { ...rede, radmin_ip: '26.1.2.3' })
+    expect(screen.getByText('26.1.2.3')).toBeTruthy()
   })
 })

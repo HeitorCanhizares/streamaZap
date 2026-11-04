@@ -1,19 +1,19 @@
-// Tarefa ui-18
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api } from '../../bridge/api'
 import { useSnapshot } from '../../bridge/store'
-import type { Preset, SourceItem, Sources } from '../../bridge/types'
-import { Segmented } from '../../components/Segmented'
-import { TextField } from '../../components/TextField'
+import type { Preset, RoomMode, SourceItem, Sources } from '../../bridge/types'
 import { CriarFontes, type FonteTab } from './CriarFontes'
-import { CriarOpcoes, type SomModo } from './CriarOpcoes'
+import { CriarModo } from './CriarModo'
+import { CriarNomeAcesso } from './CriarNomeAcesso'
+import { CriarQualidade } from './CriarQualidade'
 import { CriarResumo } from './CriarResumo'
-import { Button } from '../../components/Button'
+import { CriarSom } from './CriarSom'
+import { cenaDaFonte, modoHint, qualidadeTexto, somTexto, type Acesso, type SomModo } from './criarModel'
+import './criar.css'
 
 export interface CriarScreenProps { onCreated: () => void; onCancel: () => void }
 
 const SOURCES_VAZIO: Sources = { screens: [], windows: [], cameras: [], apps: [], encoders: [] }
-const PRESET_PADRAO: Preset = '720p30'
 
 // Lista de fontes de cada aba, na mesma ordem usada pela grade de CriarFontes.
 function listaDa(sources: Sources, tab: FonteTab): SourceItem[] {
@@ -22,47 +22,49 @@ function listaDa(sources: Sources, tab: FonteTab): SourceItem[] {
   return sources.cameras
 }
 
-// Rótulo legível do som escolhido no resumo.
-function rotuloSom(sound: SomModo, apps: string[]): string {
-  if (sound === 'none') return 'Sem som'
-  if (sound === 'all') return 'Todo o PC'
-  return `${apps.length} apps`
-}
-
-// Tela "Criar sala": monta a sala local e começa a transmissão com as escolhas feitas.
+// Tela "Criar sala": monta a sala e começa a transmissão com as escolhas feitas.
 export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNode {
   const snap = useSnapshot()
 
   const [sources, setSources] = useState<Sources>(SOURCES_VAZIO)
-  const [nomeSala, setNomeSala] = useState(`Sala de ${snap.me.name}`)
-  const [acesso, setAcesso] = useState<'aberta' | 'senha'>('aberta')
+  const [modo, setModo] = useState<RoomMode>('local')
+  const [nome, setNome] = useState(`Sala de ${snap.me.name}`)
+  const [acesso, setAcesso] = useState<Acesso>('aberta')
   const [senha, setSenha] = useState('')
-
   const [tab, setTab] = useState<FonteTab>('telas')
   const [selected, setSelected] = useState<string | null>(null)
   const [cameraCorner, setCameraCorner] = useState(false)
-
   const [sound, setSound] = useState<SomModo>('none')
-  const [apps, setApps] = useState<string[]>([])
-  const [preset, setPreset] = useState<Preset>(PRESET_PADRAO)
+  const [marcados, setMarcados] = useState<string[]>([])
+  const [preset, setPreset] = useState<Preset>('720p30')
   const [encoder, setEncoder] = useState('auto')
-
+  const [adaptavel, setAdaptavel] = useState(true)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Carrega as fontes e a qualidade padrão; sem fonte escolhida, pré-seleciona a primeira da aba.
+  // Recarrega as fontes; se a selecionada sumiu, escolhe a primeira da aba atual.
+  const carregar = useCallback(async (): Promise<void> => {
+    try {
+      const s = await api.sourcesList()
+      setSources(s)
+      setSelected((atual) => {
+        const lista = listaDa(s, tab)
+        if (atual !== null && [...s.screens, ...s.windows, ...s.cameras].some((f) => f.id === atual)) return atual
+        return lista[0]?.id ?? null
+      })
+    } catch (e) {
+      setErro(String(e))
+    }
+  }, [tab])
+
+  useEffect(() => {
+    void carregar()
+    // Só na montagem: trocar de aba não deve recarregar as fontes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     let vivo = true
-    api
-      .sourcesList()
-      .then((s) => {
-        if (!vivo) return
-        setSources(s)
-        setSelected((atual) => atual ?? (listaDa(s, 'telas')[0]?.id ?? null))
-      })
-      .catch((e: unknown) => {
-        if (vivo) setErro(String(e))
-      })
     api
       .settingsGet()
       .then((cfg) => {
@@ -76,14 +78,16 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
     }
   }, [])
 
-  // Trocar de aba escolhe o primeiro item da nova aba, para a seleção nunca apontar para outra aba.
+  // Trocar de aba escolhe o primeiro item da nova aba.
   function trocarAba(nova: FonteTab): void {
     setTab(nova)
     setSelected(listaDa(sources, nova)[0]?.id ?? null)
   }
 
-  const todas = [...sources.screens, ...sources.windows, ...sources.cameras]
-  const sourceLabel = todas.find((f) => f.id === selected)?.name ?? ''
+  const lista = listaDa(sources, tab)
+  const indice = lista.findIndex((f) => f.id === selected)
+  const fonte = indice >= 0 ? lista[indice].name : ''
+  const nomesApps = sources.apps.filter((a) => marcados.includes(a.id)).map((a) => a.name)
 
   async function iniciar(): Promise<void> {
     if (acesso === 'senha' && senha.trim() === '') {
@@ -95,8 +99,8 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
     setErro(null)
     setBusy(true)
     try {
-      await api.roomCreate({ name: nomeSala, mode: 'local', password: acesso === 'senha' ? senha : null })
-      await api.shareStart({ source: selected, audio: sound === 'apps' ? apps : sound, preset, encoder })
+      await api.roomCreate({ name: nome, mode: modo, password: acesso === 'senha' ? senha : null })
+      await api.shareStart({ source: selected, audio: sound === 'apps' ? marcados : sound, preset, encoder })
       onCreated()
     } catch (e) {
       setErro(String(e))
@@ -112,36 +116,25 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
     >
       <div style={{ flex: '999 1 560px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 22 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span className="zp-label" style={{ color: 'var(--verde)' }}>Nova sala</span>
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 11,
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              color: 'var(--verde)',
+            }}
+          >
+            Nova sala
+          </span>
           <h1 style={{ margin: 0, fontFamily: 'var(--font-titulo)', fontWeight: 700, fontSize: 32, letterSpacing: '-0.02em' }}>
             Bora transmitir?
           </h1>
+          <p style={{ margin: 0, color: 'var(--texto-2)', fontSize: 15 }}>{modoHint(modo)}</p>
         </div>
 
-        <section className="zp-card" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Sala</h2>
-          <Segmented
-            options={[
-              { value: 'local', label: 'Local' },
-              { value: 'online', label: 'Online · em breve', disabled: true },
-            ]}
-            value="local"
-            onChange={() => {}}
-          />
-          <TextField value={nomeSala} onChange={setNomeSala} placeholder="Nome da sala" />
-          <Segmented
-            options={[
-              { value: 'aberta', label: 'Aberta' },
-              { value: 'senha', label: 'Com senha' },
-            ]}
-            value={acesso}
-            onChange={(v) => setAcesso(v as 'aberta' | 'senha')}
-          />
-          {acesso === 'senha' && (
-            <TextField type="password" value={senha} onChange={setSenha} placeholder="Senha da sala" />
-          )}
-        </section>
-
+        <CriarModo modo={modo} onModo={setModo} />
+        <CriarNomeAcesso nome={nome} onNome={setNome} acesso={acesso} onAcesso={setAcesso} senha={senha} onSenha={setSenha} />
         <CriarFontes
           sources={sources}
           tab={tab}
@@ -150,19 +143,21 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           onSelect={setSelected}
           cameraCorner={cameraCorner}
           onCameraCorner={setCameraCorner}
+          onRefresh={() => void carregar()}
         />
 
-        <CriarOpcoes
-          sources={sources}
-          sound={sound}
-          onSound={setSound}
-          apps={apps}
-          onApps={setApps}
-          preset={preset}
-          onPreset={setPreset}
-          encoder={encoder}
-          onEncoder={setEncoder}
-        />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>
+          <CriarSom apps={sources.apps} sound={sound} onSound={setSound} marcados={marcados} onMarcados={setMarcados} />
+          <CriarQualidade
+            encoders={sources.encoders}
+            preset={preset}
+            onPreset={setPreset}
+            encoder={encoder}
+            onEncoder={setEncoder}
+            adaptavel={adaptavel}
+            onAdaptavel={setAdaptavel}
+          />
+        </div>
 
         {erro !== null && (
           <p role="alert" style={{ margin: 0, color: 'var(--vermelho)', fontSize: 14 }}>
@@ -170,19 +165,64 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           </p>
         )}
 
-        <div>
-          <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 12, paddingTop: 4 }}>
+          <button
+            type="button"
+            className="zp-criar-ghost"
+            onClick={onCancel}
+            style={{
+              height: 52,
+              padding: '0 22px',
+              borderRadius: 14,
+              border: '1px solid var(--borda-forte)',
+              color: 'var(--texto-2)',
+              fontWeight: 600,
+              background: 'transparent',
+              cursor: 'pointer',
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="zp-criar-cta"
+            disabled={busy || selected === null}
+            onClick={() => void iniciar()}
+            style={{
+              height: 52,
+              padding: '0 26px',
+              borderRadius: 14,
+              background: 'var(--verde)',
+              color: 'var(--verde-texto)',
+              fontWeight: 700,
+              fontSize: 16,
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              boxShadow: '0 0 24px rgba(59,240,138,0.25)',
+              cursor: 'pointer',
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M13.6 2 4.5 14h6.6l-1.9 8 9.3-12.3h-6.7z" />
+            </svg>
+            {busy ? 'Iniciando…' : 'Iniciar transmissão'}
+          </button>
         </div>
       </div>
 
       <CriarResumo
-        roomName={nomeSala}
-        sourceLabel={sourceLabel}
-        sound={rotuloSom(sound, apps)}
-        preset={preset}
-        encoder={encoder}
-        busy={busy}
-        onStart={() => void iniciar()}
+        modo={modo}
+        nome={nome}
+        acesso={acesso}
+        fonte={fonte}
+        cena={cenaDaFonte(tab, Math.max(indice, 0))}
+        mostrarPip={cameraCorner && tab !== 'webcam'}
+        som={somTexto(sound, nomesApps)}
+        qualidade={qualidadeTexto(preset, adaptavel)}
+        radminIp={snap.network.radmin_ip}
       />
     </main>
   )

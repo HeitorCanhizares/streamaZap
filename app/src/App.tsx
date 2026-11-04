@@ -4,19 +4,17 @@ import { isTauri } from './bridge/api'
 import { useSnapshot } from './bridge/store'
 import { NavRail } from './components/NavRail'
 import { TitleBar } from './components/TitleBar'
+import { SalaMetrics } from './components/shell/SalaMetrics'
+import type { NavTarget } from './components/shell/types'
 import { SalasScreen } from './screens/salas/SalasScreen'
 import { CriarScreen } from './screens/criar/CriarScreen'
 import { SalaScreen } from './screens/sala/SalaScreen'
 import { ConfigScreen } from './screens/config/ConfigScreen'
 import { DiagScreen } from './screens/diag/DiagScreen'
 
-type View = 'salas' | 'criar' | 'sala' | 'config' | 'diag'
-type Rail = 'salas' | 'config' | 'diag'
+type View = NavTarget
 
-// Item do trilho ativo: 'criar' e 'sala' contam como 'salas'.
-function railDe(view: View): Rail {
-  return view === 'config' || view === 'diag' ? view : 'salas'
-}
+const VERSAO = 'v3.0.0-alpha.0'
 
 // Controles da janela só existem no Tauri. Fora dele viram no-op, sem tocar no módulo.
 function acaoJanela(acao: (w: import('@tauri-apps/api/window').Window) => Promise<void>): void {
@@ -43,11 +41,18 @@ export function App(): ReactNode {
     else setView((v) => (v === 'sala' ? 'salas' : v))
   }, [temSala])
 
-  // Com sala ativa, o trilho "Salas" leva direto à sala em andamento.
-  function onNavigate(to: Rail): void {
-    if (to === 'salas' && temSala) setView('sala')
-    else setView(to)
+  // 'Sala atual' só faz sentido com sala ativa; 'Salas' sempre leva à lista.
+  function onNavigate(to: NavTarget): void {
+    if (to === 'sala' && !temSala) return
+    setView(to)
   }
+
+  // Trilha da barra de título por tela; Salas mostra a versão.
+  let crumb: { atual: string; pai?: string } | undefined
+  if (view === 'criar') crumb = { pai: 'Salas', atual: 'Nova sala' }
+  else if (view === 'sala') crumb = { pai: 'Salas', atual: snap.room?.name ?? 'Sala' }
+  else if (view === 'config') crumb = { atual: 'Configurações' }
+  else if (view === 'diag') crumb = { atual: 'Diagnóstico de rede' }
 
   let tela: ReactNode
   switch (view) {
@@ -71,15 +76,18 @@ export function App(): ReactNode {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg)' }}>
       <TitleBar
-        title="streamaZap"
+        version={VERSAO}
+        crumb={crumb}
+        radminIp={snap.network.radmin_ip}
+        // Valor de demonstração só no navegador/mock: a ponte ainda não informa o ping do servidor.
+        serverMs={isTauri() ? undefined : 42}
+        right={view === 'sala' ? <SalaMetrics tile={snap.tiles[0] ?? null} share={snap.share} /> : undefined}
         onMinimize={() => acaoJanela((w) => w.minimize())}
         onMaximize={() => acaoJanela((w) => w.toggleMaximize())}
         onClose={() => acaoJanela((w) => w.close())}
       />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <div style={{ flex: '0 0 76px', display: 'flex' }}>
-          <NavRail active={railDe(view)} onNavigate={onNavigate} />
-        </div>
+        <NavRail active={view} onNavigate={onNavigate} inRoom={temSala} profileName={snap.me.name} />
         <main style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>{tela}</main>
       </div>
     </div>

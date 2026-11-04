@@ -1,60 +1,68 @@
-// Tarefa ui-21: painel lateral da sala (chat e pessoas). Porte de docs/design/3-sala.html.
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+// Tarefa sala-07: painel lateral da sala com cabeçalho de abas (Chat / Pessoas) e botão fechar.
+// Porte de docs/design/3-sala.html 196-223. O corpo é PainelChat (sala-05) ou PainelPessoas (sala-06).
+import { useState, type ReactNode } from 'react'
 import type { RoomView } from '../../bridge/types'
-import { Avatar } from '../../components/Avatar'
 import { Badge } from '../../components/Badge'
-import { Button } from '../../components/Button'
-import { Ping } from '../../components/Ping'
-import { TextField } from '../../components/TextField'
+import { PainelChat } from './PainelChat'
+import { PainelPessoas } from './PainelPessoas'
 
-export interface SalaPainelProps { room: RoomView; onSend: (text: string) => void }
+export interface SalaPainelProps {
+  room: RoomView
+  onSend: (text: string) => void
+  // install_id do próprio usuário. Sem ele (vazio), nenhuma mensagem vira "minha": tudo fica como entrada.
+  meId?: string
+  onClose?: () => void
+}
 
 type Aba = 'chat' | 'pessoas'
 
-const MONO = { fontFamily: "'JetBrains Mono', monospace" } as const
+// Abas no estilo do design: 36px, raio 9; a ativa ganha fundo escuro e texto verde.
+const ABA_BASE = {
+  flex: 1,
+  height: 36,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 6,
+  borderRadius: 9,
+  border: 0,
+  background: 'transparent',
+  color: '#A3BDB1',
+  fontSize: 13.5,
+  fontWeight: 600,
+  cursor: 'pointer',
+} as const
+const ABA_ATIVA = { background: '#1A3A2C', color: '#3BF08A' } as const
 
-// Hora HH:MM a partir de ts em segundos epoch. Data inválida vira '--:--' em vez de quebrar a tela.
-function hora(ts: number): string {
-  const d = new Date(ts * 1000)
-  if (Number.isNaN(d.getTime())) return '--:--'
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
-export function SalaPainel({ room, onSend }: SalaPainelProps): ReactNode {
+export function SalaPainel({ room, onSend, meId = '', onClose }: SalaPainelProps): ReactNode {
   const [aba, setAba] = useState<Aba>('chat')
-  const [texto, setTexto] = useState('')
-  const listaRef = useRef<HTMLDivElement | null>(null)
-
-  // Rola para o fim quando chegam mensagens (ou ao voltar para a aba do chat).
-  useEffect(() => {
-    const lista = listaRef.current
-    if (aba === 'chat' && lista) lista.scrollTop = lista.scrollHeight
-  }, [aba, room.chat.length])
-
-  const enviar = () => {
-    const limpo = texto.trim()
-    if (limpo === '') return
-    onSend(limpo)
-    setTexto('')
-  }
-
-  const aoTeclar = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      enviar()
-    }
-  }
 
   const abas: { value: Aba; label: string; badge: number }[] = [
     { value: 'chat', label: 'Chat', badge: room.unread },
-    { value: 'pessoas', label: 'Pessoas', badge: 0 },
+    { value: 'pessoas', label: `Pessoas · ${room.participants.length}`, badge: 0 },
   ]
 
   return (
-    <aside aria-label="Chat e pessoas" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%', background: '#0F1916', borderLeft: '1px solid #1F332D' }}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #1F332D' }}>
-        {/* Mesmo visual do Segmented (zp-segmented), com selo de não lidas na aba Chat. */}
-        <div className="zp-segmented" role="tablist" aria-label="Painel">
+    <aside
+      aria-label="Chat e pessoas"
+      style={{
+        flex: '1 1 340px',
+        maxWidth: 400,
+        minWidth: 0,
+        minHeight: 0,
+        alignSelf: 'stretch',
+        display: 'flex',
+        flexDirection: 'column',
+        background: '#0F1916',
+        borderLeft: '1px solid #1F332D',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 12px 12px 16px', borderBottom: '1px solid #1F332D' }}>
+        <div
+          role="tablist"
+          aria-label="Painel"
+          style={{ flex: 1, display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: '#0A100E', border: '1px solid #1F332D' }}
+        >
           {abas.map((a) => {
             const ativo = a.value === aba
             return (
@@ -63,8 +71,8 @@ export function SalaPainel({ room, onSend }: SalaPainelProps): ReactNode {
                 type="button"
                 role="tab"
                 aria-selected={ativo}
-                className={'zp-seg-item' + (ativo ? ' zp-seg-active' : '')}
                 onClick={() => setAba(a.value)}
+                style={ativo ? { ...ABA_BASE, ...ABA_ATIVA } : ABA_BASE}
               >
                 {a.label}
                 {a.badge > 0 && <Badge tone="blue">{a.badge}</Badge>}
@@ -72,60 +80,24 @@ export function SalaPainel({ room, onSend }: SalaPainelProps): ReactNode {
             )
           })}
         </div>
+        <button
+          type="button"
+          className="zp-ghost"
+          onClick={onClose}
+          aria-label="Fechar painel"
+          title="Fechar painel"
+          style={{ width: 44, height: 44, borderRadius: 12, border: 0, background: 'transparent', color: '#A3BDB1', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
       </div>
 
       {aba === 'chat' ? (
-        <>
-          <div
-            ref={listaRef}
-            className="zp-dots"
-            role="log"
-            aria-label="Mensagens"
-            style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '16px 14px' }}
-          >
-            {room.chat.map((m) => (
-              <div
-                key={m.id}
-                style={{ alignSelf: 'flex-start', maxWidth: '82%', display: 'flex', flexDirection: 'column', gap: 2, padding: '7px 10px 6px 12px', borderRadius: '4px 16px 16px 16px', background: '#16241F' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Avatar name={m.author} color={m.color} size={20} />
-                  <b style={{ fontWeight: 600, color: m.color }}>{m.author}</b>
-                  <span style={{ ...MONO, fontSize: 10.5, color: '#8BA498' }}>{hora(m.ts)}</span>
-                </div>
-                <span style={{ lineHeight: 1.4, fontSize: 14, whiteSpace: 'pre-wrap' }}>{m.text}</span>
-              </div>
-            ))}
-          </div>
-          <div
-            onKeyDown={aoTeclar}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 12, borderTop: '1px solid #1F332D' }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <TextField value={texto} onChange={setTexto} placeholder="Mensagem" />
-            </div>
-            <Button onClick={enviar}>Enviar</Button>
-          </div>
-        </>
+        <PainelChat chat={room.chat} meId={meId} onSend={onSend} />
       ) : (
-        <ul style={{ listStyle: 'none', margin: 0, padding: '8px 0', flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          {room.participants.map((p) => (
-            <li
-              key={p.id}
-              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: '1px solid #18292A' }}
-            >
-              <Avatar name={p.name} color={p.color} />
-              <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <b style={{ fontWeight: 600 }}>{p.name}</b>
-                  {p.sharing && <Badge tone="green">transmitindo</Badge>}
-                  {p.camera && <Badge tone="blue">câmera</Badge>}
-                </span>
-              </span>
-              <Ping ms={p.ping_ms} />
-            </li>
-          ))}
-        </ul>
+        <PainelPessoas participants={room.participants} meId={meId} />
       )}
     </aside>
   )

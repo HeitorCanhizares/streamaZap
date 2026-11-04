@@ -270,45 +270,33 @@ body {
   font-size: 13px;
 }
 
-/* Barra de título e trilho lateral */
+/* Barra de título e trilho lateral (frente shell; porte de docs/design/1-salas.html) */
 .zp-titlebar {
-  display: flex;
-  align-items: center;
-  height: 40px;
-  padding: 0 12px;
-  gap: 10px;
-  background: var(--bg-barra);
-  border-bottom: 1px solid var(--borda);
-  color: var(--texto-2);
-  font-size: 12.5px;
+  height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 14px;
+  padding: 0 0 0 14px; border-bottom: 1px solid var(--borda); background: var(--bg-barra);
 }
-
 .zp-navrail {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 64px;
-  padding: 12px 0;
-  background: var(--bg-barra);
-  border-right: 1px solid var(--borda);
+  flex: 0 0 76px; width: 76px; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 16px 0; background: var(--bg-barra); border-right: 1px solid var(--borda);
 }
-
-.zp-titlebar-title { flex: 1; font-size: 13px; color: var(--texto); letter-spacing: 0.02em; }
-.zp-titlebar-controls { display: flex; gap: 2px; margin-left: auto; }
-.zp-titlebar-controls button {
-  display: grid; place-items: center; width: 36px; height: 28px;
-  background: transparent; border: 0; border-radius: 6px; color: var(--texto-2); cursor: pointer;
+.zp-win, .zp-close {
+  width: 46px; height: 44px; border: 0; background: transparent; color: var(--texto-2);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.zp-titlebar-controls button:hover { background: var(--superficie-2); color: var(--texto); }
-.zp-titlebar-controls button:last-child:hover { background: var(--vermelho, #ff5a6a); color: #fff; }
-
-.zp-navrail { align-items: center; }
-.zp-nav-item {
-  display: grid; place-items: center; width: 44px; height: 44px;
-  background: transparent; border: 0; border-radius: 12px; color: var(--texto-3); cursor: pointer;
+.zp-win:hover { background: var(--hover); }
+.zp-close:hover { background: var(--vermelho); color: var(--bg); }
+.zp-rail {
+  position: relative; width: 48px; height: 48px; border-radius: 14px; border: 0; background: transparent;
+  color: var(--texto-2); display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.zp-nav-item:hover { background: var(--superficie-2); color: var(--texto); }
-.zp-nav-active { background: rgba(59, 240, 138, 0.12); color: var(--verde); }
+.zp-rail:hover { background: #15241f; color: var(--texto); }
+.zp-rail-active, .zp-rail-active:hover { background: rgba(59, 240, 138, 0.13); color: var(--verde); }
+.zp-dock:hover { background: #22382f; }
+.zp-leave:hover { background: #ff7a88; color: #1a0508; }
+.zp-range { accent-color: #3bf08a; }
+.zp-range:disabled { opacity: 0.35; }
+@keyframes zpBlink { 50% { opacity: 0.3; } }
+.zp-blink { animation: zpBlink 1.4s ease-in-out infinite; }
 
 label:has(> .zp-toggle) { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
 .zp-toggle > span { display: none; }
@@ -331,3 +319,13 @@ label:has(> .zp-toggle) { display: inline-flex; align-items: center; gap: 10px; 
 :root[data-theme='dark'] {
   color-scheme: dark;
 }
+@keyframes zpEq { 0%, 100% { height: 3px; } 50% { height: 11px; } }
+.zp-eq { animation: zpEq 0.9s ease-in-out infinite; }
+.zp-d2 { animation-delay: 0.15s; }
+.zp-d3 { animation-delay: 0.3s; }
+.zp-dots { background-color: #0c1513; background-image: radial-gradient(rgba(59, 240, 138, 0.07) 1px, transparent 1.6px); background-size: 18px 18px; }
+.zp-send:hover { background: #6cf5a8; }
+@keyframes zpDot { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+.zp-d { animation: zpDot 1.2s ease-in-out infinite; }
+
+button { color: inherit; }

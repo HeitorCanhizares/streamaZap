@@ -33,33 +33,66 @@ function spies() {
 }
 
 describe('SalaTiles', () => {
-  it('renderiza_voce', () => {
-    spies()
-    render(<SalaTiles room={room} tiles={[]} mainTile={null} onPick={() => {}} />)
-    expect(screen.getByText('Você')).toBeTruthy()
-    expect(screen.getByText('Câmera')).toBeTruthy()
-    expect(screen.getByText('Tela')).toBeTruthy()
-  })
-
-  it('renderiza_tiles', () => {
+  it('renderiza_grupo_e_pessoas', () => {
     spies()
     render(<SalaTiles room={room} tiles={tiles} mainTile={null} onPick={() => {}} />)
+    expect(screen.getByRole('group', { name: 'Transmissões na sala' })).toBeTruthy()
     expect(screen.getByText('Ju')).toBeTruthy()
     expect(screen.getByText('Rafa')).toBeTruthy()
+    expect(screen.getAllByLabelText(/^Silenciar /)).toHaveLength(2)
   })
 
-  it('exclui_principal', () => {
+  it('mudo_chama_setvolume', () => {
+    spies()
+    render(<SalaTiles room={room} tiles={tiles} mainTile={null} onPick={() => {}} />)
+    fireEvent.click(screen.getByLabelText('Silenciar Ju'))
+    expect(api.setVolume).toHaveBeenCalledWith('p1', 0.8, true)
+    expect(screen.getByLabelText('Ativar som de Ju')).toBeTruthy()
+    expect(screen.getByText('mudo')).toBeTruthy()
+  })
+
+  it('range_atualiza_porcentagem', () => {
+    spies()
+    render(<SalaTiles room={room} tiles={[tiles[0]]} mainTile={null} onPick={() => {}} />)
+    fireEvent.change(screen.getByLabelText('Volume de Ju'), { target: { value: '35' } })
+    expect(screen.getByText('35%')).toBeTruthy()
+    expect(api.setVolume).toHaveBeenCalledWith('p1', 0.35, false)
+  })
+
+  it('fechar_e_reabrir', () => {
+    const { watch, unwatch } = spies()
+    render(<SalaTiles room={room} tiles={[tiles[0]]} mainTile={null} onPick={() => {}} />)
+    expect(watch).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByLabelText('Fechar tela de Ju'))
+    expect(screen.getByText('Tela de Ju fechada')).toBeTruthy()
+    expect(unwatch).toHaveBeenCalledWith(1)
+    fireEvent.click(screen.getByText('Reabrir'))
+    expect(screen.queryByText('Tela de Ju fechada')).toBeNull()
+    expect(watch).toHaveBeenCalledTimes(2)
+  })
+
+  it('principal_mostra_assistindo', () => {
     spies()
     render(<SalaTiles room={room} tiles={tiles} mainTile={1} onPick={() => {}} />)
-    expect(screen.queryByText('Ju')).toBeNull()
-    expect(screen.getByText('Rafa')).toBeTruthy()
+    expect(screen.getAllByText('Assistindo')).toHaveLength(1)
   })
 
-  it('clique', () => {
+  it('voce_chama_callbacks', () => {
+    spies()
+    const cam = vi.fn(); const share = vi.fn()
+    render(<SalaTiles room={room} tiles={[]} mainTile={null} onPick={() => {}} onToggleCam={cam} onToggleShare={share} />)
+    expect(screen.getByText('Você')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Câmera' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tela' }))
+    expect(cam).toHaveBeenCalled()
+    expect(share).toHaveBeenCalled()
+  })
+
+  it('clique_no_card_chama_onpick', () => {
     spies()
     const onPick = vi.fn()
     render(<SalaTiles room={room} tiles={tiles} mainTile={null} onPick={onPick} />)
-    fireEvent.click(screen.getByText('Rafa'))
+    fireEvent.click(screen.getByLabelText(/^Assistir Rafa/))
     expect(onPick).toHaveBeenCalledWith(2)
   })
 
@@ -67,7 +100,7 @@ describe('SalaTiles', () => {
     spies()
     const onPick = vi.fn()
     render(<SalaTiles room={room} tiles={[tiles[0]]} mainTile={null} onPick={onPick} />)
-    fireEvent.click(screen.getByLabelText('Mutar'))
+    fireEvent.click(screen.getByLabelText('Silenciar Ju'))
     expect(onPick).not.toHaveBeenCalled()
   })
 

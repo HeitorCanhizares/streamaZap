@@ -14,7 +14,10 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 const room: RoomView = {
   id: 'r', name: 'Sexta', mode: 'online', chat: [], unread: 0,
   participants: [{ id: 'p1', name: 'Ana', color: '#fff', ping_ms: 10, sharing: true, camera: false }],
-  tracks: [{ id: 't1', owner_id: 'p1', kind: 'screen', title: 'Tela', number: 1 }],
+  tracks: [
+    { id: 't1', owner_id: 'p1', kind: 'screen', title: 'Tela', number: 1 },
+    { id: 't2', owner_id: 'p1', kind: 'camera', title: 'Câmera', number: 2 },
+  ],
 }
 const main: TileView = { tile: 7, track_id: 't1', layer: 1, width: 1920, height: 1080, fps: 60, kbps: 8200, ping_ms: 42, smoothing_ms: 200, reason: '' }
 
@@ -31,25 +34,25 @@ describe('SalaPrincipal', () => {
     expect(t).toContain('42 ms')
     expect(t).toContain('200 ms')
     expect(t).toContain('camada 2')
-    expect(t).toContain('8.2 Mbps')
+    expect(t).toContain('8,2 Mbps')
   })
 
   it('sem_main', () => {
     montar({ main: null })
-    expect(screen.getByText('Ninguém transmitindo ainda')).toBeTruthy()
+    expect(screen.getByText('Nenhuma transmissão aberta')).toBeTruthy()
   })
 
   it('botoes', () => {
     const f = montar()
     fireEvent.click(screen.getByText('Sair'))
     expect(f.onLeave).toHaveBeenCalled()
-    fireEvent.click(screen.getByText('Compartilhar tela'))
+    fireEvent.click(screen.getByRole('button', { name: /Compartilhar tela/ }))
     expect(f.onToggleShare).toHaveBeenCalled()
   })
 
   it('botao_parar', () => {
     montar({ share: { source: 's', audio: 'none', preset: '720p30', encoder: 'x', layers: [], viewers_per_layer: [], encode_ms: 1 } })
-    expect(screen.getByText('Parar de compartilhar')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Parar' }).length).toBeGreaterThan(0)
   })
 
   it('atalhos', () => {
@@ -67,5 +70,36 @@ describe('SalaPrincipal', () => {
     expect(w).toHaveBeenCalledWith('t1', 7, expect.any(Array), null, expect.any(Function))
     cleanup()
     expect(u).toHaveBeenCalledWith(7)
+  })
+
+  it('estrutura', () => {
+    montar()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sexta')
+    expect(screen.getByText(/AO VIVO/)).toBeTruthy()
+    expect(screen.getByRole('toolbar', { name: 'Controles da sala' })).toBeTruthy()
+  })
+
+  it('fechar_tela', () => {
+    const onCloseMain = vi.fn()
+    montar({ onCloseMain })
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar tela de Ana' }))
+    expect(onCloseMain).toHaveBeenCalled()
+  })
+
+  it('pip', () => {
+    const onTogglePip = vi.fn()
+    const { rerender } = render(<SalaPrincipal room={room} main={main} share={null} smoothingAuto onSmoothingAuto={vi.fn()} onToggleCamera={vi.fn()} onToggleShare={vi.fn()} onLeave={vi.fn()} onFullscreen={vi.fn()} onTogglePip={onTogglePip} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar câmera de Ana' }))
+    expect(onTogglePip).toHaveBeenCalled()
+    rerender(<SalaPrincipal room={room} main={main} share={null} smoothingAuto onSmoothingAuto={vi.fn()} onToggleCamera={vi.fn()} onToggleShare={vi.fn()} onLeave={vi.fn()} onFullscreen={vi.fn()} onTogglePip={onTogglePip} pipHidden />)
+    expect(screen.queryByRole('button', { name: 'Fechar câmera de Ana' })).toBeNull()
+    expect(screen.getByText('Mostrar câmera')).toBeTruthy()
+  })
+
+  it('tecla_m', () => {
+    const s = vi.spyOn(api, 'setVolume').mockResolvedValue(undefined)
+    montar()
+    fireEvent.keyDown(window, { key: 'M' })
+    expect(s).toHaveBeenCalledWith('p1', 1, true)
   })
 })

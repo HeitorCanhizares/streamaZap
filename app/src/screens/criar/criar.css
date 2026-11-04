@@ -1,0 +1,5 @@
+/* Estilos da tela Criar sala: classes zp-criar-* e hovers do design (tarefas criar-*). */
+
+.zp-criar-cta:hover { background: #6CF5A8; color: #03140A; }
+.zp-criar-cta:disabled { opacity: 0.5; cursor: not-allowed; }
+.zp-criar-ghost:hover { background: var(--hover); color: var(--texto); }

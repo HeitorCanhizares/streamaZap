@@ -1,0 +1,9 @@
+/* Classes do design 1-salas.html usadas só pela tela Salas (tarefa salas-01 completa). */
+.zp-row { background: transparent; transition: background .15s; }
+.zp-row:hover { background: #13211d; }
+.zp-dots { background-image: radial-gradient(rgba(59,240,138,.07) 1px, transparent 1.6px); background-size: 18px 18px; }
+.zp-cta:hover { background: #6cf5a8; color: #03140a; }
+.zp-ghost:hover { background: #1a2c27; }
+@keyframes zpPulse { 0% { transform: scale(.5); opacity: .8; } 100% { transform: scale(2.6); opacity: 0; } }
+.zp-pulse { animation: zpPulse 2s ease-out infinite; }
+.zp-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

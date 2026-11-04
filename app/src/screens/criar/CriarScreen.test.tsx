@@ -1,8 +1,8 @@
-// Tarefa ui-18
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { api } from '../../bridge/api'
 import { CriarScreen } from './CriarScreen'
+import { modoHint } from './criarModel'
 
 afterEach(() => {
   cleanup()
@@ -47,7 +47,7 @@ describe('CriarScreen', () => {
     render(<CriarScreen onCreated={vi.fn()} onCancel={vi.fn()} />)
     await esperarFonte()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Com senha' }))
+    fireEvent.click(screen.getByRole('button', { name: /Com senha/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar transmissão' }))
 
     expect(screen.getByText('Informe a senha')).toBeTruthy()
@@ -76,5 +76,29 @@ describe('CriarScreen', () => {
     expect(onCreated).not.toHaveBeenCalled()
     const botao = screen.getByRole('button', { name: 'Iniciar transmissão' }) as HTMLButtonElement
     expect(botao.disabled).toBe(false)
+  })
+
+  it('modo_online_envia_online: selecionar Online envia mode online', async () => {
+    const roomCreate = vi.spyOn(api, 'roomCreate').mockResolvedValue(undefined)
+    vi.spyOn(api, 'shareStart').mockResolvedValue(undefined)
+    render(<CriarScreen onCreated={vi.fn()} onCancel={vi.fn()} />)
+    await esperarFonte()
+    fireEvent.click(screen.getByText('Online'))
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar transmissão' }))
+    await waitFor(() => expect(roomCreate).toHaveBeenCalledWith(expect.objectContaining({ mode: 'online' })))
+  })
+
+  it('secoes_presentes: mostra os títulos das seções', () => {
+    render(<CriarScreen onCreated={vi.fn()} onCancel={vi.fn()} />)
+    for (const t of ['Bora transmitir?', 'Onde a sala vai rodar', 'O que compartilhar', 'Som', 'Qualidade', 'É isso que a galera vai ver']) {
+      expect(screen.getAllByText(t).length).toBeGreaterThan(0)
+    }
+  })
+
+  it('hint_muda_com_modo: a legenda muda ao trocar o modo', () => {
+    render(<CriarScreen onCreated={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByText(modoHint('local'))).toBeTruthy()
+    fireEvent.click(screen.getByText('Online'))
+    expect(screen.getByText(modoHint('online'))).toBeTruthy()
   })
 })

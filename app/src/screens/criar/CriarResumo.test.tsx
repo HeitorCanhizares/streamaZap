@@ -1,58 +1,82 @@
-// Tarefa ui-17
+// Tarefa criar-07
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CriarResumo, type CriarResumoProps } from './CriarResumo'
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 function props(over: Partial<CriarResumoProps> = {}): CriarResumoProps {
   return {
-    roomName: 'Sala do Heitor',
-    sourceLabel: 'Tela inteira',
-    sound: 'Sem som',
-    preset: '1080p60',
-    encoder: 'auto',
-    busy: false,
-    onStart: vi.fn(),
-    ...over,
+    modo: 'online', nome: 'Sala do Heitor', acesso: 'aberta', fonte: 'Tela inteira',
+    cena: 'game', mostrarPip: false, som: 'Sem som', qualidade: '720p30 · 2,5 Mbps',
+    radminIp: '26.12.34.56', ...over,
   }
 }
 
 describe('CriarResumo', () => {
-  it('mostra_valores: renderiza roomName, sourceLabel, sound e "1080p · 60"', () => {
+  it('mostra titulo e ficha', () => {
     render(<CriarResumo {...props()} />)
-    expect(screen.getByText('Sala do Heitor')).toBeTruthy()
-    expect(screen.getByText('Tela inteira')).toBeTruthy()
-    expect(screen.getByText('Sem som')).toBeTruthy()
-    expect(screen.getByText('1080p · 60')).toBeTruthy()
-    expect(screen.getByText('Automático')).toBeTruthy()
-    expect(screen.getByText('AO VIVO')).toBeTruthy()
+    expect(screen.getByText('É isso que a galera vai ver')).toBeTruthy()
+    for (const t of ['Online · via servidor', 'Sala do Heitor', 'Aberta para a rede', 'Tela inteira', 'Sem som', '720p30 · 2,5 Mbps'])
+      expect(screen.getByText(t)).toBeTruthy()
+    expect(screen.getByText('Conexão com o servidor autenticada')).toBeTruthy()
   })
 
-  it('nome_vazio: roomName="" mostra "Sua sala"', () => {
-    render(<CriarResumo {...props({ roomName: '' })} />)
+  it('modo online mostra codigo', () => {
+    render(<CriarResumo {...props()} />)
+    expect(screen.getByText('Código da sala')).toBeTruthy()
+    expect(screen.getByText('ZAP-7K2Q')).toBeTruthy()
+    expect(screen.getByText(/Servidor sa-east · 42 ms/)).toBeTruthy()
+  })
+
+  it('modo local mostra enderecos', () => {
+    render(<CriarResumo {...props({ modo: 'local' })} />)
+    expect(screen.getByText('Seus endereços')).toBeTruthy()
+    expect(screen.getByText('26.12.34.56:47800')).toBeTruthy()
+    expect(screen.getByText('192.168.0.12:47800')).toBeTruthy()
+    expect(screen.getByText('Radmin')).toBeTruthy()
+    expect(screen.getByText('Firewall liberado para receber conexões')).toBeTruthy()
+  })
+
+  it('sem radminIp omite Radmin', () => {
+    render(<CriarResumo {...props({ modo: 'local', radminIp: null })} />)
+    expect(screen.queryByText('Radmin')).toBeNull()
+    expect(screen.getByText('rede local')).toBeTruthy()
+  })
+
+  it('mostrarPip alterna a segunda cena', () => {
+    const { container, rerender } = render(<CriarResumo {...props()} />)
+    expect(container.querySelectorAll('svg[data-scene]').length).toBe(1)
+    rerender(<CriarResumo {...props({ mostrarPip: true })} />)
+    expect(container.querySelectorAll('svg[data-scene]').length).toBe(2)
+    expect(container.querySelector('svg[data-scene="camc"]')).not.toBeNull()
+  })
+
+  it('nome vazio mostra Sua sala', () => {
+    render(<CriarResumo {...props({ nome: '  ' })} />)
     expect(screen.getByText('Sua sala')).toBeTruthy()
   })
 
-  it('botao: clicar em "Iniciar transmissão" chama onStart', () => {
-    const onStart = vi.fn()
-    render(<CriarResumo {...props({ onStart })} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Iniciar transmissão' }))
-    expect(onStart).toHaveBeenCalledTimes(1)
+  it('Copiar convite copia e vira Copiado!', () => {
+    vi.useFakeTimers()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<CriarResumo {...props({ modo: 'local' })} />)
+    fireEvent.click(screen.getByText('Copiar convite'))
+    expect(writeText).toHaveBeenCalledWith('26.12.34.56:47800\n192.168.0.12:47800')
+    expect(screen.getByText('Copiado!')).toBeTruthy()
+    act(() => { vi.advanceTimersByTime(1500) })
+    expect(screen.getByText('Copiar convite')).toBeTruthy()
   })
 
-  it('busy: busy=true desabilita o botão e mostra "Iniciando…"', () => {
-    const onStart = vi.fn()
-    render(<CriarResumo {...props({ busy: true, onStart })} />)
-    const botao = screen.getByRole('button', { name: 'Iniciando…' }) as HTMLButtonElement
-    expect(botao.disabled).toBe(true)
-    fireEvent.click(botao)
-    expect(onStart).not.toHaveBeenCalled()
-  })
-
-  it('sem_fonte: sourceLabel="" deixa o botão desabilitado', () => {
-    render(<CriarResumo {...props({ sourceLabel: '' })} />)
-    const botao = screen.getByRole('button', { name: 'Iniciar transmissão' }) as HTMLButtonElement
-    expect(botao.disabled).toBe(true)
+  it('online copia o codigo', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render(<CriarResumo {...props()} />)
+    fireEvent.click(screen.getByText('Copiar convite'))
+    expect(writeText).toHaveBeenCalledWith('ZAP-7K2Q')
   })
 })

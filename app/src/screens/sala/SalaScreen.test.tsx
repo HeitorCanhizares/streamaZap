@@ -34,8 +34,8 @@ describe('SalaScreen', () => {
     estado.snap = mockSnapshot()
     render(<SalaScreen onLeft={() => {}} />)
     expect(screen.getByText('Sexta do Rush')).toBeTruthy()
-    expect(screen.getByText('Chat')).toBeTruthy()
-    expect(screen.getByText('Pessoas')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: 'Chat' })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Pessoas/ })).toBeTruthy()
   })
 
   it('sair: clicar Sair chama api.roomLeave e depois onLeft', async () => {
@@ -54,7 +54,7 @@ describe('SalaScreen', () => {
     render(<SalaScreen onLeft={() => {}} />)
     const campo = screen.getByPlaceholderText('Mensagem') as HTMLInputElement
     fireEvent.change(campo, { target: { value: 'oi' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar mensagem' }))
     expect(send).toHaveBeenCalledWith('oi')
   })
 
@@ -66,5 +66,22 @@ describe('SalaScreen', () => {
     estado.snap = { ...mockSnapshot(), room: null }
     rerender(<SalaScreen onLeft={onLeft} />)
     expect(onLeft).toHaveBeenCalledTimes(1)
+  })
+
+  it('layout: mostra controles, grupo de transmissões e painel lateral', () => {
+    estado.snap = mockSnapshot()
+    render(<SalaScreen onLeft={() => {}} />)
+    expect(screen.getByRole('toolbar', { name: 'Controles da sala' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Transmissões na sala' })).toBeTruthy()
+    expect(screen.getByRole('complementary', { name: 'Chat e pessoas' })).toBeTruthy()
+  })
+
+  it('painel: Fechar painel remove o aside e o botão Painel do cabeçalho o traz de volta', () => {
+    estado.snap = mockSnapshot()
+    render(<SalaScreen onLeft={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Fechar painel' }))
+    expect(screen.queryByRole('complementary', { name: 'Chat e pessoas' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Painel' }))
+    expect(screen.getByRole('complementary', { name: 'Chat e pessoas' })).toBeTruthy()
   })
 })
