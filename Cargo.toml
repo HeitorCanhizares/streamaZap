@@ -19,6 +19,7 @@ zap-gpu = { path = "crates/zap-gpu" }
 zap-capture = { path = "crates/zap-capture" }
 zap-encode = { path = "crates/zap-encode" }
 zap-audio = { path = "crates/zap-audio" }
+zap-test-server = { path = "crates/zap-test-server" }
 zap-sys = { path = "crates/zap-sys" }
 zap-core = { path = "crates/zap-core" }
 
@@ -47,6 +48,11 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rcgen = "0.14"
 webpki-roots = "1"
 socket2 = { version = "0.6", features = ["all"] }
+# modo Online (M4): cliente da API e servidor de teste
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+axum = { version = "0.8", features = ["ws"] }
 if-addrs = "0.15"
 
 # mídia (M2)

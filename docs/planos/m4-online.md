@@ -13,6 +13,23 @@ automáticos (e de referência para quem for escrever o servidor de verdade).
 | `core-online` | `crates/zap-core` | `api` | Sessão Online: salas do servidor, entrar por código, ponte/direta, prévia |
 | `ui-online` | `app/src` | `core-online` | Aba Online na lista de salas, criar sala Online, "Entrar com código", config. do servidor e "Testar conexão" |
 
+## Estado de partida (depois do M5) e travas
+
+- A interface já tem a aba Online, o campo de servidor/senha e "Testar conexão" em Configurações,
+  "Entrar com código" e o status do servidor na barra (hoje "não configurado").
+- O `zap-core` já tem a sala Local completa; o Online entra como outro tipo de sessão no mesmo
+  `Core` (mesmos comandos do Tauri: `room_create` com `mode: "online"`, `room_join` com código).
+- Dependências já declaradas na raiz: `reqwest` 0.12 (rustls), `tokio-tungstenite` 0.24,
+  `futures-util`, `axum` 0.8 (só o servidor de teste).
+
+| Frente | Trava (`crate`) | Depende de |
+|---|---|---|
+| `api` | `zap-net` | — |
+| `servidor-teste` | `zap-test-server` (crate novo, `publish = false`) | `api` |
+| `core-online` | `zap-core` | `api` |
+| `tauri-online` | `streamazap` | `core-online` (comandos novos: `server_test`, `room_preview`; status do servidor no snapshot) |
+| `ui-online` | `app-ui-*` por área | `tauri-online` |
+
 ## `api` (cliente)
 ```rust
 pub struct ServerClient { /* base_url, token, http */ }
