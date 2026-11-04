@@ -141,8 +141,17 @@ pub struct ShareRequest {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum JoinTarget {
-    Discovered { room_id: String },
-    Address { ip: String, port: u16 },
+    Discovered {
+        room_id: String,
+    },
+    Address {
+        ip: String,
+        port: u16,
+    },
+    /// Sala Online pelo código (`ZAP-XXXX`; maiúsculas/minúsculas e espaços são tolerados).
+    Code {
+        code: String,
+    },
 }
 
 /// Mensagem de chat entregue à interface (`UiSink::chat`) e guardada no `RoomView`.

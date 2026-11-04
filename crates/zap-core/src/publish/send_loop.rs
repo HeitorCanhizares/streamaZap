@@ -146,6 +146,7 @@ mod tests {
             stop: AtomicBool::new(false),
             upload_kbps: AtomicU32::new(0),
             clock: Clock::new(),
+            bridge_requests: Mutex::new(Vec::new()),
         }))
     }
 

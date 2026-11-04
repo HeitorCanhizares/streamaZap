@@ -64,4 +64,8 @@ cargo check --workspace --target x86_64-pc-windows-gnu   # pega erro no código 
 
 No front-end (`app/`): `npm run check` (tsc) e `npm test` (vitest).
 
+**Disco cheio** ("No space left on device", "Disk full", ENOSPC): `target/` é só saída de build e
+pode ser apagado sem pedir — rode `cargo clean` (ou apague `target/debug/incremental`) e continue.
+Não apague mais nada.
+
 O app Python antigo ainda tem seus testes (`pytest`) até ser removido no marco M6.

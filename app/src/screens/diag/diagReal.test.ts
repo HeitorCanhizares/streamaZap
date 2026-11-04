@@ -3,8 +3,16 @@ import { mockDiagReport } from '../../bridge/mockDiag'
 import { mockSnapshot } from '../../bridge/mock'
 import { montarChecks } from './diagModel'
 import { montarChecksReal } from './diagReal'
+import type { Snapshot } from '../../bridge/types'
 
 const get = (cs: ReturnType<typeof montarChecksReal>, id: string) => cs.find((c) => c.id === id)!
+
+// O mockSnapshot não traz `server`; o teste do card srv monta o estado explicitamente.
+const comServidor = (server: Snapshot['server']): Snapshot => {
+  const s = mockSnapshot()
+  s.server = server
+  return s
+}
 
 describe('montarChecksReal', () => {
   it('rel null cai no montarChecks', () => {
@@ -17,6 +25,18 @@ describe('montarChecksReal', () => {
     const net = get(cs, 'net')
     expect(net.lines.some((l) => l.text === 'Radmin VPN · 26.100.5.20')).toBe(true)
     expect(net.status).toBe('ok')
+  })
+  it('srv com servidor online: ok e linha Conectado', () => {
+    const snap = comServidor({ state: 'online', name: 'Casa', ping_ms: 23.6 })
+    const srv = get(montarChecksReal(mockDiagReport(), snap), 'srv')
+    expect(srv.status).toBe('ok')
+    expect(srv.lines[0].text).toMatch(/^Conectado/)
+    expect(srv.lines[0].text).toBe('Conectado a Casa')
+  })
+  it('srv sem servidor: soon com Servidor não configurado', () => {
+    const srv = get(montarChecksReal(mockDiagReport(), comServidor(undefined)), 'srv')
+    expect(srv.status).toBe('soon')
+    expect(srv.lines[0].text).toBe('Servidor não configurado')
   })
   it('firewall bloqueado', () => {
     const r = mockDiagReport()

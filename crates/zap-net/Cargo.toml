@@ -23,10 +23,16 @@ tracing.workspace = true
 thiserror.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
+axum.workspace = true
 
 [lints]
 workspace = true

@@ -91,4 +91,37 @@ describe('ListaSalas', () => {
     fireEvent.click(screen.getByText('Sala Alfa'))
     expect(p.onSelect).toHaveBeenCalledWith('a')
   })
+
+  it('rodape online mostra o estado do servidor', () => {
+    const { unmount } = render(<ListaSalas {...props({ servidor: { state: 'online' } })} />)
+    expect(screen.getByText('Conectado ao servidor streamaZap. A lista atualiza sozinha.')).toBeTruthy()
+    unmount()
+    const { unmount: u2 } = render(<ListaSalas {...props({ servidor: undefined })} />)
+    expect(screen.getByText('Servidor não configurado. Informe o endereço em Configurações › Conexão.')).toBeTruthy()
+    u2()
+    const { unmount: u3 } = render(<ListaSalas {...props({ servidor: { state: 'connecting' } })} />)
+    expect(screen.getByText('Conectando ao servidor…')).toBeTruthy()
+    u3()
+    render(<ListaSalas {...props({ servidor: { state: 'error' } })} />)
+    expect(screen.getByText('Servidor desconectado. Tentando reconectar…')).toBeTruthy()
+  })
+
+  it('ponto pulsa so com servidor online', () => {
+    const { container, unmount } = render(<ListaSalas {...props({ servidor: { state: 'online' } })} />)
+    expect(container.querySelector('.zp-pulse')).not.toBeNull()
+    unmount()
+    const { container: c2 } = render(<ListaSalas {...props({ servidor: { state: 'error' } })} />)
+    expect(c2.querySelector('.zp-pulse')).toBeNull()
+  })
+
+  it('lista vazia online sem conexao com o servidor', () => {
+    render(<ListaSalas {...props({ salas: [], servidor: { state: 'error' } })} />)
+    expect(screen.getByText('Sem conexão com o servidor.')).toBeTruthy()
+  })
+
+  it('modo local ignora servidor', () => {
+    render(<ListaSalas {...props({ modo: 'local', servidor: { state: 'error' } })} />)
+    expect(screen.getByText('Procurando mais salas no Radmin e na rede local…')).toBeTruthy()
+    expect(screen.queryByText('Servidor desconectado. Tentando reconectar…')).toBeNull()
+  })
 })

@@ -226,6 +226,9 @@ pub struct Snapshot {
     /// Protocolo maior visto na rede (amigo/servidor mais novo): a interface oferece atualizar.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub newer_protocol: Option<u32>,
+    /// Servidor Online (barra): `None` = sem endereço configurado.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<crate::online::ServerStatus>,
 }
 
 impl Snapshot {
@@ -407,6 +410,7 @@ impl Snapshot {
             }),
             errors: Vec::new(),
             newer_protocol: None,
+            server: None,
         }
     }
 }

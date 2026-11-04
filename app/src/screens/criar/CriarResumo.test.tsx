@@ -2,17 +2,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CriarResumo, type CriarResumoProps } from './CriarResumo'
+import type { BarraServidor } from '../../bridge/serverModel'
 
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
 })
 
+const SERVIDOR: BarraServidor = { texto: 'Servidor sa-east · 42 ms', tom: 'ok', ms: 42 }
+
 function props(over: Partial<CriarResumoProps> = {}): CriarResumoProps {
   return {
     modo: 'online', nome: 'Sala do Heitor', acesso: 'aberta', fonte: 'Tela inteira',
     cena: 'game', mostrarPip: false, som: 'Sem som', qualidade: '720p30 · 2,5 Mbps',
-    radminIp: '26.12.34.56', ...over,
+    radminIp: '26.12.34.56', codigo: 'ZAP-7K2Q', servidor: SERVIDOR, ...over,
   }
 }
 
@@ -29,7 +32,25 @@ describe('CriarResumo', () => {
     render(<CriarResumo {...props()} />)
     expect(screen.getByText('Código da sala')).toBeTruthy()
     expect(screen.getByText('ZAP-7K2Q')).toBeTruthy()
-    expect(screen.getByText(/Servidor sa-east · 42 ms/)).toBeTruthy()
+  })
+
+  it('frase inclui servidor.texto quando passado', () => {
+    render(<CriarResumo {...props()} />)
+    expect(screen.getByText(/Servidor sa-east · 42 ms\./)).toBeTruthy()
+  })
+
+  it('sem servidor mostra so a frase', () => {
+    render(<CriarResumo {...props({ servidor: null })} />)
+    expect(screen.getByText('Quem tiver o app entra com esse código, de qualquer lugar.')).toBeTruthy()
+    expect(screen.queryByText(/Servidor sa-east/)).toBeNull()
+  })
+
+  it('online sem codigo mostra mascara e botao desativado', () => {
+    render(<CriarResumo {...props({ codigo: null })} />)
+    expect(screen.getByText('ZAP-····')).toBeTruthy()
+    const botao = screen.getByText('Disponível ao criar a sala').closest('button')
+    expect(botao).not.toBeNull()
+    expect(botao?.disabled).toBe(true)
   })
 
   it('modo local mostra enderecos', () => {
@@ -72,11 +93,15 @@ describe('CriarResumo', () => {
     expect(screen.getByText('Copiar convite')).toBeTruthy()
   })
 
-  it('online copia o codigo', () => {
+  it('online copia o convite e mostra Copiado!', () => {
+    vi.useFakeTimers()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     render(<CriarResumo {...props()} />)
     fireEvent.click(screen.getByText('Copiar convite'))
-    expect(writeText).toHaveBeenCalledWith('ZAP-7K2Q')
+    expect(writeText).toHaveBeenCalledWith('Entra na minha sala "Sala do Heitor" no streamaZap: ZAP-7K2Q')
+    expect(screen.getByText('Copiado!')).toBeTruthy()
+    act(() => { vi.advanceTimersByTime(1500) })
+    expect(screen.getByText('Copiar convite')).toBeTruthy()
   })
 })

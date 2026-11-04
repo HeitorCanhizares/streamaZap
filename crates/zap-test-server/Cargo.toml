@@ -1,0 +1,33 @@
+[package]
+name = "zap-test-server"
+description = "Servidor Online mínimo em memória (REST + WebSocket + ponte QUIC) para testes; implementação de referência da API. Não é para produção"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+zap-proto.workspace = true
+zap-net.workspace = true
+zap-rate.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+axum.workspace = true
+quinn.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bytes.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+sha2.workspace = true
+base64.workspace = true
+futures-util.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

@@ -79,3 +79,19 @@ Binário e biblioteca para testes (`zap_test_server::spawn(config) -> Handle { b
    (2 = miniatura de um terceiro).
 3. Protocolo incompatível → erro `protocolo_incompativel` com mensagem para atualizar.
 4. Rota direta no loopback funciona e `midia.direta_ok` é enviado.
+
+## Estado do fechamento (revisor)
+
+M4 NAO esta fechado. Verificado:
+- `cargo fmt --all --check`: ok.
+- `app`: `npm run check` ok; `npm test` 78 arquivos / 617 testes ok. `vite build` nao rodado (disco).
+- `cargo clippy --workspace --all-targets -- -D warnings`: FALHA em zap-core (23 erros, quase todos
+  dead_code por itens online ainda nao ligados + 7 "doc list item without indentation").
+- Nao rodados: `cargo test --workspace`, clippy windows-gnu, xvfb do binario (ha `todo!` pendentes e
+  disco com ~330 MB livres; `target/` tem 26 GB).
+- `todo!(` restantes: zap-test-server (zt-08, 09, 10, 12, 13, 14, 16, 17), zap-core
+  (core-online-11, 15, 19: reconnect.rs, entry.rs, subscribe/pool.rs).
+- Tarefas nao concluidas: zt-12, zt-14, zt-08/09/10/13/16-19, core-online-04..11, 13..15, 18..27,
+  tauri-online-01..03, ui-online-02/03/04/05/07/08/11/12/15.
+- Bloqueio de ambiente: disco cheio (0 MB livres em varias tentativas). Liberar `target/` antes de
+  retomar. Dependencia observada: zt-05 depende de zt-11 (tracks.rs).

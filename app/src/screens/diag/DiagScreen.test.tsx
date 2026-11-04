@@ -44,7 +44,7 @@ describe('DiagScreen', () => {
     for (const t of ['Tá tudo conectando?', 'Rede', 'Amigos com o app aberto', 'Salas encontradas', 'Servidor online', 'Firewall do Windows', 'Como ler isso', 'Copiar relatório']) {
       expect(screen.getAllByText(t).length).toBeGreaterThan(0)
     }
-    expect(screen.getByText('Disponível no modo Online')).toBeTruthy()
+    expect(screen.getByText('Servidor não configurado')).toBeTruthy()
   })
 
   it('cinco_cards', async () => {

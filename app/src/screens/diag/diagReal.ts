@@ -2,6 +2,7 @@
 import type { DiagReport, Snapshot } from '../../bridge/types'
 import { montarChecks } from './diagModel'
 import type { Check, LinhaCheck } from './diagModel'
+import { checkServidor } from './diagServidor'
 
 const PERFIS = ['Domínio', 'Privado', 'Público']
 
@@ -84,10 +85,7 @@ function checkSalas(rel: DiagReport): Check {
 export function montarChecksReal(rel: DiagReport | null, snap: Snapshot): Check[] {
   if (rel === null) return montarChecks(snap)
   return [
-    {
-      id: 'srv', title: 'Servidor online', short: 'Servidor', status: 'soon',
-      lines: [{ tom: 'info', text: 'Disponível no modo Online' }],
-    },
+    checkServidor(snap),
     checkRede(rel),
     checkFirewall(rel),
     checkAmigos(rel),

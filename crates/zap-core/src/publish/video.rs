@@ -22,6 +22,9 @@ pub struct VideoShared {
     pub stop: AtomicBool,
     pub upload_kbps: AtomicU32,
     pub clock: zap_net::Clock,
+    /// Camadas pedidas pelo servidor Online (`camadas.pedidas`); somadas (maior kbps por
+    /// camada) ao pedido do alocador a cada tick.
+    pub bridge_requests: Mutex<Vec<zap_rate::allocator::LayerRequest>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -63,6 +66,7 @@ impl VideoPublisher {
             stop: AtomicBool::new(false),
             upload_kbps: AtomicU32::new(50_000),
             clock,
+            bridge_requests: Mutex::new(Vec::new()),
         });
         let rx: Receiver<EncodedFrame> = rx;
         let s = shared.clone();
@@ -83,6 +87,16 @@ impl VideoPublisher {
     }
     pub fn remove_viewer(&self, id: u64) {
         self.shared.viewers.lock().retain(|v| v.id != id);
+    }
+    /// Online: define as camadas/bitrates pedidos pelo servidor (substitui o pedido anterior;
+    /// vazio = nenhuma) e aplica no pipeline já (sem esperar o tick de 100 ms).
+    pub fn set_bridge_requests(&self, reqs: Vec<zap_rate::allocator::LayerRequest>) {
+        *self.shared.bridge_requests.lock() = reqs.clone();
+        // Com espectadores diretos o tick de 100 ms faz a união com o pedido do alocador.
+        let diretos = self.shared.viewers.lock().iter().any(|v| !v.state.lock().bridge);
+        if !diretos {
+            self.shared.pipeline.set_requests(&reqs);
+        }
     }
     pub fn request_keyframe(&self, layer: u8) {
         self.shared.pipeline.request_keyframe(layer);
@@ -166,6 +180,39 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         assert!(p.stats().layers.is_empty());
         p.stop();
+        p.stop();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn set_bridge_requests_vazio_desliga() {
+        use std::time::{Duration, Instant};
+        use zap_rate::allocator::LayerRequest;
+
+        // As estatísticas do pipeline saem em janelas de 1 s: espera a condição até 3 s.
+        async fn espera(p: &VideoPublisher, cond: impl Fn(&[zap_media::LayerStats]) -> bool) -> bool {
+            let ini = Instant::now();
+            while ini.elapsed() < Duration::from_secs(3) {
+                if cond(&p.shared.pipeline.stats().layers) {
+                    return true;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            false
+        }
+
+        let p = publicador();
+        let camada = p.ladder()[0].layer;
+        p.set_bridge_requests(vec![LayerRequest {
+            layer: camada,
+            kbps: 500,
+        }]);
+        let ligou = espera(&p, |ls| ls.iter().any(|l| l.layer == camada && l.enabled)).await;
+        assert!(ligou, "a camada pedida pela ponte deveria ligar");
+
+        p.set_bridge_requests(vec![]);
+        assert!(p.shared.bridge_requests.lock().is_empty());
+        let desligou = espera(&p, |ls| !ls.is_empty() && ls.iter().all(|l| !l.enabled)).await;
+        assert!(desligou, "pedido vazio sem espectadores deveria desligar tudo");
         p.stop();
     }
 

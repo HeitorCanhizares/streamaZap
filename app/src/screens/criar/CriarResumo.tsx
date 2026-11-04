@@ -5,6 +5,7 @@ import type { RoomMode, SceneKind } from '../../bridge/types'
 import { ScenePreview } from '../../components/ScenePreview'
 import { VideoFrame } from '../../components/VideoFrame'
 import { acessoTexto, modoTexto, seguroTexto, type Acesso } from './criarModel'
+import { conviteTexto, type BarraServidor } from '../../bridge/serverModel'
 
 export interface CriarResumoProps {
   modo: RoomMode
@@ -16,11 +17,16 @@ export interface CriarResumoProps {
   som: string
   qualidade: string
   radminIp: string | null
+  /** Código da sala no modo online; null enquanto a sala não foi criada no servidor. */
+  codigo?: string | null
+  /** Status do servidor para a frase de apoio do modo online. */
+  servidor?: BarraServidor | null
 }
 
-// Dados fixos por decisão: código da sala e endereço da rede local ainda não vêm do backend.
-const CODIGO_SALA = 'ZAP-7K2Q'
+// Endereço da rede local ainda não vem do backend.
 const IP_LOCAL = '192.168.0.12:47800'
+// Antes da sala existir no servidor, o código aparece mascarado.
+const CODIGO_PENDENTE = 'ZAP-····'
 
 const MONO = "'JetBrains Mono', monospace"
 
@@ -43,7 +49,7 @@ function Endereco({ valor, rotulo }: { valor: string; rotulo: string }): ReactNo
 }
 
 // Painel direito: prévia, ficha da sala e código/endereços (2-criar-sala.html 200-239).
-export function CriarResumo({ modo, nome, acesso, fonte, cena, mostrarPip, som, qualidade, radminIp }: CriarResumoProps): ReactNode {
+export function CriarResumo({ modo, nome, acesso, fonte, cena, mostrarPip, som, qualidade, radminIp, codigo = null, servidor = null }: CriarResumoProps): ReactNode {
   const [copiado, setCopiado] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
@@ -52,7 +58,13 @@ export function CriarResumo({ modo, nome, acesso, fonte, cena, mostrarPip, som, 
   const enderecos = [...(radminIp ? [`${radminIp}:47800`] : []), IP_LOCAL]
 
   function copiar(): void {
-    const texto = online ? CODIGO_SALA : enderecos.join('\n')
+    let texto: string
+    if (online) {
+      if (!codigo) return
+      texto = conviteTexto(codigo, nome)
+    } else {
+      texto = enderecos.join('\n')
+    }
     try {
       void navigator.clipboard?.writeText(texto)?.catch(() => undefined)
     } catch {
@@ -95,8 +107,10 @@ export function CriarResumo({ modo, nome, acesso, fonte, cena, mostrarPip, som, 
         {online ? (
           <>
             <span style={{ fontFamily: MONO, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--texto-3)' }}>Código da sala</span>
-            <span style={{ fontFamily: MONO, fontSize: 28, fontWeight: 600, letterSpacing: '0.12em', color: 'var(--verde)' }}>{CODIGO_SALA}</span>
-            <span style={{ fontSize: 12.5, color: 'var(--texto-2)', lineHeight: 1.4 }}>Quem tiver o app entra com esse código, de qualquer lugar. Servidor sa-east · 42 ms.</span>
+            <span style={{ fontFamily: MONO, fontSize: 28, fontWeight: 600, letterSpacing: '0.12em', color: codigo ? 'var(--verde)' : 'var(--texto-3)' }}>{codigo || CODIGO_PENDENTE}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--texto-2)', lineHeight: 1.4 }}>
+              Quem tiver o app entra com esse código, de qualquer lugar.{servidor ? ` ${servidor.texto}.` : ''}
+            </span>
           </>
         ) : (
           <>
@@ -109,10 +123,11 @@ export function CriarResumo({ modo, nome, acesso, fonte, cena, mostrarPip, som, 
           type="button"
           className="zp-btn-ghost"
           onClick={copiar}
+          disabled={online && !codigo}
           style={{ marginTop: 6, height: 44, borderRadius: 12, border: '1px solid var(--borda-forte)', background: 'transparent', color: 'var(--texto)', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer' }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
-          {copiado ? 'Copiado!' : 'Copiar convite'}
+          {copiado ? 'Copiado!' : online && !codigo ? 'Disponível ao criar a sala' : 'Copiar convite'}
         </button>
       </div>
 

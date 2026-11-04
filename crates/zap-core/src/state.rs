@@ -13,12 +13,14 @@ pub struct UiState {
     me: Me,
     network: NetworkStatus,
     rooms: Vec<RoomListing>,
+    online_rooms: Vec<RoomListing>,
     peers: Vec<PeerListing>,
     room: Option<RoomView>,
     tiles: Vec<TileView>,
     share: Option<ShareView>,
     errors: Vec<String>,
     newer_protocol: Option<u32>,
+    server: Option<crate::online::ServerStatus>,
 }
 
 impl UiState {
@@ -28,12 +30,14 @@ impl UiState {
             me,
             network: NetworkStatus::default(),
             rooms: vec![],
+            online_rooms: vec![],
             peers: vec![],
             room: None,
             tiles: vec![],
             share: None,
             errors: vec![],
             newer_protocol: None,
+            server: None,
         }
     }
     pub fn set_me(&mut self, me: Me) {
@@ -42,8 +46,17 @@ impl UiState {
     pub fn set_network(&mut self, n: NetworkStatus) {
         self.network = n;
     }
+    /// Salas Locais (descoberta).
     pub fn set_rooms(&mut self, r: Vec<RoomListing>) {
         self.rooms = r;
+    }
+    /// Salas Online (WebSocket do servidor); aparecem antes das Locais no snapshot.
+    pub fn set_online_rooms(&mut self, r: Vec<RoomListing>) {
+        self.online_rooms = r;
+    }
+    /// Status do servidor para a barra (`None` = não configurado).
+    pub fn set_server(&mut self, s: Option<crate::online::ServerStatus>) {
+        self.server = s;
     }
     pub fn set_peers(&mut self, p: Vec<PeerListing>) {
         self.peers = p;
@@ -88,13 +101,14 @@ impl UiState {
             version: self.version,
             me: self.me.clone(),
             network: self.network.clone(),
-            rooms: self.rooms.clone(),
+            rooms: self.online_rooms.iter().chain(self.rooms.iter()).cloned().collect(),
             peers: self.peers.clone(),
             room: self.room.clone(),
             tiles: self.tiles.clone(),
             share: self.share.clone(),
             errors: self.errors.clone(),
             newer_protocol: self.newer_protocol,
+            server: self.server.clone(),
         })
     }
 }

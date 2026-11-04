@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { api } from '../../bridge/api'
+import { api, isTauri } from '../../bridge/api'
+import { barraServidor } from '../../bridge/serverModel'
 import { useSnapshot } from '../../bridge/store'
 import type { Preset, RoomMode, SourceItem, Sources } from '../../bridge/types'
 import { CriarFontes, type FonteTab } from './CriarFontes'
@@ -25,6 +26,7 @@ function listaDa(sources: Sources, tab: FonteTab): SourceItem[] {
 // Tela "Criar sala": monta a sala e começa a transmissão com as escolhas feitas.
 export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNode {
   const snap = useSnapshot()
+  const servidor = barraServidor(snap.server)
 
   const [sources, setSources] = useState<Sources>(SOURCES_VAZIO)
   const [modo, setModo] = useState<RoomMode>('local')
@@ -92,6 +94,11 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
   async function iniciar(): Promise<void> {
     if (acesso === 'senha' && senha.trim() === '') {
       setErro('Informe a senha')
+      return
+    }
+    // No app, o modo Online precisa do servidor conectado; no navegador (mock) não bloqueia.
+    if (modo === 'online' && servidor.tom !== 'ok' && isTauri()) {
+      setErro('Sem conexão com o servidor. Confira o endereço em Configurações › Conexão.')
       return
     }
     if (selected === null) return
@@ -223,6 +230,9 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
         som={somTexto(sound, nomesApps)}
         qualidade={qualidadeTexto(preset, adaptavel)}
         radminIp={snap.network.radmin_ip}
+        // No navegador o código do design aparece; no app ele só existe depois de criar a sala.
+        codigo={isTauri() ? (snap.room?.code ?? null) : 'ZAP-7K2Q'}
+        servidor={modo === 'online' ? servidor : null}
       />
     </main>
   )

@@ -28,6 +28,9 @@ impl Core {
                 if shared.current_room().is_some() {
                     return Err(CoreError::AlreadyInRoom);
                 }
+                if req.mode == zap_proto::RoomMode::Online {
+                    return crate::online::entry::create_online(&shared, req).await;
+                }
                 let room = OwnerRoom::start(shared.room_ctx(), req).await?;
                 *shared.room.lock() = Some(Arc::new(ActiveRoom::Owner(room.clone())));
                 // Depois de guardar a sala, para o `set_auth` enxergá-la.
@@ -66,8 +69,20 @@ impl Core {
                 if shared.current_room().is_some() {
                     return Err(CoreError::AlreadyInRoom);
                 }
+                // Sala Online: pelo código digitado ou pelo `room_id` da lista do servidor.
+                let target = match target {
+                    JoinTarget::Discovered { room_id } => match shared.online.code_for_room_id(&room_id) {
+                        Some(code) => JoinTarget::Code { code },
+                        None => JoinTarget::Discovered { room_id },
+                    },
+                    outro => outro,
+                };
+                if let JoinTarget::Code { code } = target {
+                    return crate::online::entry::join_online(&shared, code, password).await;
+                }
                 let vistas = shared.discovery.lock().clone().map(|d| d.rooms()).unwrap_or_default();
                 let (addr, fingerprint, room_id) = match target {
+                    JoinTarget::Code { .. } => return Err(CoreError::RoomNotFound),
                     JoinTarget::Discovered { room_id } => {
                         let (an, origem) = vistas
                             .iter()

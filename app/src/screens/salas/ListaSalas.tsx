@@ -1,6 +1,6 @@
 // Tarefa salas-05: coluna da lista completa (design 1-salas.html linhas 63-140).
 import type { CSSProperties, ReactNode } from 'react'
-import type { RoomMode } from '../../bridge/types'
+import type { RoomMode, ServerStatus } from '../../bridge/types'
 import { IconeChave, IconeLupa, IconeMais } from './icons'
 import { ModoAbas } from './ModoAbas'
 import { SalaItem } from './SalaItem'
@@ -21,6 +21,8 @@ export interface ListaSalasProps {
   apelido: string; onApelido: (n: string) => void; onApelidoConfirmar: () => void
   onCriar: () => void
   onEntrarManual: () => void
+  /** Estado do servidor (modo online). Ausente = não configurado. */
+  servidor?: ServerStatus
 }
 
 function estiloFiltro(ativo: boolean): CSSProperties {
@@ -32,14 +34,30 @@ function estiloFiltro(ativo: boolean): CSSProperties {
   }
 }
 
+const VERDE = '#3BF08A'
+const CINZA = '#7E978B'
+
+/** Texto do rodapé no modo online, conforme o estado do servidor. */
+function textoRodape(servidor: ServerStatus | undefined): string {
+  switch (servidor?.state) {
+    case 'online': return 'Conectado ao servidor streamaZap. A lista atualiza sozinha.'
+    case 'connecting': return 'Conectando ao servidor…'
+    case 'error': return 'Servidor desconectado. Tentando reconectar…'
+    default: return 'Servidor não configurado. Informe o endereço em Configurações › Conexão.'
+  }
+}
+
 export function ListaSalas(props: ListaSalasProps): ReactNode {
-  const { modo, salas, contagens, filtro, busca, apelido } = props
+  const { modo, salas, contagens, filtro, busca, apelido, servidor } = props
   const filtros: { id: FiltroSala; label: string }[] = [
     { id: 'todas', label: `Todas · ${contagens.todas}` },
     { id: 'abertas', label: `Abertas · ${contagens.abertas}` },
     { id: 'senha', label: `Com senha · ${contagens.senha}` },
   ]
   const online = modo === 'online'
+  // Local mantém o ponto verde pulsante; online só fica verde com o servidor conectado.
+  const pontoAtivo = !online || servidor?.state === 'online'
+  const corPonto = pontoAtivo ? VERDE : CINZA
   return (
     <section
       aria-label="Salas na rede"
@@ -101,15 +119,15 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
           <SalaItem key={s.id} sala={s} selecionada={props.selecionadaId === s.id} onSelect={props.onSelect} />
         ))}
         {salas.length === 0 ? (
-          <p style={{ margin: 0, padding: '28px 20px', color: '#A3BDB1', textAlign: 'center' }}>{props.busca.trim() ? 'Nenhuma sala com esse nome.' : online ? 'Nenhuma sala no servidor agora.' : 'Nenhuma sala na rede ainda. Crie uma ou peça o IP de quem está transmitindo.'}</p>
+          <p style={{ margin: 0, padding: '28px 20px', color: '#A3BDB1', textAlign: 'center' }}>{props.busca.trim() ? 'Nenhuma sala com esse nome.' : online ? (servidor?.state === 'online' ? 'Nenhuma sala no servidor agora.' : 'Sem conexão com o servidor.') : 'Nenhuma sala na rede ainda. Crie uma ou peça o IP de quem está transmitindo.'}</p>
         ) : null}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '18px 20px' }}>
           <span style={{ position: 'relative', width: 24, height: 24, flex: '0 0 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span className="zp-pulse" style={{ position: 'absolute', width: 12, height: 12, borderRadius: '50%', border: '1px solid #3BF08A' }}></span>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#3BF08A' }}></span>
+            <span className={pontoAtivo ? 'zp-pulse' : undefined} style={{ position: 'absolute', width: 12, height: 12, borderRadius: '50%', border: `1px solid ${corPonto}` }}></span>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: corPonto }}></span>
           </span>
           <span style={{ color: '#7E978B', fontSize: 12.5, lineHeight: 1.45 }}>
-            {online ? 'Conectado ao servidor streamaZap. A lista atualiza sozinha.' : 'Procurando mais salas no Radmin e na rede local…'}
+            {online ? textoRodape(servidor) : 'Procurando mais salas no Radmin e na rede local…'}
           </span>
         </div>
       </div>

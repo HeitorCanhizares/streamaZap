@@ -36,7 +36,11 @@ export interface Snapshot {
   errors: string[]
   /** Protocolo maior visto na rede (amigo/servidor mais novo): oferecer atualizar. */
   newer_protocol?: number
+  /** Estado do servidor Online (barra); ausente = não configurado. */
+  server?: ServerStatus
 }
+export interface ServerStatus { state: 'off' | 'connecting' | 'online' | 'error'; name?: string; ping_ms?: number; message?: string }
+export interface ServerTestResult { ok: boolean; name: string | null; ping_ms: number | null; code: string | null; message: string }
 export type SceneKind = 'game' | 'race' | 'movie' | 'code' | 'desktop' | 'cama' | 'camb' | 'camc' | 'camd'
 
 export interface Settings {
@@ -51,7 +55,7 @@ export interface SourceItem { id: string; kind: 'screen' | 'window' | 'camera' |
 export interface Sources { screens: SourceItem[]; windows: SourceItem[]; cameras: SourceItem[]; apps: SourceItem[]; encoders: string[] }
 export interface CreateRoom { name: string; mode: RoomMode; password: string | null }
 export interface ShareRequest { source: string; audio: 'none' | 'all' | string[]; preset: Preset; encoder: string }
-export type JoinTarget = { room_id: string } | { ip: string; port: number }
+export type JoinTarget = { room_id: string } | { ip: string; port: number } | { code: string }
 
 // Miniatura de fonte (source_thumbnail): RGBA 8 bits, linhas de cima para baixo.
 export interface Thumbnail { width: number; height: number; rgba: Uint8ClampedArray }

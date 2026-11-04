@@ -126,6 +126,8 @@ impl ShareSession {
             }
         };
         ms.register(track.id.clone(), PublishedTrack::Video(publisher.clone()));
+        // Modo Online: liga o publicador à ponte (no-op nas outras salas).
+        room.on_track_started(&track, PublishedTrack::Video(publisher.clone()));
         sessao.screen = Some(PublishedVideo { track, publisher });
 
         if let Some(sel) = selecao {
@@ -176,6 +178,8 @@ impl ShareSession {
         match AudioPublisher::start(atrack.number, fonte) {
             Ok(pub_audio) => {
                 ms.register(atrack.id.clone(), PublishedTrack::Audio(pub_audio.clone()));
+                // Modo Online: liga o publicador de áudio à ponte (no-op nas outras salas).
+                room.on_track_started(&atrack, PublishedTrack::Audio(pub_audio.clone()));
                 sessao.audio = Some((atrack, pub_audio));
                 Ok(())
             }
@@ -328,6 +332,8 @@ impl ShareSession {
             }
         };
         ms.register(track.id.clone(), PublishedTrack::Video(publisher.clone()));
+        // Modo Online: liga o publicador da câmera à ponte (no-op nas outras salas).
+        room.on_track_started(&track, PublishedTrack::Video(publisher.clone()));
         sessao.camera = Some(PublishedVideo { track, publisher });
         Ok(())
     }

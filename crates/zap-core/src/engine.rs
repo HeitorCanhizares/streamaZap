@@ -45,6 +45,14 @@ pub struct CoreOptions {
     pub audio_out: bool,
     /// Destinos unicast extras da descoberta (`DiscoveryConfig.extra_targets`; testes).
     pub discovery_targets: Vec<std::net::SocketAddr>,
+    /// Impressão digital (SHA-256 hex) aceita para o certificado da ponte QUIC Online
+    /// (servidor com certificado próprio e testes). `None` = raízes web.
+    pub dev_cert_fp: Option<String>,
+    /// Força o endereço `host:porta` da ponte (proxy de teste); ignora o da resposta de `entrar`.
+    pub dev_bridge_addr: Option<String>,
+    /// Sobe a sessão com o servidor Online ao abrir (login se houver endereço). Falso nos testes
+    /// que não usam o modo Online.
+    pub online: bool,
 }
 
 impl Default for CoreOptions {
@@ -56,6 +64,9 @@ impl Default for CoreOptions {
             include_loopback: false,
             audio_out: true,
             discovery_targets: vec![],
+            dev_cert_fp: None,
+            dev_bridge_addr: None,
+            online: true,
         }
     }
 }
@@ -81,6 +92,7 @@ pub struct Shared {
     pub playout: Arc<PlayoutHub>,
     pub audio_rx: AudioRegistry,
     pub audio_out: AudioOutHandle,
+    pub online: Arc<crate::online::OnlineSession>,
     pub stop: AtomicBool,
 }
 
@@ -245,6 +257,7 @@ impl Core {
             playout,
             audio_rx,
             audio_out,
+            online: crate::online::OnlineSession::new(),
             stop: AtomicBool::new(false),
         });
 

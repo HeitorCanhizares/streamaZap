@@ -63,6 +63,8 @@ pub struct RoomCtx {
 pub enum ActiveRoom {
     Owner(Arc<OwnerRoom>),
     Member(Arc<MemberRoom>),
+    /// Sala do servidor Online (`online::OnlineRoom`).
+    Online(Arc<crate::online::OnlineRoom>),
 }
 
 impl ActiveRoom {
@@ -70,12 +72,14 @@ impl ActiveRoom {
         match self {
             ActiveRoom::Owner(o) => o.model.clone(),
             ActiveRoom::Member(m) => m.model.clone(),
+            ActiveRoom::Online(o) => o.model.clone(),
         }
     }
     pub fn my_id(&self) -> String {
         match self {
             ActiveRoom::Owner(o) => o.my_id.clone(),
             ActiveRoom::Member(m) => m.my_id.lock().clone(),
+            ActiveRoom::Online(o) => o.my_id.clone(),
         }
     }
     /// Segredo de mídia da sala (dono: o que gerou; membro: o do `bem_vindo`).
@@ -83,12 +87,14 @@ impl ActiveRoom {
         match self {
             ActiveRoom::Owner(o) => o.media_secret.clone(),
             ActiveRoom::Member(m) => m.media_secret.lock().clone(),
+            ActiveRoom::Online(o) => o.media_secret.clone(),
         }
     }
     pub async fn send_chat(&self, text: String) -> Result<(), CoreError> {
         match self {
             ActiveRoom::Owner(o) => o.send_chat(text).await,
             ActiveRoom::Member(m) => m.send_chat(text).await,
+            ActiveRoom::Online(o) => o.send_chat(text).await,
         }
     }
     pub async fn send_typing(&self) -> Result<(), CoreError> {
@@ -106,12 +112,14 @@ impl ActiveRoom {
                 Ok(())
             }
             ActiveRoom::Member(m) => m.send_typing().await,
+            ActiveRoom::Online(o) => o.send_typing().await,
         }
     }
     pub async fn publish_track(&self, spec: TrackSpec) -> Result<Track, CoreError> {
         match self {
             ActiveRoom::Owner(o) => o.publish_track(spec).await,
             ActiveRoom::Member(m) => m.publish_track(spec).await,
+            ActiveRoom::Online(o) => o.publish_track(spec).await,
         }
     }
     pub async fn update_track(
@@ -123,12 +131,14 @@ impl ActiveRoom {
         match self {
             ActiveRoom::Owner(o) => o.update_track(track_id, title, layers).await,
             ActiveRoom::Member(m) => m.update_track(track_id, title, layers).await,
+            ActiveRoom::Online(o) => o.update_track(track_id, title, layers).await,
         }
     }
     pub async fn remove_track(&self, track_id: &str) -> Result<(), CoreError> {
         match self {
             ActiveRoom::Owner(o) => o.remove_track(track_id).await,
             ActiveRoom::Member(m) => m.remove_track(track_id).await,
+            ActiveRoom::Online(o) => o.remove_track(track_id).await,
         }
     }
     /// Pede conexão reversa pelo dono da sala (`conexao.reversa`).
@@ -136,6 +146,15 @@ impl ActiveRoom {
         match self {
             ActiveRoom::Owner(o) => o.forward_reverse(track_id, address, token).await,
             ActiveRoom::Member(m) => m.request_reverse(track_id, address, token).await,
+            // Online não usa conexão reversa: a ponte e a rota direta (`p2p.*`) a substituem.
+            ActiveRoom::Online(_) => Err(CoreError::Unsupported("conexão reversa no modo Online".into())),
+        }
+    }
+    /// Chamado por `share.rs` quando o publicador local de `track` já existe. Só a sala Online
+    /// faz algo (liga o publicador à ponte); nas outras o `MediaServer` já atende.
+    pub fn on_track_started(&self, track: &Track, published: crate::publish::PublishedTrack) {
+        if let ActiveRoom::Online(o) = self {
+            o.on_track_started(track, published);
         }
     }
     /// Dono: encerra a sala (`sala.encerrada{dono}`); membro: manda `sala.sair` e fecha.
@@ -143,6 +162,7 @@ impl ActiveRoom {
         match self {
             ActiveRoom::Owner(o) => o.close().await,
             ActiveRoom::Member(m) => m.leave().await,
+            ActiveRoom::Online(o) => o.leave().await,
         }
     }
 }

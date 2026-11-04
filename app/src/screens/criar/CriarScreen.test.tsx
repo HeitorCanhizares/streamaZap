@@ -1,12 +1,35 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { api } from '../../bridge/api'
+import { mockSnapshot, mockSources } from '../../bridge/mock'
+import type { Snapshot } from '../../bridge/types'
 import { CriarScreen } from './CriarScreen'
 import { modoHint } from './criarModel'
+
+// Controla o "ambiente" (app ou navegador) e um snapshot de teste sem mudar o store real.
+const estado = vi.hoisted(() => ({ tauri: false, snap: null as Snapshot | null }))
+
+vi.mock('../../bridge/api', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../bridge/api')>()
+  return { ...real, isTauri: () => estado.tauri }
+})
+
+vi.mock('../../bridge/store', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../bridge/store')>()
+  return {
+    ...real,
+    useSnapshot: () => {
+      const atual = real.useSnapshot()
+      return estado.snap ?? atual
+    },
+  }
+})
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  estado.tauri = false
+  estado.snap = null
 })
 
 // Espera as fontes carregarem: sem fonte escolhida o botão de iniciar fica desabilitado.
@@ -100,5 +123,45 @@ describe('CriarScreen', () => {
     expect(screen.getByText(modoHint('local'))).toBeTruthy()
     fireEvent.click(screen.getByText('Online'))
     expect(screen.getByText(modoHint('online'))).toBeTruthy()
+  })
+
+  it('online_no_navegador: mostra o código do design e o status do servidor no resumo', () => {
+    estado.snap = { ...mockSnapshot(), server: { state: 'online', ping_ms: 42 } }
+    render(<CriarScreen onCreated={vi.fn()} onCancel={vi.fn()} />)
+    fireEvent.click(screen.getByText('Online'))
+    expect(screen.getByText('ZAP-7K2Q')).toBeTruthy()
+    expect(screen.getByText(/Servidor online · 42 ms\./)).toBeTruthy()
+  })
+
+  it('online_sem_servidor_no_app: bloqueia iniciar e não chama roomCreate', async () => {
+    estado.tauri = true
+    estado.snap = { ...mockSnapshot(), server: { state: 'error' } }
+    vi.spyOn(api, 'sourcesList').mockResolvedValue(mockSources())
+    const roomCreate = vi.spyOn(api, 'roomCreate').mockResolvedValue(undefined)
+    const shareStart = vi.spyOn(api, 'shareStart').mockResolvedValue(undefined)
+    render(<CriarScreen onCreated={vi.fn()} onCancel={vi.fn()} />)
+    await esperarFonte()
+
+    fireEvent.click(screen.getByText('Online'))
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar transmissão' }))
+
+    expect(screen.getByText(/Sem conexão com o servidor/)).toBeTruthy()
+    expect(roomCreate).not.toHaveBeenCalled()
+    expect(shareStart).not.toHaveBeenCalled()
+  })
+
+  it('online_com_servidor_no_app: com servidor online chama roomCreate com mode online', async () => {
+    estado.tauri = true
+    estado.snap = { ...mockSnapshot(), server: { state: 'online', ping_ms: 42 } }
+    vi.spyOn(api, 'sourcesList').mockResolvedValue(mockSources())
+    const roomCreate = vi.spyOn(api, 'roomCreate').mockResolvedValue(undefined)
+    vi.spyOn(api, 'shareStart').mockResolvedValue(undefined)
+    render(<CriarScreen onCreated={vi.fn()} onCancel={vi.fn()} />)
+    await esperarFonte()
+
+    fireEvent.click(screen.getByText('Online'))
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar transmissão' }))
+
+    await waitFor(() => expect(roomCreate).toHaveBeenCalledWith(expect.objectContaining({ mode: 'online' })))
   })
 })

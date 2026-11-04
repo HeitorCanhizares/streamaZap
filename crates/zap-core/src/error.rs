@@ -32,6 +32,37 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
     #[error("Encerrado")]
     Stopped,
+    /// Erro do servidor Online (`ApiError::Http` ou `erro`/`recusado` do QUIC/WebSocket):
+    /// `message` vai direto para a interface; `code` é o de `docs/api/README.md#erros`.
+    #[error("{message}")]
+    Server { code: String, message: String },
+}
+
+impl From<zap_net::online::ApiError> for CoreError {
+    /// `Http{code,message}` → `Server`; `Network(m)` → `Connect(m)`; `Protocol(m)` → `Connect(m)`.
+    fn from(e: zap_net::online::ApiError) -> Self {
+        use zap_net::online::ApiError;
+        match e {
+            ApiError::Http { code, message, .. } => CoreError::Server { code, message },
+            ApiError::Network(m) | ApiError::Protocol(m) => CoreError::Connect(m),
+        }
+    }
+}
+
+/// Códigos estáveis do servidor (`docs/api/README.md#erros`) como `&'static str`.
+fn codigo_estatico(code: &str) -> &'static str {
+    match code {
+        "protocolo_incompativel" => "protocolo_incompativel",
+        "senha_servidor" => "senha_servidor",
+        "nao_autenticado" => "nao_autenticado",
+        "sala_nao_encontrada" => "sala_inexistente",
+        "senha_sala" => "senha_sala",
+        "sala_cheia" => "sala_cheia",
+        "proibido" => "proibido",
+        "limite" => "limite",
+        "invalido" => "invalido",
+        _ => "erro",
+    }
 }
 
 impl CoreError {
@@ -47,6 +78,7 @@ impl CoreError {
             CoreError::Invalid(_) => "invalido",
             CoreError::Rejected(_) => "recusado",
             CoreError::Connect(_) => "conexao",
+            CoreError::Server { code, .. } => codigo_estatico(code),
             _ => "erro",
         }
     }

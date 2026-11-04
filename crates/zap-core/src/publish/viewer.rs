@@ -27,6 +27,10 @@ pub struct ViewerState {
     pub delay: DelayState,
     pub current: u8,
     pub pending: Option<u8>,
+    /// Link de ponte Online: recebe **todos** os quadros das camadas em `bridge_layers`
+    /// (quem escolhe a camada de cada espectador é o servidor) e não entra no alocador.
+    pub bridge: bool,
+    pub bridge_layers: Vec<u8>,
 }
 
 impl ViewerState {
@@ -40,7 +44,20 @@ impl ViewerState {
             delay: DelayState::Normal,
             current: cheapest,
             pending: None,
+            bridge: false,
+            bridge_layers: Vec::new(),
         }
+    }
+    /// Estado de um link de ponte Online: áudio ligado, fora do alocador.
+    pub fn new_bridge() -> Self {
+        let mut s = Self::new(0);
+        s.bridge = true;
+        s.audio = true;
+        s
+    }
+    /// Define as camadas que a ponte recebe (todas as pedidas pelo servidor).
+    pub fn set_bridge_layers(&mut self, layers: Vec<u8>) {
+        self.bridge_layers = layers;
     }
     /// `max(teto_pedido, teto_tamanho)` (docs/api/balanceamento.md §2): miniatura → 2,
     /// principal/cheia → 0; `requested_max` ausente → 0. Número maior = camada menor.
@@ -86,6 +103,14 @@ impl ViewerState {
     /// `layer == current` → Send; keyframe com `pending == Some(layer)` → faz `current = layer`,
     /// `pending = None` e devolve Switch; senão Skip.
     pub fn route(&mut self, layer: u8, keyframe: bool) -> FrameRoute {
+        if self.bridge {
+            // Ponte: todo quadro (delta ou keyframe) das camadas pedidas passa; nunca troca.
+            return if self.bridge_layers.contains(&layer) {
+                FrameRoute::Send
+            } else {
+                FrameRoute::Skip
+            };
+        }
         if layer == self.current {
             FrameRoute::Send
         } else if keyframe && self.pending == Some(layer) {
@@ -260,6 +285,27 @@ mod tests {
         assert!(s.apply_decision(&nova));
         assert_eq!(s.current, 1);
         assert_eq!(s.pending, None);
+    }
+
+    #[test]
+    fn route_bridge_envia_so_camadas_pedidas() {
+        let mut st = ViewerState::new_bridge();
+        st.set_bridge_layers(vec![0, 2]);
+        for kf in [false, true] {
+            assert_eq!(st.route(0, kf), FrameRoute::Send);
+            assert_eq!(st.route(1, kf), FrameRoute::Skip);
+            assert_eq!(st.route(2, kf), FrameRoute::Send);
+        }
+    }
+
+    #[test]
+    fn route_normal_inalterado() {
+        let mut st = ViewerState::new(2);
+        assert_eq!(st.route(2, false), FrameRoute::Send);
+        assert_eq!(st.route(0, true), FrameRoute::Skip);
+        st.pending = Some(0);
+        assert_eq!(st.route(0, false), FrameRoute::Skip);
+        assert_eq!(st.route(0, true), FrameRoute::Switch);
     }
 
     #[test]

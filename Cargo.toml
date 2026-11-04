@@ -88,5 +88,10 @@ lto = "thin"
 codegen-units = 1
 debug = "line-tables-only"
 
+# Sem isto o target/ passa de 25 GB (informação de depuração completa em cada binário de teste).
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 2
+debug = false

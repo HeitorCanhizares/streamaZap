@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod diag;
+pub mod online;
 pub mod room;
 pub mod settings;
 pub mod share;

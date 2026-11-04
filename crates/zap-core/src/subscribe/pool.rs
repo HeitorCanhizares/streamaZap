@@ -39,6 +39,15 @@ pub struct PubConn {
     pub(crate) last_layer: Arc<Mutex<Option<ControlMsg>>>,
     /// Handle do runtime, para `request_keyframe` ser síncrono.
     handle: tokio::runtime::Handle,
+    /// Conexão da ponte Online: `assinar`/`cancelar`/`keyframe.pedir` vão pelo WebSocket
+    /// (`Some`) em vez do stream de controle QUIC. `None` = modo Local e rota direta.
+    #[allow(dead_code)] // usado pela tarefa core-online-19
+    pub(crate) signal: Option<zap_net::online::WsTx>,
+    /// Só na `PubConn` da ponte: trilhas que passaram para a rota direta (`track_id` → conexão
+    /// direta ao publicador). `subscribe`/`unsubscribe`/`request_keyframe` dessas trilhas vão
+    /// pela conexão direta (stream de controle QUIC), não pelo WebSocket.
+    #[allow(dead_code)] // usado pelas tarefas core-online-13 e 19
+    pub(crate) direct: Mutex<HashMap<String, Arc<PubConn>>>,
 }
 
 /// Conecta direto em algum dos IPs; o primeiro que completar vence.
@@ -108,7 +117,40 @@ impl PubConn {
             tasks: parking_lot::Mutex::new(tasks),
             last_layer,
             handle: tokio::runtime::Handle::current(),
+            signal: None,
+            direct: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Ponte Online: monta a `PubConn` a partir da conexão já autenticada de
+    /// `online::bridge::connect_bridge` (`assemble` + `signal = Some(ws)`). Não passa por
+    /// `ConnPool`; quem chama (`online::reconnect`) a guarda em `OnlineRoom::bridge` e em
+    /// `ConnPool::online`. `participant_id` = `"bridge"`.
+    pub(crate) fn connect_online(
+        shared: &Arc<Shared>,
+        link: crate::online::bridge::BridgeConnected,
+        ws: zap_net::online::WsTx,
+    ) -> Arc<Self> {
+        let _ = (shared, link, ws);
+        todo!("tarefa core-online-19")
+    }
+
+    /// Rota direta (espectador): conecta em `addresses` ("ip:porta") em paralelo por
+    /// `online::direct::DIRECT_TIMEOUT` com `client_config(Some(fingerprint))`, faz
+    /// `connect_handshake` com `Hello{ticket: Some(ticket), room_id}` e devolve a `PubConn`
+    /// A conexão direta **reaproveita o `Router` da ponte** (`router`): o `VideoRx` já registrado
+    /// recebe quadros de qualquer das duas conexões. `signal = None` (a direta fala `assinar`
+    /// pelo próprio stream de controle). `None` se ninguém respondeu.
+    pub(crate) async fn connect_direct(
+        shared: &Arc<Shared>,
+        addresses: &[String],
+        fingerprint: &str,
+        ticket: &str,
+        room_id: &str,
+        router: Arc<Router>,
+    ) -> Option<Arc<Self>> {
+        let _ = (shared, addresses, fingerprint, ticket, room_id, router);
+        todo!("tarefa core-online-19")
     }
 
     /// Tenta conectar em cada `address.addresses` (em paralelo, primeiro que conectar vence) por
@@ -235,6 +277,9 @@ impl PubConn {
 #[derive(Default)]
 pub struct ConnPool {
     pub(crate) map: AsyncMutex<HashMap<String, Arc<PubConn>>>,
+    /// Ponte da sala Online (uma conexão para todas as trilhas); `get_or_connect` a devolve
+    /// quando a sala atual é Online.
+    pub(crate) online: parking_lot::Mutex<Option<Arc<PubConn>>>,
 }
 
 impl ConnPool {

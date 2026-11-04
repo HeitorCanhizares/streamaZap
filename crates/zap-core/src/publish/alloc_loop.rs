@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use zap_proto::DelayState;
-use zap_rate::allocator::Budget;
+use zap_rate::allocator::{Budget, LayerRequest};
 
 use super::video::VideoShared;
 use super::viewer::LayerInfo;
@@ -24,6 +24,19 @@ pub fn estimate_upload_kbps(viewers: &[zap_rate::allocator::ViewerInput]) -> u32
     bruto.max(500)
 }
 
+/// União de dois pedidos: para a mesma camada vale o maior kbps; ordenado por camada.
+pub(crate) fn merge_requests(a: &[LayerRequest], b: &[LayerRequest]) -> Vec<LayerRequest> {
+    let mut out: Vec<LayerRequest> = Vec::new();
+    for r in a.iter().chain(b.iter()) {
+        match out.iter_mut().find(|o| o.layer == r.layer) {
+            Some(o) => o.kbps = o.kbps.max(r.kbps),
+            None => out.push(r.clone()),
+        }
+    }
+    out.sort_by_key(|r| r.layer);
+    out
+}
+
 /// Um tick: monta `ViewerInput` de cada `ViewerLink` (`state.input(id, 0)`), chama
 /// `allocator.update(now_us, &inputs, Budget::Direct{upload_kbps})`, aplica
 /// `pipeline.set_requests(&out.requests)` e `request_keyframe` para cada camada de
@@ -31,7 +44,14 @@ pub fn estimate_upload_kbps(viewers: &[zap_rate::allocator::ViewerInput]) -> u32
 /// tarefa `announce_layer(.., "banda")` (via `rt.spawn`). Guarda o upload em `shared.upload_kbps`.
 pub fn run_alloc_tick(shared: &Arc<VideoShared>, rt: &tokio::runtime::Handle) {
     // Cópia curta: não segura o lock da lista durante a decisão.
-    let viewers = shared.viewers.lock().clone();
+    // Links de ponte ficam fora do alocador e da estimativa de upload.
+    let viewers: Vec<_> = shared
+        .viewers
+        .lock()
+        .iter()
+        .filter(|v| !v.state.lock().bridge)
+        .cloned()
+        .collect();
     let inputs: Vec<_> = viewers.iter().map(|v| v.state.lock().input(v.id, 0)).collect();
 
     let upload = estimate_upload_kbps(&inputs);
@@ -44,7 +64,8 @@ pub fn run_alloc_tick(shared: &Arc<VideoShared>, rt: &tokio::runtime::Handle) {
         .update(now, &inputs, Budget::Direct { upload_kbps: upload });
 
     // O pipeline ignora pedidos iguais; sem espectadores `requests` vem vazio e desliga tudo.
-    shared.pipeline.set_requests(&out.requests);
+    let ponte = shared.bridge_requests.lock().clone();
+    shared.pipeline.set_requests(&merge_requests(&out.requests, &ponte));
     for l in &out.keyframes {
         shared.pipeline.request_keyframe(*l);
     }
@@ -108,7 +129,7 @@ mod tests {
     use zap_proto::{ControlMsg, LayerSpec};
     use zap_rate::allocator::{Allocator, ViewerInput};
 
-    use crate::publish::viewer::ViewerLink;
+    use crate::publish::viewer::{ViewerLink, ViewerState};
 
     type Res = Result<(), Box<dyn std::error::Error>>;
 
@@ -190,6 +211,7 @@ mod tests {
             stop: AtomicBool::new(false),
             upload_kbps: AtomicU32::new(0),
             clock: Clock::new(),
+            bridge_requests: Mutex::new(Vec::new()),
         }))
     }
 
@@ -251,6 +273,97 @@ mod tests {
         al.update(0, &ins, b);
         let out = al.update(3_100_000, &ins, b);
         out.viewers.first().and_then(|d| d.pending)
+    }
+
+    fn rq(layer: u8, kbps: u32) -> LayerRequest {
+        LayerRequest { layer, kbps }
+    }
+
+    #[test]
+    fn merge_requests_pega_maior_kbps_e_ordena() {
+        let m = merge_requests(&[rq(2, 100), rq(0, 900)], &[rq(2, 300), rq(1, 50)]);
+        assert_eq!(m, vec![rq(0, 900), rq(1, 50), rq(2, 300)]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tick_ignora_viewers_de_ponte() -> Res {
+        let rt = tokio::runtime::Handle::current();
+        let p = par().await?;
+        // Referência: só o espectador direto.
+        let sh_ref = shared()?;
+        let (direto_ref, _rx_ref) = espectador(&p).await?;
+        direto_ref.state.lock().bandwidth_kbps = 20_000;
+        sh_ref.viewers.lock().push(direto_ref.clone());
+
+        // Mesmo espectador direto + um link de ponte com banda mínima em sobrecarga.
+        let sh = shared()?;
+        let (direto, _rx) = espectador(&p).await?;
+        direto.state.lock().bandwidth_kbps = 20_000;
+        let (send, _recv) = p.cli.open_bi().await?;
+        let ponte = ViewerLink::new(
+            7,
+            "ponte".into(),
+            "t_1".into(),
+            Arc::new(MediaSender::new(p.cli.clone(), Clock::new())),
+            ControlTx::new(send),
+            2,
+        );
+        {
+            let mut st = ponte.state.lock();
+            *st = ViewerState::new_bridge();
+            st.set_bridge_layers(vec![0, 1, 2]);
+            st.bandwidth_kbps = 1;
+            st.delay = DelayState::Overuse;
+        }
+        sh.viewers.lock().push(direto.clone());
+        sh.viewers.lock().push(ponte.clone());
+
+        run_alloc_tick(&sh_ref, &rt);
+        run_alloc_tick(&sh, &rt);
+
+        // Contado, o link de ponte faria o upload cair para ~20 Mbps (soma em sobrecarga).
+        assert_eq!(sh.upload_kbps.load(Ordering::Relaxed), 50_000);
+        assert_eq!(
+            sh.upload_kbps.load(Ordering::Relaxed),
+            sh_ref.upload_kbps.load(Ordering::Relaxed)
+        );
+        // A decisão do espectador direto é a mesma de quando a ponte não existe.
+        {
+            let a = direto.state.lock();
+            let b = direto_ref.state.lock();
+            assert_eq!((a.current, a.pending), (b.current, b.pending));
+        }
+        // O link de ponte não recebe `apply_decision`.
+        let st = ponte.state.lock();
+        assert_eq!((st.current, st.pending), (0, None));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tick_une_pedidos_da_ponte() -> Res {
+        let sh = shared()?;
+        let rt = tokio::runtime::Handle::current();
+        *sh.bridge_requests.lock() = vec![rq(2, 300)];
+        // As estatísticas do pipeline saem em janelas de 1 s: espera a camada ligar.
+        let ini = Instant::now();
+        let mut ligadas = Vec::new();
+        while ini.elapsed() < Duration::from_secs(3) {
+            run_alloc_tick(&sh, &rt);
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            ligadas = sh
+                .pipeline
+                .stats()
+                .layers
+                .iter()
+                .filter(|l| l.enabled)
+                .map(|l| l.layer)
+                .collect::<Vec<_>>();
+            if !ligadas.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(ligadas, vec![2], "só a camada pedida pela ponte deveria ligar");
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
