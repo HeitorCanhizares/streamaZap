@@ -97,7 +97,8 @@ impl Hub {
     }
 
     /// `POST /v1/salas/{codigo}/sair`: remove o membro e suas trilhas; avisa `participante.saiu`
-    /// (motivo `saiu`) e `trilha.removida`. Se era o último, marca `empty_since_ms`.
+    /// (motivo `saiu`) e `trilha.removida`. Se era o último, marca `empty_since_ms`. Sair também
+    /// invalida os ingressos de `who` nessa sala (para voltar, `entrar` de novo).
     pub fn leave_room(&self, who: &str, code: &RoomCode) -> Result<(), HubError> {
         // Primeiro o trabalho de membros, sob lock; o lock é solto antes de `drop_participant_tracks`,
         // que trava de novo.
@@ -105,7 +106,10 @@ impl Hub {
             let mut inner = self.inner.lock();
             let sala_id = id_da_sala(&inner, code)?;
             let Inner {
-                rooms, participants, ..
+                rooms,
+                participants,
+                tickets,
+                ..
             } = &mut *inner;
             let sala = rooms.get_mut(&sala_id).ok_or_else(sala_nao_encontrada)?;
             let posicao = sala
@@ -114,12 +118,16 @@ impl Hub {
                 .position(|m| m == who)
                 .ok_or_else(sala_nao_encontrada)?;
             sala.members.remove(posicao);
+            tickets.retain(|_, t| !(t.participant_id == who && t.room_id == sala_id));
             if sala.members.is_empty() {
                 sala.empty_since_ms = Some(now_unix_ms());
             }
             if let Some(p) = participants.get_mut(who) {
                 p.room_id = None;
                 p.ws_room = None;
+                if p.quic_room.as_deref() == Some(sala_id.as_str()) {
+                    p.quic_room = None;
+                }
             }
             sala_id
         };
@@ -170,9 +178,16 @@ impl Hub {
         Ok(())
     }
 
-    /// `POST /v1/salas/{codigo}/previa`: só `aberta` (`proibido` senão); ingresso de 60 s com
-    /// `preview: true`.
+    /// `POST /v1/salas/{codigo}/previa`: só `aberta` (`proibido` senão) e só com ponte (sem ponte
+    /// não há prévia: `proibido`); ingresso de 60 s com `preview: true`.
     pub fn preview_room(&self, who: &str, code: &RoomCode) -> Result<PreviewResponse, HubError> {
+        if !self.config.relay {
+            return Err(HubError::new(
+                403,
+                "proibido",
+                "Este servidor não faz ponte de mídia, então não há prévia",
+            ));
+        }
         let mut inner = self.inner.lock();
         if !inner.participants.contains_key(who) {
             return Err(nao_autenticado());
@@ -363,10 +378,14 @@ mod tests {
         let ana = entrar(&hub, "inst-ana", "Ana");
         let bia = entrar(&hub, "inst-bia", "Bia");
         let (sala_id, codigo) = criar(&hub, &ana, Access::Open, None);
-        hub.join_room(&bia, &codigo, None).unwrap();
+        let ingresso = hub.join_room(&bia, &codigo, None).unwrap().ticket;
         let mut rx_ana = canal(&hub, &ana, Some(&sala_id));
 
         hub.leave_room(&bia, &codigo).unwrap();
+        assert!(
+            !hub.inner.lock().tickets.contains_key(&ingresso),
+            "sair invalida o ingresso da sala"
+        );
         let msgs = drenar(&mut rx_ana);
         assert!(msgs
             .iter()
@@ -435,5 +454,20 @@ mod tests {
         // Prévia não vira participação.
         assert!(!inner.rooms[&sala_id].members.contains(&bia));
         assert!(inner.participants[&bia].room_id.is_none());
+    }
+
+    #[test]
+    fn previa_sem_ponte_e_proibida() {
+        let hub = Hub::new(Config {
+            relay: false,
+            ..Config::default()
+        });
+        let ana = entrar(&hub, "inst-ana", "Ana");
+        let bia = entrar(&hub, "inst-bia", "Bia");
+        let (_, codigo) = criar(&hub, &ana, Access::Open, None);
+        let erro = hub.preview_room(&bia, &codigo).unwrap_err();
+        assert_eq!((erro.status, erro.code), (403, "proibido"));
+        // Entrar continua funcionando, só sem `midia.ponte`.
+        assert!(hub.join_room(&bia, &codigo, None).unwrap().media.bridge.is_none());
     }
 }

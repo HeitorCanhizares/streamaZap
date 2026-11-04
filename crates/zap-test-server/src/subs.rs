@@ -7,7 +7,7 @@ use zap_proto::{control::Route, ControlMsg, DelayState, TileSize, TrackKind};
 
 use crate::{
     relay::ViewerEntry,
-    state::{Hub, Inner},
+    state::{Hub, Inner, Via},
     util::now_unix_ms,
 };
 
@@ -28,9 +28,13 @@ fn erro(code: &str, message: &str, reference: Option<String>) -> ControlMsg {
     }
 }
 
-/// Sala em que o espectador `who` está (`ws_room`), se houver.
+/// Sala em que o espectador `who` está: a do WebSocket (`sala.entrar`) ou, sem ela, a do
+/// ingresso da conexão QUIC (o `ola` vale como `sala.entrar`; é por aí que a prévia assina).
 fn sala_do_espectador(inner: &Inner, who: &str) -> Option<String> {
-    inner.participants.get(who).and_then(|p| p.ws_room.clone())
+    inner
+        .participants
+        .get(who)
+        .and_then(|p| p.ws_room.clone().or_else(|| p.quic_room.clone()))
 }
 
 /// Manda `participante.atualizou` (com o `watching` atual) a todos da sala de `who`.
@@ -48,11 +52,12 @@ fn avisar_participante(inner: &Inner, sala_id: &str, who: &str) {
     );
 }
 
-/// `assinar`: cria ou atualiza o assinante da trilha e responde com a rota (ponte).
-/// Devolve o `erro` a mandar a `who`, ou `None` se deu certo.
+/// `assinar`: cria ou atualiza o assinante da trilha e responde com a rota (ponte), pelo canal
+/// do pedido (`via`). Devolve o `erro` a mandar a `who`, ou `None` se deu certo.
 fn assinar(
     inner: &mut Inner,
     who: &str,
+    via: Via,
     track_id: &str,
     size: TileSize,
     max_layer: Option<u8>,
@@ -84,6 +89,10 @@ fn assinar(
     let Some(trilha) = sala.tracks.iter_mut().find(|t| t.id == track_id) else {
         return Some(erro("invalido", "trilha inexistente na sala", ref_));
     };
+    // Prévia só assina vídeo (`docs/api/rest.md`, prévia): qualquer outra coisa é `proibido`.
+    if preview && trilha.kind == TrackKind::Audio {
+        return Some(erro("proibido", "a prévia não tem áudio", ref_));
+    }
     if trilha.participant_id == who && trilha.kind != TrackKind::Audio {
         return Some(erro(
             "invalido",
@@ -107,8 +116,9 @@ fn assinar(
         announced: None,
     });
 
-    inner.send_to(
+    inner.reply(
         who,
+        via,
         ControlMsg::MediaRoute {
             track_id: track_id.to_string(),
             route: Route::Relay,
@@ -185,7 +195,8 @@ fn pedir_keyframe(inner: &mut Inner, who: &str, track_id: &str) {
         }
         ultimos.insert(chave, agora);
     }
-    inner.send_to(
+    // Mensagem da mídia: vai ao publicador pelo QUIC dele.
+    inner.send_quic(
         &trilha.participant_id,
         ControlMsg::KeyframeRequest {
             track_id: track_id.to_string(),
@@ -207,6 +218,12 @@ impl Hub {
     /// - `keyframe.pedir {trilha_id}`: repassa `keyframe.pedir {trilha_id, camada}` ao publicador
     ///   para a camada atual do espectador, no máximo 1 por segundo por camada.
     pub fn handle_sub_message(&self, who: &str, msg: &ControlMsg) -> bool {
+        self.handle_sub_message_via(who, msg, Via::Ws)
+    }
+
+    /// Igual a `handle_sub_message`, para um pedido que chegou por `via` (as respostas diretas
+    /// voltam pelo mesmo canal). A ponte QUIC usa `Via::Quic`.
+    pub fn handle_sub_message_via(&self, who: &str, msg: &ControlMsg, via: Via) -> bool {
         match msg {
             ControlMsg::Subscribe {
                 track_id,
@@ -215,8 +232,8 @@ impl Hub {
                 audio,
             } => {
                 let mut inner = self.inner.lock();
-                if let Some(e) = assinar(&mut inner, who, track_id, *size, *max_layer, *audio) {
-                    inner.send_to(who, e);
+                if let Some(e) = assinar(&mut inner, who, via, track_id, *size, *max_layer, *audio) {
+                    inner.reply(who, via, e);
                 }
                 true
             }
@@ -403,6 +420,49 @@ mod tests {
     }
 
     #[test]
+    fn previa_assina_pelo_quic_e_resposta_volta_pelo_quic() {
+        let (hub, sala, ana, bia, _ra, mut rb) = cenario();
+        let trilha = publicar(&hub, &sala, &ana, TrackKind::Camera);
+        let audio = publicar(&hub, &sala, &ana, TrackKind::Audio);
+        let (qtx, mut rq) = mpsc::unbounded_channel();
+        {
+            let mut inner = hub.inner.lock();
+            inner.tickets.insert(
+                "tk-previa".into(),
+                TicketData {
+                    participant_id: bia.clone(),
+                    room_id: sala.clone(),
+                    preview: true,
+                    expires_at_ms: now_unix_ms() + 60_000,
+                },
+            );
+            // Só QUIC: a sala vem do ingresso, não de `sala.entrar`.
+            let p = inner.participants.get_mut(&bia).unwrap();
+            p.ws_room = None;
+            p.quic_room = Some(sala.clone());
+            p.quic_ctl = Some(qtx);
+        }
+        drenar(&mut rb);
+
+        let video = assinar_msg(&trilha, TileSize::Main, None, None);
+        assert!(hub.handle_sub_message_via(&bia, &video, Via::Quic));
+        let pelo_quic = drenar(&mut rq);
+        assert!(pelo_quic
+            .iter()
+            .any(|m| matches!(m, ControlMsg::MediaRoute { track_id, .. } if *track_id == trilha)));
+
+        let som = assinar_msg(&audio, TileSize::Main, None, None);
+        assert!(hub.handle_sub_message_via(&bia, &som, Via::Quic));
+        assert_eq!(codigos(&drenar(&mut rq)), vec!["proibido".to_string()]);
+        assert!(
+            !drenar(&mut rb)
+                .iter()
+                .any(|m| matches!(m, ControlMsg::MediaRoute { .. } | ControlMsg::Error { .. })),
+            "respostas de um pedido QUIC não vão pelo WebSocket"
+        );
+    }
+
+    #[test]
     fn assinar_trilha_inexistente() {
         let (hub, _sala, _ana, bia, _ra, mut rb) = cenario();
 
@@ -453,6 +513,9 @@ mod tests {
         hub.handle_sub_message(&bia, &assinar_msg(&trilha, TileSize::Main, None, None));
         drenar(&mut rb);
         drenar(&mut ra);
+        // `keyframe.pedir` é mensagem da mídia: chega ao publicador pelo QUIC, não pelo WebSocket.
+        let (qtx, mut rq) = mpsc::unbounded_channel();
+        hub.inner.lock().participants.get_mut(&ana).unwrap().quic_ctl = Some(qtx);
 
         let pedido = ControlMsg::KeyframeRequest {
             track_id: trilha.clone(),
@@ -461,11 +524,12 @@ mod tests {
         assert!(hub.handle_sub_message(&bia, &pedido));
         assert!(hub.handle_sub_message(&bia, &pedido));
 
-        let pedidos: Vec<ControlMsg> = drenar(&mut ra)
+        let pedidos: Vec<ControlMsg> = drenar(&mut rq)
             .into_iter()
             .filter(|m| matches!(m, ControlMsg::KeyframeRequest { layer: Some(_), .. }))
             .collect();
         assert_eq!(pedidos.len(), 1);
+        assert!(drenar(&mut ra).is_empty(), "nada de mídia pelo WebSocket");
     }
 
     #[test]

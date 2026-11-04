@@ -7,7 +7,7 @@ use zap_proto::{ControlMsg, Participant, Role, Room, RoomMode, Track};
 
 use crate::{
     rooms::listing_of,
-    state::{Inner, ParticipantData, RoomData, TrackData},
+    state::{Inner, ParticipantData, RoomData, TrackData, Via},
 };
 
 impl Inner {
@@ -16,6 +16,24 @@ impl Inner {
         if let Some(tx) = self.participants.get(who).and_then(|p| p.ws.as_ref()) {
             // Erro = WebSocket já fechado; ignorado de propósito.
             let _ = tx.send(msg);
+        }
+    }
+
+    /// Manda `msg` pelo stream de controle QUIC de `who`, se houver. É o canal das mensagens da
+    /// mídia (`camadas.pedidas`, `keyframe.pedir`, `camada.atual`, `relatorio`): sem conexão QUIC
+    /// não há mídia, então a mensagem é descartada.
+    pub fn send_quic(&self, who: &str, msg: ControlMsg) {
+        if let Some(tx) = self.participants.get(who).and_then(|p| p.quic_ctl.as_ref()) {
+            // Erro = conexão QUIC já fechada; ignorado de propósito.
+            let _ = tx.send(msg);
+        }
+    }
+
+    /// Resposta direta a um pedido de `who`, pelo canal em que o pedido chegou.
+    pub fn reply(&self, who: &str, via: Via, msg: ControlMsg) {
+        match via {
+            Via::Ws => self.send_to(who, msg),
+            Via::Quic => self.send_quic(who, msg),
         }
     }
 

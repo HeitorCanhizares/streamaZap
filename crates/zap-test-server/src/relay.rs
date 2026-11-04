@@ -133,6 +133,21 @@ impl TrackRelay {
         self.viewers.insert(entry.num, entry);
     }
 
+    /// Esquece a última `camada.atual` anunciada a `num`: o próximo `tick` anuncia de novo
+    /// (motivo `inicio`). A ponte chama isto quando o espectador abre uma conexão QUIC nova, porque
+    /// o anúncio anterior pode ter sido descartado sem conexão.
+    pub fn reannounce(&mut self, num: u64) {
+        if let Some(v) = self.viewers.get_mut(&num) {
+            v.announced = None;
+        }
+    }
+
+    /// Esquece o último `camadas.pedidas`: o próximo `tick` pede de novo, se houver o que pedir.
+    /// A ponte chama isto quando o publicador abre uma conexão QUIC nova.
+    pub fn rerequest(&mut self) {
+        self.last_requests.clear();
+    }
+
     pub fn unsubscribe(&mut self, num: u64) {
         self.viewers.remove(&num);
     }

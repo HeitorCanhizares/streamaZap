@@ -74,9 +74,10 @@ Binário e biblioteca para testes (`zap_test_server::spawn(config) -> Handle { b
 ## Testes de aceite
 1. Com o servidor de teste: dois apps (tarefas) logam, um cria sala com senha, o outro entra pelo
    código, chat e mídia sintética passam pela ponte.
-2. Espectador com enlace limitado a 3 Mbps (proxy de teste) recebe camada 1 de uma trilha 1080p60,
-   o outro (sem limite) recebe camada 0; o publicador recebe `camadas.pedidas` com 0, 1 e 2
-   (2 = miniatura de um terceiro).
+2. Espectador com enlace limitado a 4 Mbps recebe camada 1 de uma trilha 1080p60, o outro (sem
+   limite) recebe camada 0; o publicador recebe `camadas.pedidas` com 0, 1 e 2. (Era 3 Mbps, mas
+   pela folga de `balanceamento.md` — disponível = banda × 0,9 ≥ 1,15 × kbps — a camada 1 de
+   2500 kbps pede ≥ ~3,2 Mbps; com 3 Mbps o espectador fica na camada 2.)
 3. Protocolo incompatível → erro `protocolo_incompativel` com mensagem para atualizar.
 4. Rota direta no loopback funciona e `midia.direta_ok` é enviado.
 
@@ -95,3 +96,10 @@ M4 NAO esta fechado. Verificado:
   tauri-online-01..03, ui-online-02/03/04/05/07/08/11/12/15.
 - Bloqueio de ambiente: disco cheio (0 MB livres em varias tentativas). Liberar `target/` antes de
   retomar. Dependencia observada: zt-05 depende de zt-11 (tracks.rs).
+
+**Atualização (nov/2026):** a frente `servidor-teste` foi concluída (zt-08 a zt-19). O
+`zap-test-server` não tem mais `todo!`; `cargo clippy -p zap-test-server --all-targets -D warnings`
+passa e `cargo test -p zap-test-server` roda 103 testes de unidade, 7 de REST/WebSocket e os 2 de
+aceite da ponte (camada por espectador e prévia só na camada 2). As tarefas `zt-*` saíram de
+`m4-tarefas-pendentes.json`. Os `todo!` e as tarefas restantes acima continuam valendo para
+`zap-core`, `tauri-online` e `ui-online`.

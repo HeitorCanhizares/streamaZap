@@ -38,6 +38,14 @@ impl HubError {
     }
 }
 
+/// Canal por onde chegou um pedido C→S. A resposta direta (`erro`, `midia.rota`…) volta pelo
+/// mesmo canal (`docs/api/mensagens.md`, "Canal de cada mensagem").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Via {
+    Ws,
+    Quic,
+}
+
 /// Token de sessão (vigente ou antigo ainda tolerado por 5 min depois da renovação).
 #[derive(Debug, Clone)]
 pub struct TokenEntry {
@@ -73,8 +81,14 @@ pub struct ParticipantData {
     /// Trilha de vídeo que o participante assiste em tamanho principal/cheia (`None` = nenhuma
     /// ou só miniaturas). Vai em `Participant::watching`.
     pub watching: Option<String>,
-    /// Conexão QUIC da ponte atual, se houver.
+    /// Conexão QUIC da ponte atual, se houver (uma por participante: a nova substitui a antiga).
     pub quic: Option<quinn::Connection>,
+    /// Canal de saída do stream de controle dessa conexão. As mensagens da mídia
+    /// (`camadas.pedidas`, `keyframe.pedir`, `camada.atual`, `relatorio`) só saem por aqui.
+    pub quic_ctl: Option<mpsc::UnboundedSender<ControlMsg>>,
+    /// Sala do ingresso dessa conexão: o `ola` com ingresso vale como `sala.entrar`, então
+    /// assinaturas feitas pelo QUIC (é assim que a prévia assina) usam esta sala.
+    pub quic_room: Option<String>,
     /// Porta UDP de origem vista na conexão QUIC (`GET /v1/diagnostico`).
     pub quic_port: Option<u16>,
     pub public_ip: String,
@@ -221,6 +235,8 @@ impl Hub {
                         ws: None,
                         watching: None,
                         quic: None,
+                        quic_ctl: None,
+                        quic_room: None,
                         quic_port: None,
                         public_ip: remote_ip.to_string(),
                     },

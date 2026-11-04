@@ -26,8 +26,8 @@ fn resolve_targets(inner: &Inner, nums: &[u64]) -> Vec<quinn::Connection> {
 impl Hub {
     /// Decide o destino de um quadro vindo de `publisher`: acha a trilha pelo `header.track`
     /// (número) na sala do publicador, chama `TrackRelay::on_frame(layer, keyframe)`, resolve as
-    /// conexões QUIC dos espectadores em `to`, e avisa `camada.atual` por WebSocket para quem
-    /// trocou. Trilha desconhecida = plano vazio.
+    /// conexões QUIC dos espectadores em `to`, e avisa `camada.atual` a quem trocou (pelo QUIC do
+    /// espectador: é mensagem da mídia). Trilha desconhecida = plano vazio.
     pub fn plan_video(&self, publisher: &str, header: &VideoHeader) -> VideoPlan {
         let mut guard = self.inner.lock();
         let inner = &mut *guard;
@@ -49,13 +49,15 @@ impl Hub {
         let routing = track.relay.on_frame(header.layer, header.flags.is_keyframe());
         let spec = |camada: u8| track.layers.iter().find(|l| l.layer == camada).cloned();
 
-        // Quem trocou: aviso por WebSocket e marca como anunciado (o ticker não repete).
+        // Quem trocou: aviso pelo QUIC e marca como anunciado (o ticker não repete). O primeiro
+        // anúncio de um espectador tem motivo `inicio`; os seguintes, `banda`.
         let mut avisos: Vec<(String, ControlMsg)> = Vec::new();
         let mut switched = Vec::new();
         for (num, camada) in &routing.switched {
             let Some(v) = track.relay.viewers.get_mut(num) else {
                 continue;
             };
+            let motivo = if v.announced.is_none() { "inicio" } else { "banda" };
             v.announced = Some(*camada);
             let pid = v.participant_id.clone();
             if let Some(l) = spec(*camada) {
@@ -67,16 +69,14 @@ impl Hub {
                         width: l.width,
                         height: l.height,
                         fps: l.fps,
-                        reason: "banda".into(),
+                        reason: motivo.into(),
                     },
                 ));
             }
             switched.push((pid, *camada));
         }
         for (pid, msg) in avisos {
-            if let Some(tx) = inner.participants.get(&pid).and_then(|p| p.ws.as_ref()) {
-                let _ = tx.send(msg);
-            }
+            inner.send_quic(&pid, msg);
         }
 
         VideoPlan {
@@ -207,7 +207,7 @@ mod tests {
         }
     }
 
-    /// Ana publica a trilha 1; Beto assiste. Devolve o canal WS de Beto.
+    /// Ana publica a trilha 1; Beto assiste. Devolve o canal de controle QUIC de Beto.
     fn cenario(
         viewer_entry: impl Fn(&str, u64) -> ViewerEntry,
     ) -> (Hub, String, String, mpsc::UnboundedReceiver<ControlMsg>) {
@@ -227,7 +227,7 @@ mod tests {
             inner.participants.get_mut(&ana).unwrap().room_id = Some(sala.clone());
             let b = inner.participants.get_mut(&beto).unwrap();
             b.room_id = Some(sala.clone());
-            b.ws = Some(tx);
+            b.quic_ctl = Some(tx);
             let layers = vec![camada(0), camada(1), camada(2)];
             let mut relay = TrackRelay::new(layers.clone());
             relay.viewers.insert(num_beto, viewer_entry(&beto, num_beto));
@@ -280,14 +280,29 @@ mod tests {
             } => {
                 assert_eq!(track_id, "t1");
                 assert_eq!(layer, 1);
-                assert_eq!(reason, "banda");
+                assert_eq!(reason, "inicio", "primeiro anúncio do espectador");
                 assert_eq!(width, 640);
             }
             outro => panic!("mensagem inesperada: {outro:?}"),
         }
-        let inner = hub.inner.lock();
-        let r = &inner.rooms.values().next().unwrap().tracks[0].relay;
-        assert!(r.viewers.values().all(|v| v.announced == Some(1) && v.current == 1));
+        {
+            let inner = hub.inner.lock();
+            let r = &inner.rooms.values().next().unwrap().tracks[0].relay;
+            assert!(r.viewers.values().all(|v| v.announced == Some(1) && v.current == 1));
+        }
+
+        // Segunda troca (já anunciado antes): motivo `banda`.
+        {
+            let mut inner = hub.inner.lock();
+            let r = &mut inner.rooms.values_mut().next().unwrap().tracks[0].relay;
+            r.viewers.values_mut().for_each(|v| v.pending = Some(0));
+        }
+        let plano = hub.plan_video(&ana, &header(1, 0, true));
+        assert_eq!(plano.switched, vec![(beto.clone(), 0)]);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            ControlMsg::LayerCurrent { layer: 0, reason, .. } if reason == "banda"
+        ));
     }
 
     #[test]
