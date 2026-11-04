@@ -2,7 +2,12 @@
 import type { CSSProperties, ReactNode } from 'react'
 import type { Check, Tom } from './diagModel'
 
-export interface CardCheckProps { check: Check; verificando: boolean }
+export interface CardCheckProps {
+  check: Check
+  verificando: boolean
+  onFixFirewall?: () => void
+  corrigindo?: boolean
+}
 
 type Estado = 'ok' | 'warn' | 'soon' | 'checking'
 
@@ -39,7 +44,7 @@ function Icone({ s }: { s: Estado }): ReactNode {
   return <svg {...comum}><path d="M5 12h14" /></svg>
 }
 
-export function CardCheck({ check, verificando }: CardCheckProps): ReactNode {
+export function CardCheck({ check, verificando, onFixFirewall, corrigindo = false }: CardCheckProps): ReactNode {
   const s: Estado = verificando ? 'checking' : check.status
   const col = s === 'ok' ? '#3BF08A' : s === 'warn' ? '#FFB547' : '#A3BDB1'
   const bg = s === 'ok' ? 'rgba(59,240,138,0.12)' : s === 'warn' ? 'rgba(255,181,71,0.12)' : '#16241F'
@@ -93,6 +98,21 @@ export function CardCheck({ check, verificando }: CardCheckProps): ReactNode {
           </li>
         ))}
       </ul>
+      {check.id === 'fw' && check.status === 'warn' && (
+        <button
+          type="button"
+          className="zp-ghost"
+          disabled={corrigindo}
+          onClick={onFixFirewall}
+          style={{
+            alignSelf: 'flex-start', height: 40, padding: '0 16px', borderRadius: 12,
+            border: '1px solid var(--borda-forte)', background: 'transparent', color: '#E6F4EC',
+            fontWeight: 600, cursor: corrigindo ? 'default' : 'pointer', opacity: corrigindo ? 0.6 : 1,
+          }}
+        >
+          {corrigindo ? 'Corrigindo…' : 'Corrigir firewall'}
+        </button>
+      )}
     </section>
   )
 }

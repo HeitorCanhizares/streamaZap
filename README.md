@@ -173,6 +173,47 @@ atualizações.
 - Versão específica: `git tag v1.0.0 && git push origin v1.0.0`, ou
   **Actions → Build & Release → Run workflow**.
 
+## streamaZap v3 (Tauri)
+
+A v3 é a reescrita do app em Rust + Tauri (instalador de ~10 MB). Ela instala por usuário, sem pedir administrador, e atualiza sozinha: o app verifica a Release, baixa a nova versão e checa a assinatura antes de instalar.
+
+### Gerar as chaves de assinatura
+
+Uma vez só, na pasta do app:
+
+```bash
+cd app
+npx tauri signer generate -w ~/.tauri/streamazap.key
+```
+
+O comando pede uma senha e gera dois arquivos:
+
+- `streamazap.key`: a chave **privada**. Nunca commite esse arquivo e guarde um backup seguro. Se você perder a chave, os usuários já instalados não conseguem mais receber atualizações.
+- `streamazap.key.pub`: a chave **pública**. Copie o conteúdo dela para `app/src-tauri/tauri.conf.json`, no campo `plugins.updater.pubkey`, substituindo o placeholder `COLE_AQUI_A_CHAVE_PUBLICA`. Sem isso, o app mostra "atualização não configurada nesta build".
+
+### Segredos do GitHub
+
+Em **Settings → Secrets and variables → Actions → New repository secret**, crie:
+
+- `TAURI_SIGNING_PRIVATE_KEY`: o conteúdo do arquivo da chave privada (`streamazap.key`).
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: a senha usada ao gerar a chave.
+
+### Publicar uma versão
+
+1. Ajuste o campo `version` em `app/src-tauri/tauri.conf.json` e em `Cargo.toml`.
+2. Crie a tag e envie: `git tag v3.0.0 && git push origin v3.0.0`. Ou vá em **Actions → Release v3 → Run workflow**.
+
+O workflow `.github/workflows/release-v3.yml` publica o instalador `StreamaZap-Setup-X.Y.Z.exe`, o zip portátil, o `latest.json` e as assinaturas `.sig`.
+
+Canais:
+
+- **Estável**: a Release normal. O app consulta `releases/latest/download/latest.json`.
+- **Beta**: use uma tag com sufixo, por exemplo `v3.1.0-beta.1`, ou rode o workflow com a entrada `canal=beta`. A Release é marcada como prerelease e o `latest-beta.json` é anexado à Release fixa `canal-beta`.
+
+### Migração do app Python
+
+A primeira instalação da v3 remove sozinha a versão antiga (Inno Setup), em modo silencioso. Essa remoção pede administrador uma vez. As configurações da versão antiga não são migradas.
+
 ## Licença
 
 [MIT](LICENSE)

@@ -18,6 +18,7 @@ pub struct UiState {
     tiles: Vec<TileView>,
     share: Option<ShareView>,
     errors: Vec<String>,
+    newer_protocol: Option<u32>,
 }
 
 impl UiState {
@@ -32,6 +33,7 @@ impl UiState {
             tiles: vec![],
             share: None,
             errors: vec![],
+            newer_protocol: None,
         }
     }
     pub fn set_me(&mut self, me: Me) {
@@ -73,6 +75,9 @@ impl UiState {
             self.errors.drain(..excesso);
         }
     }
+    pub fn set_newer_protocol(&mut self, p: Option<u32>) {
+        self.newer_protocol = p;
+    }
     pub fn clear_errors(&mut self) {
         self.errors.clear();
     }
@@ -89,6 +94,7 @@ impl UiState {
             tiles: self.tiles.clone(),
             share: self.share.clone(),
             errors: self.errors.clone(),
+            newer_protocol: self.newer_protocol,
         })
     }
 }
@@ -212,5 +218,17 @@ mod tests {
         assert!(st.snapshot().room.is_some());
         st.set_room(None);
         assert!(st.snapshot().room.is_none());
+    }
+
+    #[test]
+    fn newer_protocol_comeca_none_e_propaga() {
+        let mut st = UiState::new(me("Ana"));
+        assert_eq!(st.snapshot().newer_protocol, None);
+
+        st.set_newer_protocol(Some(5));
+        assert_eq!(st.snapshot().newer_protocol, Some(5));
+
+        st.set_newer_protocol(None);
+        assert_eq!(st.snapshot().newer_protocol, None);
     }
 }

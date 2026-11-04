@@ -1,0 +1,112 @@
+name: Release v3
+
+# Segredos exigidos (Settings > Secrets and variables > Actions):
+#   * TAURI_SIGNING_PRIVATE_KEY           - chave privada que assina as atualizações
+#   * TAURI_SIGNING_PRIVATE_KEY_PASSWORD  - senha dessa chave (vazia se não tiver)
+# Como gerar a chave e configurar: ver a seção de release/atualização no README.md.
+#
+# Gatilhos: tag v3.* (sufixo, ex.: v3.1.0-beta.1, conta como beta) ou execução manual.
+on:
+  push:
+    tags: ["v3.*"]
+  workflow_dispatch:
+    inputs:
+      canal:
+        description: "Canal de publicação"
+        type: choice
+        options: [estavel, beta]
+        default: estavel
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Instalar dependências do front-end
+        working-directory: app
+        run: npm ci
+
+      - name: Resolver tag, versão e canal
+        id: info
+        shell: pwsh
+        env:
+          CANAL: ${{ github.event.inputs.canal }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Disparo manual sem tag usa uma tag sintética
+          if ($env:REF_TYPE -eq 'tag') { $tag = $env:REF_NAME } else { $tag = "v3-manual-${{ github.run_number }}" }
+          $versao = $tag -replace '^v', ''
+          # Sufixo na tag (ex.: -beta.1) ou canal beta escolhido => pré-lançamento
+          $beta = ($env:CANAL -eq 'beta') -or $tag.Contains('-')
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "versao=$versao" >> $env:GITHUB_OUTPUT
+          "prerelease=$($beta.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
+      - name: Compilar e publicar com o tauri-action
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          tagName: ${{ steps.info.outputs.tag }}
+          releaseName: streamaZap ${{ steps.info.outputs.tag }}
+          releaseDraft: false
+          prerelease: ${{ steps.info.outputs.prerelease == 'true' }}
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+
+      - name: Zip portátil
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.info.outputs.versao }}'
+          $zip = "StreamaZap-Portatil-$v.zip"
+          Compress-Archive -Path target/release/streamaZap.exe -DestinationPath $zip -Force
+          gh release upload '${{ steps.info.outputs.tag }}' $zip --clobber
+
+      - name: Instalador com nome padrão
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # O app Python procura por StreamaZap-Setup-<versão>.exe
+          $v = '${{ steps.info.outputs.versao }}'
+          $nsis = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
+          if (-not $nsis) { throw 'Instalador NSIS não encontrado' }
+          $destino = "StreamaZap-Setup-$v.exe"
+          Copy-Item $nsis.FullName $destino -Force
+          gh release upload '${{ steps.info.outputs.tag }}' $destino --clobber
+
+      - name: Publicar latest-beta.json (canal beta)
+        if: steps.info.outputs.prerelease == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download '${{ steps.info.outputs.tag }}' -p latest.json --clobber
+          Copy-Item latest.json latest-beta.json -Force
+          gh release view canal-beta
+          if ($LASTEXITCODE -ne 0) {
+            gh release create canal-beta --prerelease --title 'Canal beta' --notes 'Arquivo latest-beta.json do canal beta'
+          }
+          gh release upload canal-beta latest-beta.json --clobber

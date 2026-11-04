@@ -1,8 +1,9 @@
 // Wrappers tipados de invoke (tarefa ui-08). Fora do Tauri delegam ao mock.
 import type * as Core from '@tauri-apps/api/core'
+import { mockDiagReport, mockDiagText } from './mockDiag'
 import { mockSettings, mockSnapshot, mockSources } from './mock'
 import { decodeThumbnail } from './thumbnail'
-import type { CreateRoom, JoinTarget, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId } from './types'
+import type { CreateRoom, DiagReport, FirewallResult, UpdateInfo, JoinTarget, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId } from './types'
 
 export const isTauri = (): boolean => '__TAURI_INTERNALS__' in globalThis
 
@@ -158,5 +159,37 @@ export const api = {
       return null
     }
     return decodeThumbnail(buffer)
+  },
+  // --- M5: atualização e diagnóstico (tarefa ui5-01 preenche; fora do Tauri usa o mock) ---
+  // Fora do Tauri não há atualizador: nada disponível e as ações são no-op.
+  updateCheck: async (): Promise<UpdateInfo> => {
+    if (!isTauri()) return { disponivel: false, versao: null, notas: null, tamanho: null }
+    return call<UpdateInfo>('update_check')
+  },
+  updateDownload: async (): Promise<void> => {
+    if (!isTauri()) return
+    await call('update_download')
+  },
+  updateInstallNow: async (): Promise<void> => {
+    if (!isTauri()) return
+    await call('update_install_now')
+  },
+  updateInstallOnExit: async (): Promise<void> => {
+    if (!isTauri()) return
+    await call('update_install_on_exit')
+  },
+  diagnosticsRun: async (): Promise<DiagReport> => {
+    if (!isTauri()) return mockDiagReport()
+    return call<DiagReport>('diagnostics_run')
+  },
+  diagnosticsText: async (): Promise<string> => {
+    if (!isTauri()) return mockDiagText()
+    return call<string>('diagnostics_text')
+  },
+  firewallFix: async (): Promise<FirewallResult> => {
+    if (!isTauri()) {
+      return { ok: true, mensagem: 'Firewall corrigido (exemplo).', removidas: 1, perfis_liberados: [] }
+    }
+    return call<FirewallResult>('firewall_fix')
   },
 }

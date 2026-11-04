@@ -105,3 +105,15 @@ O updater Python baixa o `StreamaZap-Setup-*.exe` da última Release e roda com 
 3. Numa sala, a atualização não reinicia nada.
 4. "Corrigir firewall" num PC com regra de bloqueio → regra removida, permissão criada, resultado
    na tela.
+
+## Estado do fechamento (M5)
+Todas as 34 tarefas (sys, diag, upd, pac, ui5, fwf, dgf) concluídas e revisadas.
+Verificações de integração, todas verdes:
+- `cd app && npm run check && npm test && npx vite build`: tsc limpo, 583 testes (76 arquivos), build ok.
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` e
+  `cargo test --workspace`: sem falhas.
+- `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings`: limpo.
+- Nenhum `todo!(` em `crates/` e `app/src-tauri/src`.
+- `target/debug/streamazap` sob `xvfb-run` por ~8 s (vite dev na 1420): abre sem pânico.
+Pendente fora do código: testes de aceite 1-4 exigem Windows real, chave de assinatura
+(`TAURI_SIGNING_PRIVATE_KEY`) e uma Release de teste.

@@ -34,6 +34,8 @@ export interface Snapshot {
   tiles: TileView[]
   share: ShareView | null
   errors: string[]
+  /** Protocolo maior visto na rede (amigo/servidor mais novo): oferecer atualizar. */
+  newer_protocol?: number
 }
 export type SceneKind = 'game' | 'race' | 'movie' | 'code' | 'desktop' | 'cama' | 'camb' | 'camc' | 'camd'
 
@@ -53,3 +55,39 @@ export type JoinTarget = { room_id: string } | { ip: string; port: number }
 
 // Miniatura de fonte (source_thumbnail): RGBA 8 bits, linhas de cima para baixo.
 export interface Thumbnail { width: number; height: number; rgba: Uint8ClampedArray }
+
+// --- M5: atualização e diagnóstico (espelham app/src-tauri/src/updater.rs e zap-core/src/diag.rs) ---
+export type UpdatePhase = 'nada' | 'baixando' | 'pronta' | 'instalando' | 'erro'
+/** Payload do evento `zap://update`. */
+export interface UpdateState { fase: UpdatePhase; progresso: number; versao: string | null; erro: string | null }
+/** Resposta de `update_check`. */
+export interface UpdateInfo { disponivel: boolean; versao: string | null; notas: string | null; tamanho: number | null }
+
+export type DiagSeverity = 'info' | 'warn' | 'error'
+export interface DiagProblem { severity: DiagSeverity; code: string; message: string }
+export interface DiagInterface { name: string; ip: string; broadcast?: string; radmin: boolean }
+export interface DiagFriend { name: string; version: string; ip: string; hears_you: boolean; same_version: boolean }
+export interface DiagRoom { id: string; name: string; host: string; participants: number; has_password: boolean; addr?: string; version_warn?: string }
+export interface DiagCurrentRoom { name: string; mode: RoomMode; participants: number; code?: string }
+export interface DiagOtherVersion { ip: string; protocol: number; newer: boolean }
+export interface FirewallRule { nome: string; direcao: string; acao: string; perfis: number; ativa: boolean }
+export interface FirewallStatus {
+  suportado: boolean; bloqueado: boolean; liberado: boolean
+  /** [dominio, privado, publico] */
+  bloquear_tudo_por_perfil: [boolean, boolean, boolean]
+  categoria_radmin: string | null
+  regras: FirewallRule[]
+  erro: string | null
+}
+export interface FirewallResult { ok: boolean; mensagem: string; removidas: number; perfis_liberados: string[] }
+export interface DiagReport {
+  app_version: string; protocol: number
+  network: { interfaces: DiagInterface[]; radmin_ip?: string }
+  vpns: string[]; antivirus: string[]
+  firewall: FirewallStatus
+  friends: DiagFriend[]; rooms: DiagRoom[]
+  current_room?: DiagCurrentRoom
+  other_versions: DiagOtherVersion[]
+  newer_protocol?: number
+  problems: DiagProblem[]
+}

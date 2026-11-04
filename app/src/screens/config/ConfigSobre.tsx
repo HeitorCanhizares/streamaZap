@@ -1,14 +1,15 @@
 // Seção Sobre e atualizações da tela de configurações (porte fiel de docs/design/4-configuracoes.html, linhas 99-118).
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Select } from '../../components/Select'
+import { api } from '../../bridge/api'
+import { useSnapshot } from '../../bridge/store'
+import { useUpdateState } from '../../bridge/updateStore'
+import type { UpdateInfo } from '../../bridge/types'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 
 // Versão exibida na seção. Constante local até o app ler a versão do pacote.
 const VERSAO = 'v3.0.0-alpha.0'
-
-// Tempo da verificação simulada (o design usa 1200 ms; a busca real nas Releases entra na tarefa de atualização).
-const TEMPO_VERIFICACAO_MS = 1200
 
 const CANAIS = [
   { value: 'estavel', label: 'Estável' },
@@ -28,23 +29,109 @@ function bolinha(on: boolean): CSSProperties {
 }
 
 export function ConfigSobre({ settings, onChange }: ConfigSecaoProps): ReactNode {
-  const [checking, setChecking] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Ao desmontar, cancela a verificação pendente para não atualizar estado de tela fechada.
-  useEffect(() => () => {
-    if (timer.current !== null) clearTimeout(timer.current)
-  }, [])
-
-  const upToDate = !checking
+  const up = useUpdateState()
+  const emRoom = useSnapshot().room !== null
+  const [checando, setChecando] = useState(false)
+  const [info, setInfo] = useState<UpdateInfo | null>(null)
+  const [erroLocal, setErroLocal] = useState<string | null>(null)
+  const [aoFechar, setAoFechar] = useState(false)
   const auto = settings.update.auto
+  const fase = up.fase
 
-  function procurarAtualizacao(): void {
-    if (timer.current !== null) clearTimeout(timer.current)
-    setChecking(true)
-    timer.current = setTimeout(() => {
-      timer.current = null
-      setChecking(false)
-    }, TEMPO_VERIFICACAO_MS)
+  function msg(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
+  }
+
+  async function procurarAtualizacao(): Promise<void> {
+    setChecando(true)
+    setErroLocal(null)
+    try {
+      setInfo(await api.updateCheck())
+    } catch (e) {
+      setErroLocal(msg(e))
+    } finally {
+      setChecando(false)
+    }
+  }
+
+  async function executar(fn: () => Promise<void>): Promise<void> {
+    setErroLocal(null)
+    try {
+      await fn()
+    } catch (e) {
+      setErroLocal(msg(e))
+    }
+  }
+
+  async function instalarAoFechar(): Promise<void> {
+    await executar(async () => {
+      await api.updateInstallOnExit()
+      setAoFechar(true)
+    })
+  }
+
+  const erro = fase === 'erro' ? (up.erro ?? 'Falha na atualização') : erroLocal
+  const selo: CSSProperties = {
+    minHeight: 30, padding: '0 12px', borderRadius: 999, background: '#16241F', color: '#A3BDB1',
+    fontSize: 12.5, display: 'flex', alignItems: 'center',
+  }
+  const seloVerde: CSSProperties = { ...selo, background: 'rgba(59,240,138,0.12)', color: '#3BF08A', fontWeight: 600 }
+  const botao: CSSProperties = {
+    height: 44, padding: '0 16px', borderRadius: 12, border: '1px solid #2A443C',
+    background: 'transparent', color: '#E6F4EC', fontWeight: 600, cursor: 'pointer',
+  }
+
+  let estado: ReactNode
+  if (checando) {
+    estado = <span role="status" style={selo}>Procurando nas Releases…</span>
+  } else if (fase === 'baixando') {
+    estado = (
+      <>
+        <span role="status" style={selo}>{`Baixando ${up.versao ?? ''}… ${up.progresso}%`}</span>
+        <div style={{ width: '100%', height: 6, borderRadius: 999, background: '#16241F', overflow: 'hidden' }}>
+          <div
+            role="progressbar" aria-valuenow={up.progresso} aria-valuemin={0} aria-valuemax={100}
+            style={{ width: `${up.progresso}%`, height: '100%', background: '#3BF08A' }}
+          />
+        </div>
+      </>
+    )
+  } else if (fase === 'pronta') {
+    estado = (
+      <>
+        <span style={seloVerde}>
+          {aoFechar ? 'Vai instalar ao fechar o app' : `Atualização ${up.versao ?? ''} pronta — instala ao fechar`}
+        </span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
+          <button
+            type="button" className="zp-ghost" style={botao} disabled={emRoom}
+            title={emRoom ? 'Saia da sala para reiniciar' : undefined}
+            onClick={() => void executar(() => api.updateInstallNow())}
+          >
+            Reiniciar agora
+          </button>
+          <button type="button" className="zp-ghost" style={botao} onClick={() => void instalarAoFechar()}>
+            Instalar ao fechar
+          </button>
+        </div>
+        {erroLocal && <span role="alert" style={{ ...selo, color: '#FF8592' }}>{erroLocal}</span>}
+      </>
+    )
+  } else if (fase === 'instalando') {
+    estado = <span style={selo}>Instalando…</span>
+  } else if (erro) {
+    estado = <span role="alert" style={{ ...selo, color: '#FF8592' }}>{erro}</span>
+  } else if (info?.disponivel && fase === 'nada') {
+    estado = (
+      <>
+        <span style={seloVerde}>{`Nova versão ${info.versao ?? ''} disponível`}</span>
+        <button type="button" className="zp-ghost" style={botao} onClick={() => void executar(() => api.updateDownload())}>
+          Baixar
+        </button>
+      </>
+    )
+  } else {
+    estado = <span style={seloVerde}>Você está na versão mais nova</span>
   }
 
   return (
@@ -75,37 +162,15 @@ export function ConfigSobre({ settings, onChange }: ConfigSecaoProps): ReactNode
         {`versão ${VERSAO.replace(/^v/, '')} · protocolo 3 · licença MIT`}
       </span>
 
-      {upToDate && (
-        <span
-          style={{
-            height: 30, padding: '0 12px', borderRadius: 999, background: 'rgba(59,240,138,0.12)',
-            color: '#3BF08A', fontSize: 12.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
-          }}
-        >
-          Você está na versão mais nova
-        </span>
-      )}
-      {checking && (
-        <span
-          role="status"
-          style={{
-            height: 30, padding: '0 12px', borderRadius: 999, background: '#16241F', color: '#A3BDB1',
-            fontSize: 12.5, display: 'flex', alignItems: 'center',
-          }}
-        >
-          Procurando nas Releases…
-        </span>
-      )}
+      {estado}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10, width: '100%' }}>
         <button
           type="button"
           className="zp-ghost"
-          onClick={procurarAtualizacao}
-          style={{
-            height: 44, padding: '0 16px', borderRadius: 12, border: '1px solid #2A443C',
-            background: 'transparent', color: '#E6F4EC', fontWeight: 600, cursor: 'pointer',
-          }}
+          onClick={() => void procurarAtualizacao()}
+          disabled={checando || fase === 'baixando'}
+          style={botao}
         >
           Procurar atualização
         </button>

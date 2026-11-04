@@ -5,6 +5,7 @@ import { useSnapshot } from './bridge/store'
 import { NavRail } from './components/NavRail'
 import { TitleBar } from './components/TitleBar'
 import { SalaMetrics } from './components/shell/SalaMetrics'
+import { UpdateBanner } from './components/shell/UpdateBanner'
 import type { NavTarget } from './components/shell/types'
 import { SalasScreen } from './screens/salas/SalasScreen'
 import { CriarScreen } from './screens/criar/CriarScreen'
@@ -86,6 +87,7 @@ export function App(): ReactNode {
         onMaximize={() => acaoJanela((w) => w.toggleMaximize())}
         onClose={() => acaoJanela((w) => w.close())}
       />
+      <UpdateBanner onOpenConfig={() => setView('config')} />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <NavRail active={view} onNavigate={onNavigate} inRoom={temSala} profileName={snap.me.name} />
         <main style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>{tela}</main>

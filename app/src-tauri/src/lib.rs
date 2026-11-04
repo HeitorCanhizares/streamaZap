@@ -1,25 +1,42 @@
 //! App Tauri do StreamaZap: liga o `zap-core` à interface (comandos, eventos e canais de vídeo).
 
 mod commands;
+#[cfg(test)]
+mod conf_tests;
 pub mod convert;
+pub mod fwfix;
 mod setup;
 pub mod sink;
 pub mod state;
+pub mod update_state;
+pub mod updater;
 pub mod video;
 
 /// Sobe o app: plugins, estado (`Core` + `TauriSink`), comandos e janela.
 pub fn run() {
+    // Modo elevado `--corrigir-firewall`: sem janela, sem Tauri.
+    let args: Vec<String> = std::env::args().collect();
+    if fwfix::pedido(&args) {
+        std::process::exit(fwfix::executar());
+    }
     let built = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             commands::window::focus_main(app);
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| setup::init(app))
         .invoke_handler(tauri::generate_handler![
             commands::app::app_info,
             commands::app::snapshot_get,
-            commands::app::diagnostics_run,
+            commands::diag::diagnostics_run,
+            commands::diag::diagnostics_text,
+            commands::diag::firewall_fix,
+            commands::update::update_check,
+            commands::update::update_download,
+            commands::update::update_install_now,
+            commands::update::update_install_on_exit,
             commands::settings::settings_get,
             commands::settings::settings_set,
             commands::sources::sources_list,
@@ -46,6 +63,7 @@ pub fn run() {
     match built {
         Ok(app) => app.run(|handle, event| {
             if let tauri::RunEvent::Exit = event {
+                commands::update::instalar_ao_sair(handle);
                 setup::on_exit(handle);
             }
         }),

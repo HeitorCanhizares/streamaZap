@@ -35,6 +35,8 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         core: Arc::new(core),
         videos,
     }));
+    app.manage(crate::update_state::UpdateState::default());
+    crate::commands::update::agendar_auto(app.handle());
     Ok(())
 }
 

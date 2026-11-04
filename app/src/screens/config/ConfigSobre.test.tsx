@@ -1,12 +1,38 @@
-// Tarefa config-02
-import { afterEach, describe, expect, it, vi } from 'vitest'
+// Tarefas config-02 e ui5-03
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ConfigSobre } from './ConfigSobre'
-import { mockSettings } from '../../bridge/mock'
+import { mockSettings, mockSnapshot } from '../../bridge/mock'
+import { api } from '../../bridge/api'
+import { setSnapshot } from '../../bridge/store'
+import { resetUpdateState, setUpdateState } from '../../bridge/updateStore'
+import type { UpdateInfo } from '../../bridge/types'
+
+vi.mock('../../bridge/api', () => ({
+  api: {
+    updateCheck: vi.fn(),
+    updateDownload: vi.fn().mockResolvedValue(undefined),
+    updateInstallNow: vi.fn().mockResolvedValue(undefined),
+    updateInstallOnExit: vi.fn().mockResolvedValue(undefined),
+  },
+  isTauri: () => false,
+}))
+
+let versao = 1000
+// Troca o snapshot com ou sem sala (versão sempre crescente, senão o store ignora).
+function salaAberta(aberta: boolean): void {
+  const s = mockSnapshot()
+  setSnapshot({ ...s, room: aberta ? s.room : null, version: ++versao })
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  resetUpdateState()
+  salaAberta(false)
+})
 
 afterEach(() => {
   cleanup()
-  vi.useRealTimers()
 })
 
 describe('ConfigSobre', () => {
@@ -36,25 +62,65 @@ describe('ConfigSobre', () => {
     expect(onChange).toHaveBeenCalledWith({ update: { auto: true, channel: 'beta' } })
   })
 
-  it('Procurar atualização mostra a verificação e volta ao estado normal após 1200 ms', () => {
-    vi.useFakeTimers()
+  it('Procurar atualização mostra a busca e depois a nova versão com botão Baixar', async () => {
+    let resolve!: (i: UpdateInfo) => void
+    vi.mocked(api.updateCheck).mockReturnValue(new Promise((r) => { resolve = r }))
     render(<ConfigSobre settings={mockSettings()} onChange={vi.fn()} />)
     expect(screen.getByText('Você está na versão mais nova')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Procurar atualização' }))
     expect(screen.getByText('Procurando nas Releases…')).toBeTruthy()
-    expect(screen.queryByText('Você está na versão mais nova')).toBeNull()
-    act(() => {
-      vi.advanceTimersByTime(1200)
-    })
-    expect(screen.queryByText('Procurando nas Releases…')).toBeNull()
+    await act(async () => { resolve({ disponivel: true, versao: '3.0.1', notas: null, tamanho: null }) })
+    expect(screen.getByText('Nova versão 3.0.1 disponível')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Baixar' }))
+    expect(api.updateDownload).toHaveBeenCalled()
+  })
+
+  it('sem atualização mostra versão mais nova', async () => {
+    vi.mocked(api.updateCheck).mockResolvedValue({ disponivel: false, versao: null, notas: null, tamanho: null })
+    render(<ConfigSobre settings={mockSettings()} onChange={vi.fn()} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Procurar atualização' })) })
     expect(screen.getByText('Você está na versão mais nova')).toBeTruthy()
   })
 
-  it('desmontar com verificação pendente não deixa timer ativo', () => {
-    vi.useFakeTimers()
-    const { unmount } = render(<ConfigSobre settings={mockSettings()} onChange={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Procurar atualização' }))
-    unmount()
-    expect(vi.getTimerCount()).toBe(0)
+  it('falha na busca mostra o erro em role=alert', async () => {
+    vi.mocked(api.updateCheck).mockRejectedValue(new Error('atualização não configurada nesta build'))
+    render(<ConfigSobre settings={mockSettings()} onChange={vi.fn()} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Procurar atualização' })) })
+    expect(screen.getByRole('alert').textContent).toBe('atualização não configurada nesta build')
+  })
+
+  it('baixando mostra porcentagem e barra', () => {
+    setUpdateState({ fase: 'baixando', progresso: 40, versao: '3.0.1', erro: null })
+    render(<ConfigSobre settings={mockSettings()} onChange={vi.fn()} />)
+    expect(screen.getByText(/40%/)).toBeTruthy()
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('40')
+    expect((screen.getByRole('button', { name: 'Procurar atualização' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('pronta: Reiniciar agora fora de sala chama updateInstallNow', () => {
+    salaAberta(false)
+    setUpdateState({ fase: 'pronta', progresso: 100, versao: '3.0.1', erro: null })
+    render(<ConfigSobre settings={mockSettings()} onChange={vi.fn()} />)
+    expect(screen.getByText('Atualização 3.0.1 pronta — instala ao fechar')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Reiniciar agora' }))
+    expect(api.updateInstallNow).toHaveBeenCalled()
+  })
+
+  it('pronta em sala: Reiniciar agora fica desabilitado', () => {
+    salaAberta(true)
+    setUpdateState({ fase: 'pronta', progresso: 100, versao: '3.0.1', erro: null })
+    render(<ConfigSobre settings={mockSettings()} onChange={vi.fn()} />)
+    const b = screen.getByRole('button', { name: 'Reiniciar agora' }) as HTMLButtonElement
+    expect(b.disabled).toBe(true)
+    expect(b.title).toBe('Saia da sala para reiniciar')
+  })
+
+  it('Instalar ao fechar chama a api e troca o selo', async () => {
+    salaAberta(false)
+    setUpdateState({ fase: 'pronta', progresso: 100, versao: '3.0.1', erro: null })
+    render(<ConfigSobre settings={mockSettings()} onChange={vi.fn()} />)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Instalar ao fechar' })) })
+    expect(api.updateInstallOnExit).toHaveBeenCalled()
+    expect(screen.getByText('Vai instalar ao fechar o app')).toBeTruthy()
   })
 })

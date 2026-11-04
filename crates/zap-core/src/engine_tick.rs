@@ -81,11 +81,14 @@ fn tick_discovery(shared: &Arc<Shared>) {
         .collect();
     let peers = discovery.peers();
     let ifaces = zap_net::discovery::ipv4_interfaces();
+    // Protocolo mais novo visto na rede: some sozinho quando o amigo deixa de ser visto.
+    let maior = crate::diag_build::protocolo_maior(&discovery.other_versions(), zap_proto::PROTOCOL_VERSION);
     {
         let mut st = shared.state.lock();
         st.set_rooms(room_listings(&rooms));
         st.set_peers(peer_listings(&peers));
         st.set_network(network_status(&ifaces));
+        st.set_newer_protocol(maior);
     }
 
     let announce = shared.settings.read().local.announce;
@@ -179,5 +182,21 @@ mod tests {
     fn highlight_sem_video_none() {
         assert_eq!(pick_highlight(&[]), None);
         assert_eq!(pick_highlight(&[trilha(1, TrackKind::Audio, 0, 0)]), None);
+    }
+
+    #[test]
+    fn tick_usa_protocolo_maior_da_descoberta() {
+        use std::net::{IpAddr, Ipv4Addr};
+        // Usa PROTOCOL_VERSION + 1 para o teste não quebrar quando o protocolo subir.
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2));
+        let mais_novo = zap_proto::PROTOCOL_VERSION + 1;
+        assert_eq!(
+            crate::diag_build::protocolo_maior(&[(ip, mais_novo)], zap_proto::PROTOCOL_VERSION),
+            Some(mais_novo)
+        );
+        assert_eq!(
+            crate::diag_build::protocolo_maior(&[], zap_proto::PROTOCOL_VERSION),
+            None
+        );
     }
 }

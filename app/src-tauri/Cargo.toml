@@ -20,15 +20,18 @@ tauri-build.workspace = true
 
 [dependencies]
 zap-core.workspace = true
+zap-sys.workspace = true
 tauri.workspace = true
 tauri-plugin-single-instance.workspace = true
 tauri-plugin-notification.workspace = true
 tauri-plugin-process.workspace = true
+tauri-plugin-updater = "2"
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 parking_lot.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

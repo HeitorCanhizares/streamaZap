@@ -1,6 +1,6 @@
 // Tarefa diag-04
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { CardCheck } from './CardCheck'
 import type { Check } from './diagModel'
 
@@ -65,5 +65,26 @@ describe('CardCheck', () => {
     render(<CardCheck check={net} verificando={false} />)
     const dot = screen.getAllByTestId('dot')[0] as HTMLElement
     expect(dot.style.boxShadow).toBeTruthy()
+  })
+
+  it('botao_firewall_so_em_fw_warn', () => {
+    const onFix = vi.fn()
+    const fw: Check = { id: 'fw', title: 'Firewall', short: 'Firewall', status: 'warn', lines: [{ tom: 'warn', text: 'x' }] }
+    render(<CardCheck check={fw} verificando={false} onFixFirewall={onFix} />)
+    fireEvent.click(screen.getByText('Corrigir firewall'))
+    expect(onFix).toHaveBeenCalledTimes(1)
+    cleanup()
+    render(<CardCheck check={{ ...fw, status: 'ok' }} verificando={false} onFixFirewall={onFix} />)
+    expect(screen.queryByText('Corrigir firewall')).toBeNull()
+    cleanup()
+    render(<CardCheck check={{ ...net, status: 'warn' }} verificando={false} onFixFirewall={onFix} />)
+    expect(screen.queryByText('Corrigir firewall')).toBeNull()
+  })
+
+  it('botao_firewall_corrigindo', () => {
+    const fw: Check = { id: 'fw', title: 'Firewall', short: 'Firewall', status: 'warn', lines: [] }
+    render(<CardCheck check={fw} verificando={false} corrigindo />)
+    const b = screen.getByText('Corrigindo…') as HTMLButtonElement
+    expect(b.disabled).toBe(true)
   })
 })

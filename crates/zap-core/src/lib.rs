@@ -14,6 +14,10 @@
 #![deny(unsafe_code)]
 
 pub mod audio_out;
+pub mod diag;
+pub mod diag_build;
+pub mod diag_collect;
+pub mod diag_text;
 pub mod discovery_view;
 pub mod engine;
 mod engine_room;
@@ -38,6 +42,7 @@ pub mod types;
 pub mod util;
 
 pub use crate::engine::{Core, CoreOptions, UiSink};
+pub use diag::{DiagInput, DiagReport};
 pub use error::CoreError;
 pub use settings::Settings;
 pub use snapshot::Snapshot;

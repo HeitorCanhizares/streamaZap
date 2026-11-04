@@ -34,12 +34,6 @@ pub async fn snapshot_get(state: State<'_, Arc<AppState>>) -> Result<zap_core::S
     Ok((*state.core.snapshot()).clone())
 }
 
-/// Diagnóstico completo é do M5: devolve `Err("Diagnóstico completo chega no M5")`.
-#[tauri::command]
-pub async fn diagnostics_run() -> Result<(), String> {
-    Err("Diagnóstico completo chega no M5".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -50,12 +44,5 @@ mod tests {
         assert_eq!(info.name, "streamaZap");
         assert!(!info.version.is_empty());
         assert!(!info.os.is_empty());
-    }
-
-    #[test]
-    fn diagnostico_pendente() {
-        let erro =
-            tauri::async_runtime::block_on(diagnostics_run()).expect_err("diagnostics_run deve ser Err até o M5");
-        assert!(erro.contains("M5"));
     }
 }

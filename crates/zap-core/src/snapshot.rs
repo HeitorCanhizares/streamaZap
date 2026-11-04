@@ -223,6 +223,9 @@ pub struct Snapshot {
     pub tiles: Vec<TileView>,
     pub share: Option<ShareView>,
     pub errors: Vec<String>,
+    /// Protocolo maior visto na rede (amigo/servidor mais novo): a interface oferece atualizar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub newer_protocol: Option<u32>,
 }
 
 impl Snapshot {
@@ -403,6 +406,7 @@ impl Snapshot {
                 encode_ms: 6.5,
             }),
             errors: Vec::new(),
+            newer_protocol: None,
         }
     }
 }
@@ -471,5 +475,33 @@ mod tests {
         recebidas.sort_unstable();
         esperadas.sort_unstable();
         assert_eq!(recebidas, esperadas);
+    }
+
+    #[test]
+    fn newer_protocol_omitido_quando_none() {
+        let valor = serde_json::to_value(Snapshot::example()).expect("serializa");
+        let objeto = valor.as_object().expect("objeto JSON");
+        assert!(!objeto.contains_key("newer_protocol"));
+    }
+
+    #[test]
+    fn newer_protocol_aparece_quando_some() {
+        let mut snap = Snapshot::example();
+        snap.newer_protocol = Some(6);
+        let valor = serde_json::to_value(&snap).expect("serializa");
+        assert_eq!(valor.get("newer_protocol").and_then(|v| v.as_u64()), Some(6));
+
+        let json = serde_json::to_string(&snap).expect("serializa");
+        let volta: Snapshot = serde_json::from_str(&json).expect("desserializa");
+        assert_eq!(volta.newer_protocol, Some(6));
+        assert_eq!(volta, snap);
+    }
+
+    #[test]
+    fn json_antigo_sem_o_campo_desserializa() {
+        let mut valor = serde_json::to_value(Snapshot::example()).expect("serializa");
+        valor.as_object_mut().expect("objeto JSON").remove("newer_protocol");
+        let snap: Snapshot = serde_json::from_value(valor).expect("desserializa JSON antigo");
+        assert_eq!(snap.newer_protocol, None);
     }
 }
