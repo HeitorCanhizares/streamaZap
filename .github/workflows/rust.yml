@@ -64,7 +64,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Testes (inclui captura, codificação e áudio reais)
-        run: cargo test --workspace -- --nocapture
+        run: cargo test --workspace --no-fail-fast -- --nocapture
 
   frontend:
     runs-on: ubuntu-latest

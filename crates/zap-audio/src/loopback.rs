@@ -411,8 +411,13 @@ mod tests {
     }
 
     #[test]
-    fn loopback_pid_invalido_da_erro() {
-        assert!(LoopbackClient::start(0xFFFF_FFF0, true).is_err());
+    fn loopback_pid_inexistente_nao_quebra() {
+        // O Windows aceita loopback de um PID que não existe (só captura silêncio), então não dá
+        // para exigir erro aqui (visto no CI Windows). O que importa: não entra em pânico e, se
+        // abrir, fecha limpo ao soltar.
+        if let Ok((cliente, _rx)) = LoopbackClient::start(0xFFFF_FFF0, true) {
+            drop(cliente);
+        }
     }
 
     #[test]
