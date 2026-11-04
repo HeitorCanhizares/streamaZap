@@ -15,9 +15,14 @@
 //! - `entry`: pontos de entrada do `Core` (`create_online`, `join_online`, `server_test`, prévia).
 //!
 //! Decisões de projeto (valem para todas as tarefas):
-//! - Sinalização (assinar, cancelar, keyframe.pedir, camadas.pedidas, camada.atual, midia.rota,
-//!   p2p.*) vai e vem pelo **WebSocket**; a conexão QUIC da ponte leva só mídia, `relatorio`,
-//!   `ping`/`pong` (stream de controle).
+//! - Canais (`docs/api/mensagens.md`, "Canal de cada mensagem"): o app manda `assinar`,
+//!   `cancelar`, `keyframe.pedir`, `p2p.*` etc. pelo **WebSocket** (a resposta, como `midia.rota`,
+//!   volta por ele). Mas `camadas.pedidas`, `keyframe.pedir` (do servidor ao publicador) e
+//!   `camada.atual` chegam **só pelo stream de controle QUIC da ponte**, junto com `relatorio` e
+//!   `ping`/`pong`; o leitor de controle da ponte (`publish_bridge`, `subscribe::pool`) as entrega
+//!   ao mesmo tratamento de `room_events`. Depois do `bem_vindo`, a ponte também manda `sala.estado`
+//!   e o histórico do chat por esse stream (o `ola` com ingresso vale como `sala.entrar`).
+//!   (O plano original punha tudo no WebSocket; mudou para seguir o servidor de produção.)
 //! - Mensagens do WebSocket que não são `salas.lista` são entregues à sala ativa por um canal
 //!   limitado (`OnlineSession::set_route`).
 //! - Ingresso da rota direta: o espectador manda `Hello.ticket = make_ticket(direct_secret,
