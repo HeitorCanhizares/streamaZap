@@ -1,0 +1,4 @@
+[env]
+# A libopus que vem no audiopus_sys usa `cmake_minimum_required` antigo, que o CMake 4 recusa
+# (runners do GitHub e PCs atualizados). Isto mantém a configuração aceitando o arquivo antigo.
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
