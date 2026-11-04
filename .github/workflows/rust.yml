@@ -8,6 +8,7 @@ on:
       - "app/**"
       - "Cargo.toml"
       - "Cargo.lock"
+      - ".cargo/**"
       - "clippy.toml"
       - "rustfmt.toml"
       - ".github/workflows/rust.yml"
