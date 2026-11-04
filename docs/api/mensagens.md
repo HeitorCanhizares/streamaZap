@@ -52,10 +52,16 @@ type Endereco = { enderecos: string[] /* "26.12.34.56" */; porta: number; finger
 | `ola` | C→S | `protocolo`, `versao_app`, `instalacao_id`, `nome`, `cor`, `ingresso?` (Online), `sala_id?` (Local), `previa?: bool` |
 | `desafio` | S→C | `nonce` (base64, 32 bytes), `acesso` | Só no modo Local com senha |
 | `autenticar` | C→S | `hmac` = base64(HMAC-SHA256(chave = senha UTF-8, msg = nonce)) |
-| `bem_vindo` | S→C | `participante_id`, `sala: Sala`, `relogio_us` (relógio do servidor, só diagnóstico) |
+| `bem_vindo` | S→C | `participante_id`, `sala: Sala`, `relogio_us` (relógio do servidor, só diagnóstico), `segredo_midia?` (só modo Local, ver abaixo) |
 | `recusado` | S→C | `codigo`, `mensagem` | A conexão é fechada em seguida |
 
 Tempo máximo do aperto de mão: 10 s.
+
+**Modo Local, mídia de outro participante.** Quem criou a sala gera um `segredo_midia` (32 bytes
+aleatórios, base64) e o entrega em `bem_vindo` a cada membro. Para assistir a trilha de outro
+membro, o app conecta direto no `endereco` da trilha e manda `ola` com
+`sala_id` e `ingresso = base64(HMAC-SHA256(chave = segredo_midia, msg = participante_id))`. O
+publicador confere com o mesmo segredo e responde `bem_vindo` (sem `segredo_midia`).
 
 ## Salas e participantes
 

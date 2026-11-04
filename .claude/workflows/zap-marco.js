@@ -17,6 +17,7 @@ export const meta = {
 //   frentes       [{id, crate, resumo, depende_de}] — com `plano`, pula o arquiteto
 //   so_frentes    ["rate", ...] — executa só essas frentes
 //   max_paralelo  tarefas simultâneas (padrão 4; nunca duas no mesmo crate)
+//   fechamento    instruções do fechamento no lugar do padrão (ex.: só verificações do front-end)
 
 const A = args || {}
 if (!A.marco) throw new Error('args.marco é obrigatório (ex.: "M1")')
@@ -112,9 +113,10 @@ if (A.plano && A.frentes) {
 const frentes = A.so_frentes ? plano.frentes.filter((f) => A.so_frentes.includes(f.id)) : plano.frentes
 log(`Frentes: ${frentes.map((f) => f.id).join(', ')}`)
 
-// ── 2. Decompor (Sonnet) ──────────────────────────────────────────────
-// Uma frente só é decomposta depois das frentes de que depende: o esqueleto dela usa os tipos
-// delas, e as tarefas podem depender das tarefas delas.
+// ── 2+3. Decompor (Sonnet) e Implementar (Haiku → revisão Sonnet) em esteira ──
+// Uma frente só é decomposta depois das frentes de que depende (o esqueleto dela usa os tipos
+// delas e as tarefas podem depender das tarefas delas). As tarefas de uma frente entram na agenda
+// assim que ela é decomposta: a implementação de `proto` não espera a decomposição de `net`.
 phase('Decompor')
 const decomp = {}
 const visitando = new Set()
@@ -138,22 +140,7 @@ function decompor(f) {
   })
   return decomp[f.id]
 }
-const decomposicoes = await Promise.all(frentes.map(decompor))
-const tarefas = new Map()
-decomposicoes.forEach((r, i) => {
-  if (!r) return log(`⚠ frente ${frentes[i].id}: decompositor sem resposta (pulada)`)
-  if (!r.esqueleto_ok) log(`⚠ frente ${frentes[i].id}: esqueleto não compilou (${r.notas || 'sem notas'})`)
-  r.tarefas.forEach((t) => tarefas.set(t.id, t))
-})
-for (const t of tarefas.values()) {
-  const desconhecidas = t.depende_de.filter((d) => !tarefas.has(d))
-  if (desconhecidas.length) log(`${t.id}: dependências ignoradas (não existem): ${desconhecidas.join(', ')}`)
-  t.depende_de = t.depende_de.filter((d) => tarefas.has(d))
-}
-log(`${tarefas.size} tarefas (${[...tarefas.values()].filter((t) => t.nivel === 'sonnet').length} de nível sonnet)`)
 
-// ── 3. Implementar (Haiku, revisão Sonnet, escalonamento) ────────────
-phase('Implementar')
 async function executar(t) {
   const modelo = t.nivel === 'sonnet' ? 'sonnet' : 'haiku'
   const acima = modelo === 'sonnet' ? 'opus' : 'sonnet'
@@ -194,14 +181,32 @@ async function executar(t) {
   }
 }
 
-// Agenda: respeita depende_de, no máximo MAX ao mesmo tempo e nunca duas tarefas no mesmo crate
-// (compilam o mesmo alvo; um arquivo pela metade de uma quebraria a verificação da outra).
+// Agenda única: decomposições e tarefas disputam o mesmo `Promise.race`. Regras: respeita
+// depende_de, no máximo MAX tarefas ao mesmo tempo e nunca duas no mesmo crate (compilam o mesmo
+// alvo; um arquivo pela metade de uma quebraria a verificação da outra).
+const tarefas = new Map()
 const feitas = new Set()
 const falhas = new Set()
 const ocupados = new Set()
 const rodando = new Map()
 const resultados = []
-while (feitas.size + falhas.size < tarefas.size) {
+const emDecomposicao = new Map(
+  frentes.map((f) => [f.id, decompor(f).then((r) => ({ decomp: true, f, r }))]),
+)
+function acolher(f, r) {
+  if (!r) return log(`⚠ frente ${f.id}: decompositor sem resposta (pulada)`)
+  if (!r.esqueleto_ok) log(`⚠ frente ${f.id}: esqueleto não compilou (${r.notas || 'sem notas'})`)
+  for (const t of r.tarefas) {
+    const desconhecidas = t.depende_de.filter((d) => !tarefas.has(d) && !r.tarefas.some((x) => x.id === d))
+    if (desconhecidas.length) log(`${t.id}: dependências ignoradas (não existem): ${desconhecidas.join(', ')}`)
+    t.depende_de = t.depende_de.filter((d) => !desconhecidas.includes(d))
+    tarefas.set(t.id, t)
+  }
+  const sonnet = r.tarefas.filter((t) => t.nivel === 'sonnet').length
+  log(`frente ${f.id}: ${r.tarefas.length} tarefas (${sonnet} de nível sonnet)`)
+}
+const pendentes = () => [...tarefas.values()].filter((t) => !feitas.has(t.id) && !falhas.has(t.id))
+while (emDecomposicao.size || pendentes().length) {
   for (const t of tarefas.values()) {
     if (rodando.size >= MAX) break
     if (feitas.has(t.id) || falhas.has(t.id) || rodando.has(t.id) || ocupados.has(t.crate)) continue
@@ -219,8 +224,8 @@ while (feitas.size + falhas.size < tarefas.size) {
         .then((r) => ({ t, r })),
     )
   }
-  if (rodando.size === 0) {
-    const presas = [...tarefas.values()].filter((t) => !feitas.has(t.id) && !falhas.has(t.id))
+  if (rodando.size === 0 && emDecomposicao.size === 0) {
+    const presas = pendentes()
     if (!presas.length) break
     log(`⚠ ${presas.length} tarefas presas em dependências: ${presas.map((t) => t.id).join(', ')}`)
     presas.forEach((t) => {
@@ -229,7 +234,13 @@ while (feitas.size + falhas.size < tarefas.size) {
     })
     break
   }
-  const { t, r } = await Promise.race(rodando.values())
+  const ev = await Promise.race([...emDecomposicao.values(), ...rodando.values()])
+  if (ev.decomp) {
+    emDecomposicao.delete(ev.f.id)
+    acolher(ev.f, ev.r)
+    continue
+  }
+  const { t, r } = ev
   rodando.delete(t.id)
   ocupados.delete(t.crate)
   ;(r.ok ? feitas : falhas).add(t.id)
@@ -237,11 +248,13 @@ while (feitas.size + falhas.size < tarefas.size) {
   log(`${r.ok ? '✓' : '✗'} ${t.id} (${r.por}, ${r.veredito}) — ${feitas.size}/${tarefas.size}`)
 }
 
+
 // ── 4. Integrar (Sonnet) ──────────────────────────────────────────────
 phase('Integrar')
 const fechamento = await agent(
-  `${papel('zap-revisor')}\n\nFechamento do marco ${A.marco} (plano ${plano.plano}). Faça a parte ` +
-    `"Fechamento de marco" do seu papel.\n\nResultado das tarefas:\n${json(resultados)}`,
+  `${papel('zap-revisor')}\n\nFechamento do marco ${A.marco} (plano ${plano.plano}). ` +
+    (A.fechamento || 'Faça a parte "Fechamento de marco" do seu papel.') +
+    `\n\nResultado das tarefas:\n${json(resultados)}`,
   { label: 'integração', phase: 'Integrar', model: 'sonnet', schema: FECHAMENTO_SCHEMA },
 )
 return { plano: plano.plano, tarefas: resultados, fechamento }

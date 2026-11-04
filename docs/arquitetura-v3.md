@@ -53,7 +53,11 @@ crates/
   zap-proto/   tipos e formatos do protocolo (sem I/O, sem plataforma)
   zap-rate/    algoritmos de qualidade/latência (sem I/O, determinísticos, simuláveis)
   zap-net/     QUIC (quinn), descoberta LAN, cliente do servidor Online
-  zap-media/   captura, conversão, codificação, câmera, áudio (Windows) + backend sintético (testes)
+  zap-gpu/     dispositivo D3D11, texturas, conversor BGRA/NV12 → NV12 (Video Processor)
+  zap-capture/ monitor (DXGI), janela (WGC), câmera (MF Source Reader), listas
+  zap-encode/  H.264 por Media Foundation (MFT de hardware e de software)
+  zap-audio/   Opus, loopback por app (WASAPI), saída com mixer lock-free
+  zap-media/   pipelines de vídeo/áudio (threads, camadas) + backend sintético (testes)
   zap-sys/     integração com o Windows: firewall, interfaces de rede, Radmin/VPN
   zap-core/    orquestração: sala, publicação, assinatura, threads, estado para a interface
 app/
@@ -70,17 +74,22 @@ streamazap/            app Python atual (fica até a v3 atingir paridade, marco 
 
 ```
 zap-proto  ←  zap-rate  ←  zap-net  ←  zap-core  ←  app/src-tauri
-                              ↑            ↑
-                          zap-sys      zap-media
+                                          ↑    ↑
+                                    zap-sys    zap-media ← zap-capture ← zap-gpu
+                                                         ← zap-encode  ← zap-gpu
+                                                         ← zap-audio
 ```
 
 - `zap-proto` e `zap-rate` **não** dependem de tokio, quinn nem `windows`. Todo algoritmo recebe o
-  tempo como parâmetro (`Instant`/`Duration` injetados), para poder ser testado com relógio
-  simulado.
-- Código específico do Windows fica atrás de `#[cfg(windows)]`, só em `zap-media` e `zap-sys`.
-  Os dois têm um backend `synthetic`/`stub` que compila em Linux, para os testes de ponta a ponta
-  da rede rodarem no CI Linux.
-- `unsafe` só em `zap-media` e `zap-sys`, sempre com um comentário `// SAFETY:`.
+  tempo como parâmetro (`Us`, microssegundos), para poder ser testado com relógio simulado.
+- Código específico do Windows fica atrás de `#[cfg(windows)]`, só em `zap-gpu`, `zap-capture`,
+  `zap-encode`, `zap-audio` e `zap-sys`. Todos compilam em Linux (stub), e `zap-media` tem um
+  backend sintético, para os testes de ponta a ponta rodarem no CI Linux.
+- `unsafe` só nesses crates do Windows, sempre com um comentário `// SAFETY:`.
+- Por que tantos crates de mídia: isolam o `unsafe`, compilam mais rápido e deixam a hierarquia de
+  agentes trabalhar em paralelo (nunca há duas tarefas no mesmo crate ao mesmo tempo).
+- Monitor inteiro é capturado por DXGI Desktop Duplication (sem a borda amarela que o WGC desenha
+  no Windows 10); janela, por WGC.
 
 ## 4. Modelo de dados
 

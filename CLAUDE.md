@@ -26,7 +26,11 @@ Trabalho pequeno (um bug, um ajuste) não precisa da hierarquia: faça direto.
 crates/zap-proto   tipos e formatos do protocolo (sem I/O)
 crates/zap-rate    algoritmos de qualidade/latência + simulador de enlace (sem I/O)
 crates/zap-net     QUIC (quinn), descoberta LAN, cliente da API do servidor
-crates/zap-media   captura/conversão/codificação/câmera/áudio (Windows) + backend sintético
+crates/zap-gpu     D3D11, texturas, conversor para NV12 (Windows)
+crates/zap-capture monitor (DXGI), janela (WGC), câmera (Windows)
+crates/zap-encode  H.264 por Media Foundation (Windows)
+crates/zap-audio   Opus, loopback por app e saída de áudio
+crates/zap-media   pipelines de vídeo/áudio + backend sintético
 crates/zap-sys     firewall, interfaces de rede, Radmin/VPN (Windows)
 crates/zap-core    orquestração da sala, threads, estado para a interface
 app/src-tauri      app Tauri (comandos, eventos, updater)
@@ -34,7 +38,7 @@ app/src            interface React + TypeScript
 ```
 
 Dependências só descem: `proto ← rate ← net ← core ← app`; `media` e `sys` só são usados por
-`core`. `zap-proto` e `zap-rate` não usam tokio, quinn nem `windows`: algoritmos recebem o tempo
+`core`; `gpu`, `capture`, `encode` e `audio` só por `media`. `zap-proto` e `zap-rate` não usam tokio, quinn nem `windows`: algoritmos recebem o tempo
 como parâmetro.
 
 ## Convenções
