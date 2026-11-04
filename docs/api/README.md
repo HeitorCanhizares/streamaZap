@@ -115,4 +115,8 @@ WebSocket/QUIC: mensagem `erro` com os mesmos códigos.
 | `proibido` | 403 | ação só do dono (ex.: encerrar sala) |
 | `limite` | 429 | limite de requisições/mensagens (traz `tentar_em_ms`) |
 | `invalido` | 400 | corpo fora do formato (traz `campo`) |
+| `nao_encontrado` | 404 | caminho REST inexistente |
 | `interno` | 500 | erro no servidor |
+
+No WebSocket e no QUIC, a mensagem `erro` traz os mesmos campos extras (`campo`, `tentar_em_ms`,
+`protocolo_min`/`protocolo_max`) e repete o `ref` do pedido.

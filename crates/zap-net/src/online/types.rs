@@ -420,6 +420,12 @@ mod tests {
         let r: JoinResponse = serde_json::from_value(v).unwrap();
         assert!(r.media.bridge.is_none());
         assert!(!r.media.direct_allowed);
+
+        // O servidor de produção com `--sem-ponte` manda `"ponte": null` (não omite o campo).
+        let mut v: Value = serde_json::from_str(&body).unwrap();
+        v["midia"]["ponte"] = Value::Null;
+        let r: JoinResponse = serde_json::from_value(v).unwrap();
+        assert!(r.media.bridge.is_none());
     }
 
     #[test]

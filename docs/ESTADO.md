@@ -66,9 +66,12 @@ transmitir: falta uma conversão para NV12 pela CPU (próximo passo do M2).
 2. **Teste num PC com GPU**: `cd app && npm install && npm run tauri dev`; criar sala, entrar de
    outro PC (Radmin/LAN), compartilhar tela e câmera. E a bancada de mídia
    (`cargo run -p zap-media --example bancada -- --monitor 1 --preset 1080p60 --segundos 10`).
-3. **Servidor Online**: o contrato está em `docs/api/` (comece pelo `README.md` e pela seção 6 de
-   `balanceamento.md`). O servidor de teste em `crates/zap-test-server` serve de referência quando
-   o M4 for concluído.
+3. **Servidor Online**: o servidor de produção já existe e segue o contrato de `docs/api/`. Os
+   detalhes onde a especificação deixava margem foram registrados lá. Ele é mantido à parte, num
+   repositório privado, e o app fala com ele só como cliente, em
+   `streamazap.heitorcanhizares.net:7443`. Como o repositório é privado, o CI do app não consegue
+   usá-lo. Para os testes do M4 há duas saídas, ainda a decidir: terminar o `crates/zap-test-server`
+   ou rodar testes contra o servidor real fora do CI.
 4. **Antes da primeira release da v3 (M6)**: parar o `build.yml` do Python de publicar Releases no
    `master`; senão a "última release" volta a ser a do Python e o updater da v3 não acha o
    `latest.json`.

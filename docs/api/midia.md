@@ -8,7 +8,9 @@ Toda mídia (vídeo, áudio) anda em QUIC com ALPN **`zap/4`**, com estes papéi
 | Online, ponte | o app (publica e/ou assiste na mesma conexão) | servidor streamaZap (UDP 7443) |
 | Online, direta | quem assiste | quem publica |
 
-Uma conexão leva **todas** as trilhas entre os dois lados, nos dois sentidos.
+Uma conexão leva **todas** as trilhas entre os dois lados, nos dois sentidos. No modo Online, cada
+participante tem uma conexão de mídia com o servidor: uma conexão nova substitui a antiga. O
+servidor manda `ping` de controle a cada 2 s nessa conexão.
 
 ## Parâmetros de transporte
 
@@ -125,7 +127,9 @@ Como isso divide o trabalho:
   pronto. O servidor só precisa usar o número (ver [`balanceamento.md`](balanceamento.md)).
 - **Subida (publicador → servidor)**: o servidor só registra chegadas e manda `chegadas` e `perda`
   ao publicador, que roda o mesmo estimador do lado dele. O servidor **não precisa** implementar
-  estimador de banda.
+  estimador de banda. O `relatorio` do servidor só sai quando houve chegadas, sondas ou perdas, e
+  não traz `banda_kbps` nem `estado`.
+- **Sondas**: a ponte não manda sondas para quem assiste. O estimador do app sobe a banda sozinho.
 
 ## Ponte (servidor) — o que repassar
 

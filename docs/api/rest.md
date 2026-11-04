@@ -3,6 +3,9 @@
 Base: `https://<servidor>:7443/v1`. Corpo e resposta em JSON. Autenticação por
 `Authorization: Bearer <token>`, menos em `GET /info` e `POST /sessoes`.
 
+`{codigo}` nos caminhos aceita o id (`s_…`) ou o código de convite em qualquer forma: `ZAP-7K2Q`,
+`zap-7k2q` ou só `7K2Q`. Caminho inexistente → `404 {"erro": "nao_encontrado"}`.
+
 ## `GET /v1/info`
 
 Usado pelo botão **Testar conexão** e antes de toda sessão.
@@ -86,7 +89,9 @@ Cria uma sala. Quem cria vira dono.
 ```
 Resposta `201`: `{ "sala": { …mesmo formato da lista… } }` (inclui o `codigo`).
 
-A sala some 2 min depois que o último participante sai.
+- `nome`: 1 a 48 caracteres; `senha`: 1 a 128.
+- Quem cria já fica autorizado na sala: pode mandar `sala.entrar` sem chamar `POST …/entrar`.
+- A sala some 2 min depois que o último participante sai.
 
 ## `GET /v1/salas/{codigo}`
 
@@ -117,9 +122,13 @@ Resposta `200`:
 O `ingresso` vai na mensagem `ola` da conexão QUIC (ver [`midia.md`](midia.md)). Renovar: chamar
 `entrar` de novo (idempotente).
 
+Servidor sem ponte (`ponte: false` em `/info`): `midia.ponte` vem `null`. O cliente deve aceitar
+`null` ou o campo ausente.
+
 ## `POST /v1/salas/{codigo}/sair`
 
-Sem corpo. `204`. O WebSocket recebe `sala.saiu`.
+Sem corpo. `204`. O WebSocket recebe `sala.saiu`. Sair tira a autorização e invalida os ingressos
+dessa sala: para voltar, é preciso chamar `entrar` de novo. Quem criou a sala continua autorizado.
 
 ## `DELETE /v1/salas/{codigo}`
 
@@ -132,6 +141,12 @@ Só salas `aberta`. Resposta:
 { "ingresso": "…", "expira_em": "…", "midia": { "ponte": { "endereco": "…", "alpn": "zap/4" } } }
 ```
 Com esse ingresso o app só pode assinar a **camada 2** das trilhas de vídeo (sem áudio, sem chat).
+
+- Servidor sem ponte: `403 {"erro": "proibido"}` (não há prévia sem ponte).
+- A conexão QUIC de prévia recebe `sala.estado` (sem histórico do chat). Só pode assinar vídeo, e
+  sempre recebe a camada mais barata (teto 2). Qualquer outra coisa → `erro` `proibido`.
+- Chamar `previa` de novo estende também a conexão de prévia já aberta. Sem renovação, ela é
+  fechada 5 s depois de vencer.
 
 ## `GET /v1/diagnostico`
 

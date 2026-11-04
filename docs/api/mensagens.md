@@ -11,6 +11,17 @@ Toda mensagem é um objeto com o campo `t` (tipo). Pedidos que esperam resposta 
 Direção: **C→S** = app para servidor (ou para quem criou a sala, no modo Local);
 **S→C** = o contrário.
 
+### Canal de cada mensagem (modo Online)
+
+No modo Online o app tem dois canais com o servidor: o WebSocket e o stream de controle da conexão
+QUIC de mídia.
+- **C→S**: o app pode mandar qualquer mensagem por qualquer um dos dois.
+- **S→C, eventos de sala e chat**: pelo WebSocket quando ele está conectado; senão, pelo QUIC.
+- **S→C, mensagens da mídia** (`camadas.pedidas`, `keyframe.pedir`, `camada.atual`, `relatorio`):
+  **sempre** pelo QUIC.
+- **Resposta direta a um pedido** (`pong`, `erro`, `trilha.publicada` com `local_id`,
+  `chat.mensagem` com `cliente_id`): volta pelo canal do pedido, repetindo o `ref`.
+
 ## Tipos comuns
 
 ```ts
@@ -43,7 +54,11 @@ type Endereco = { enderecos: string[] /* "26.12.34.56" */; porta: number; finger
 |---|---|---|---|
 | `ping` | ambos | `ts_ms` | Responder `pong` com o mesmo `ts_ms` |
 | `pong` | ambos | `ts_ms` | RTT = agora − `ts_ms` |
-| `erro` | S→C | `codigo`, `mensagem`, `ref?` | Códigos em [`README.md`](README.md#erros) |
+| `erro` | S→C | `codigo`, `mensagem`, `ref?`, e os extras do REST (`campo`, `tentar_em_ms`, `protocolo_min`/`protocolo_max`) | Códigos em [`README.md`](README.md#erros). Repete o `ref` do pedido que falhou |
+
+O servidor manda `ping` no WebSocket a cada 15 s (conexão morta depois de 45 s sem tráfego) e no
+QUIC a cada 2 s. A `latencia_ms` do participante vem do `pong` do QUIC; a do WebSocket só conta
+quando não há conexão QUIC.
 
 ### Aperto de mão QUIC (primeira troca no stream de controle)
 
@@ -57,6 +72,21 @@ type Endereco = { enderecos: string[] /* "26.12.34.56" */; porta: number; finger
 
 Tempo máximo do aperto de mão: 10 s.
 
+**Modo Online (conexão com o servidor).**
+- Um `ola` com ingresso de membro vale como `sala.entrar`. Logo depois do `bem_vindo`, o servidor
+  manda `sala.estado` e o histórico do chat pela própria conexão QUIC, como o dono faz no modo
+  Local. Assim o app pode funcionar só com QUIC, se quiser.
+- Uma conexão de mídia por participante: uma conexão nova substitui a antiga.
+- `recusado.codigo`:
+
+| Código | Quando |
+|---|---|
+| `nao_autenticado` | ingresso inválido ou vencido |
+| `protocolo_incompativel` | `protocolo` fora da faixa do servidor |
+| `invalido` | a primeira mensagem não é `ola` |
+| `proibido` | ingresso válido, mas o participante não está mais autorizado na sala: chamar `POST …/entrar` de novo |
+| `sala_nao_encontrada` | a sala do ingresso não existe mais |
+
 **Modo Local, mídia de outro participante.** Quem criou a sala gera um `segredo_midia` (32 bytes
 aleatórios, base64) e o entrega em `bem_vindo` a cada membro. Para assistir a trilha de outro
 membro, o app conecta direto no `endereco` da trilha e manda `ola` com
@@ -68,13 +98,14 @@ publicador confere com o mesmo segredo e responde `bem_vindo` (sem `segredo_midi
 | t | Direção | Campos | Notas |
 |---|---|---|---|
 | `salas.lista` | S→C | `salas: [...]` (formato de `GET /v1/salas`) | Só WebSocket; ao conectar e a cada mudança (máx. 1/s) |
-| `sala.entrar` | C→S | `sala_id` | Só WebSocket, depois do `POST …/entrar` |
+| `sala.entrar` | C→S | `sala_id` | WebSocket, depois do `POST …/entrar` (quem criou a sala já está autorizado e não precisa do `entrar`). No QUIC, o `ola` com ingresso faz o mesmo papel |
 | `sala.sair` | C→S | — | |
 | `sala.estado` | S→C | `sala`, `participantes: Participante[]`, `trilhas: Trilha[]` | Estado completo; depois só eventos |
-| `sala.encerrada` | S→C | `motivo`: `"dono"` \| `"vazia"` \| `"servidor"` | |
+| `sala.saiu` | S→C | `sala_id` | Só para quem saiu (`POST …/sair` ou `sala.sair`). Clientes antigos ignoram |
+| `sala.encerrada` | S→C | `motivo`: `"dono"` \| `"vazia"` (2 min sem ninguém) \| `"servidor"` (servidor desligando) | |
 | `participante.entrou` | S→C | `participante` | |
-| `participante.saiu` | S→C | `participante_id`, `motivo`: `"saiu"` \| `"caiu"` \| `"removido"` | `"caiu"` = 15 s sem conexão |
-| `participante.atualizou` | S→C | `participante` | Nome, cor, latência, quem está assistindo |
+| `participante.saiu` | S→C | `participante_id`, `motivo`: `"saiu"` \| `"caiu"` \| `"removido"` | `"caiu"` = 15 s presente na sala sem WebSocket nem QUIC |
+| `participante.atualizou` | S→C | `participante` | Mudou nome, cor ou quem está assistindo; ou a latência variou ≥ 10 ms (no máx. 1 a cada 2 s por participante) |
 | `perfil.atualizar` | C→S | `nome?`, `cor?` | |
 
 As mensagens de sistema do chat ("Ju ligou a webcam", "Marcão criou a sala") são geradas pelo
@@ -107,6 +138,12 @@ Regras:
 - Um participante tem no máximo uma trilha `tela` **ou** `janela`, uma `camera` e uma `audio`.
 - `camadas[0]` é a qualidade escolhida por quem transmite; o servidor **nunca** pede bitrate acima
   do `kbps` anunciado em cada camada.
+- `titulo` até 64 caracteres; `local_id` (e o `cliente_id` do chat) até 64.
+- Ordem: quem publica recebe `trilha.publicada` (com `local_id`) **antes** do primeiro
+  `camadas.pedidas` dessa trilha. Se ninguém estiver assistindo, esse primeiro vem com
+  `camadas: []`: não codifique nada até o servidor pedir.
+- `camadas.pedidas` cobre só quem assiste **pela ponte**. Espectadores na rota direta são alocados
+  pelo próprio publicador ([`balanceamento.md`](balanceamento.md)).
 
 ## Assinaturas (quem assiste)
 
@@ -120,6 +157,11 @@ Regras:
 
 Tamanho → teto de camada: `miniatura` = 2, `principal` = 0, `cheia` = 0.
 
+- **Áudio**: o espectador recebe o áudio de um publicador assinando a trilha `audio` dele **ou**
+  mandando `audio: true` no `assinar` de uma trilha de vídeo do mesmo publicador.
+- **`camada.atual`** sai quando o keyframe da camada nova é repassado a esse espectador: `motivo`
+  `"inicio"` na primeira vez, depois `"banda"`, `"teto"`, `"tamanho"` ou `"publicador"`.
+
 ## Rota direta (Online)
 
 | t | Direção | Campos |
@@ -132,6 +174,11 @@ Tamanho → teto de camada: `miniatura` = 2, `principal` = 0, `cheia` = 0.
 O app com `papel: "cliente"` (quem assiste) tenta conectar em todos os `enderecos` ao mesmo tempo
 por 3 s; o `"servidor"` (quem publica) manda um pacote QUIC para cada endereço do outro lado para
 abrir o NAT. Se nenhum responder, `midia.direta_falhou` e segue pela ponte.
+
+- `p2p.meus_enderecos` aceita até 16 endereços.
+- O servidor manda `p2p.candidatos` no primeiro `assinar` da trilha, se os dois lados
+  já mandaram `p2p.meus_enderecos`. Ele acrescenta à lista o endereço que viu na conexão QUIC de
+  cada um.
 
 ## Modo Local: conexão reversa
 
