@@ -1,4 +1,4 @@
-name: Rust (v3)
+name: v3 (Rust + interface)
 
 on:
   push:
@@ -56,3 +56,23 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Testes (inclui captura, codificação e áudio reais)
         run: cargo test --workspace -- --nocapture
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - name: Tipos
+        run: npm run check
+      - name: Testes
+        run: npm test
+      - name: Build
+        run: npx vite build

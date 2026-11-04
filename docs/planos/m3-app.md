@@ -16,6 +16,18 @@ nova. Modo Online fica para o M4; updater, firewall e instalador para o M5.
 
 Trava da agenda: `ui-base` e `ui-telas` usam a trava `app-ui` (o `tsc` checa o projeto inteiro).
 
+## Contrato já fixado pela interface (M3/M3b)
+
+A interface foi feita antes do núcleo. O contrato é o que está em `app/src/bridge/`:
+- `types.ts`: formato exato do `Snapshot` e dos pedidos (`Settings`, `Sources`, `CreateRoom`,
+  `ShareRequest`, `JoinTarget`). O `zap-core` serializa **esse** formato (`snake_case`), e o teste
+  `snapshot_exemplo` compara com um JSON de exemplo que a interface também testa.
+- `api.ts`: nomes e argumentos dos comandos do Tauri. A frente `tauri` implementa exatamente esses.
+- Ajustes conhecidos: `Preset` na interface é `'480p30' | '720p30' | '720p60' | '1080p60'`, mas o
+  design e o `zap-rate` usam `720p30 | 720p60 | 1080p30 | 1080p60` → trocar na interface. O
+  `RoomView`/`TileView` precisam crescer para o que a tela da sala ainda não mostra (tiles de cada
+  participante com volume, código da sala e "Copiar convite").
+
 ---
 
 ## Frente `core` (`crates/zap-core`)
