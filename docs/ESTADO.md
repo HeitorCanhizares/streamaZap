@@ -45,8 +45,8 @@ entregam essas mensagens ao tratamento de `room_events`.
 **Endereço do servidor.** O de produção é `https://streamazap.heitorcanhizares.net:7443`, **sem
 `/v1`**: o `ServerClient` acrescenta `/v1` sozinho. Só `Core::start` grava
 `settings::PRODUCTION_SERVER` na primeira execução; `CoreOptions::default()` tem
-`default_server: None`, então nenhum teste fala com o servidor de produção. O servidor não exige
-senha por enquanto (`requer_senha: false`).
+`default_server: None`, então nenhum teste fala com o servidor de produção. O servidor **exige senha**
+desde 2026-11-05 (`requer_senha: true`), e o app ainda não a pede (ver "Próximos passos").
 
 ### 2. Teste num PC com GPU (M2)
 
@@ -274,9 +274,22 @@ mídia, com leitura de volta. O teste de tamanho passa.
 
 ### O que o servidor de produção precisa mudar
 
-O servidor de produção (repositório privado) segue o contrato antigo. Para o app novo funcionar
-como no servidor de teste, ele precisa de cinco mudanças. A referência em código é o
-`zap-test-server`, com `zap-rate::probe` e `zap-net::{probe, media_tx}`.
+**Feito: os cinco itens abaixo estão em produção desde 2026-11-05 ~21:00 UTC** (commit `7841e2b` do
+repositório do servidor, crates `zap-proto`/`zap-rate`/`zap-net` fixados em `51bc222`; recado da
+sessão do servidor). Diferenças e detalhes:
+- sondagem: um `Prober` por conexão de membro, no mesmo `MediaSender` do repasse; a necessidade leva
+  a reserva do alocador (áudio + outras trilhas), não 0 como no `zap-test-server`;
+- tolerância de 5 s: a ponte guarda camada, histerese, assinaturas e banda de quem caiu; a reconexão
+  do mesmo participante herda isso e recebe keyframe + `camada.atual` de novo. Depois de 5 s sem
+  QUIC (corte entre 5 e 6 s), mesmo com o WebSocket vivo, as trilhas e as assinaturas saem e a pessoa
+  segue na sala;
+- 21 testes no CI do servidor (inclusive as sondas levando o espectador da ponte à camada 0 e as
+  quedas curta e longa). Falta rodar a prova contra a produção (`prova_producao <host>:7443 20
+  estimador` no repositório do servidor; precisa da senha do servidor).
+
+O texto original, para referência: o servidor de produção (repositório privado) seguia o contrato
+antigo e, para o app novo funcionar como no servidor de teste, precisava de cinco mudanças. A
+referência em código é o `zap-test-server`, com `zap-rate::probe` e `zap-net::{probe, media_tx}`.
 
 1. **Sondar quem assiste pela ponte** (`docs/api/balanceamento.md` §4). Rajadas de 200 ms em
    degraus: 1,5 × a taxa medida, ou 1,25 × depois de saturar. A medida vem do próprio
@@ -297,16 +310,19 @@ como no servidor de teste, ele precisa de cinco mudanças. A referência em cód
    controle QUIC da ponte. O `relatorio` sai quando houve chegadas, sondas ou perdas.
 
 ### Próximos passos
-1. **Backlog do modo Online** (decisão do dono em 2026-11-05: analisar depois). Lado do servidor
-   em `BACKLOG.md` do repositório do servidor (commit `d6d1f30`). Levantamento da sessão do
-   servidor contra o app em `1029f5b`:
-   - servidor: atualizar os crates fixados (hoje `26e8031`; compila sem mudanças e traz o prazo do
-     keyframe), portar a sondagem pela ponte (`zap-test-server/src/probe.rs`) e completar a
-     tolerância de 5 s; o envio por conexão e os canais já existem; o `DELETE` do dono funciona;
-   - senha: o servidor exige senha desde 2026-11-05 (`requer_senha: true`) e ela fica; o app deve
-     pedir a senha ao receber `401 senha_servidor` em `POST /v1/sessoes` (hoje só falha) e, mais
-     tarde, um link de convite que leve servidor, código e senha;
-   - depois: teste do app com o servidor entre dois PCs.
+1. **Modo Online, lado do app** (o servidor já está pronto, ver acima; decisão do dono em
+   2026-11-05: analisar depois):
+   - senha: o servidor exige senha (`requer_senha: true`) e ela fica; o app deve pedir a senha ao
+     receber `401 senha_servidor` em `POST /v1/sessoes` (hoje só falha) e, mais tarde, um link de
+     convite que leve servidor, código e senha;
+   - estimador na reconexão (achado da sessão do servidor, lido no código, não medido):
+     `PubConn::assemble` (`zap-core/src/subscribe/pool.rs`) cria um `ReportBuilder::new(true)` novo a
+     cada conexão da ponte; o estimador começa em 1000 kbps e sobe no máximo 1,5×/s. Numa
+     reconexão o servidor guarda a camada, mas o primeiro `relatorio` diz ~1000 kbps e a histerese
+     de descida (500 ms) derruba quem estava na camada 0/1, que depois sobe de novo pelas sondas (o
+     `zap-test-server` faz igual). Sugestão: começar o estimador da conexão nova com a última
+     estimativa da antiga;
+   - depois: a prova contra a produção e o teste do app com o servidor entre dois PCs.
 2. Entrega de memória ao codificador de software (portão aberto); medir o caminho pela CPU num PC
    de usuário sem Video Processor.
 3. M6: remover `streamazap/`, o `build.yml` e o `ci.yml` do Python.

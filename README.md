@@ -67,8 +67,9 @@ cheia, **Esc** sai da tela cheia, **M** silencia a sala, **C** liga ou desliga a
 
 ### Modo Online
 
-O modo **Online** (salas pelo servidor, com código, sem precisar de Radmin) está pronto no app, mas
-o servidor ainda não foi atualizado para a v3. Por enquanto, use o modo **Local**.
+O modo **Online** (salas pelo servidor, com código, sem precisar de Radmin) está quase pronto: o
+servidor já foi atualizado para a v3, mas ele pede uma senha que o app ainda não sabe pedir. Por
+enquanto, use o modo **Local**.
 
 ## Como funciona
 
