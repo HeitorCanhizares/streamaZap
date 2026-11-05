@@ -1,4 +1,4 @@
-use crate::{AdapterInfo, GpuError, Vendor};
+use crate::{AdapterInfo, FormatSupport, GpuError, PixelFormat, Vendor};
 use windows::core::Interface;
 use windows::Win32::Foundation::{E_INVALIDARG, HMODULE};
 use windows::Win32::Graphics::Direct3D::{
@@ -6,8 +6,11 @@ use windows::Win32::Graphics::Direct3D::{
 };
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Multithread, ID3D11VideoContext, ID3D11VideoDevice,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_SDK_VERSION,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_FORMAT_SUPPORT,
+    D3D11_FORMAT_SUPPORT_CPU_LOCKABLE, D3D11_FORMAT_SUPPORT_RENDER_TARGET, D3D11_FORMAT_SUPPORT_TEXTURE2D,
+    D3D11_FORMAT_SUPPORT_VIDEO_PROCESSOR_INPUT, D3D11_FORMAT_SUPPORT_VIDEO_PROCESSOR_OUTPUT, D3D11_SDK_VERSION,
 };
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12};
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, IDXGIAdapter, IDXGIAdapter1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_ERROR_NOT_FOUND,
 };
@@ -148,6 +151,36 @@ impl GpuDevice {
     pub fn create_for_adapter(luid: i64) -> Result<Self, GpuError> {
         let adapter = achar_adaptador(|d| luid_de(d) == luid)?;
         Self::create(adapter.clone(), true).or_else(|_| Self::create(adapter, false))
+    }
+
+    /// Primeiro adaptador com `DXGI_ADAPTER_FLAG_SOFTWARE` ("Microsoft Basic Render Driver", WARP),
+    /// criado sem vídeo. Existe em todo Windows 10/11; serve para testar o caminho sem Video
+    /// Processor num PC que tem um.
+    pub fn create_basic() -> Result<Self, GpuError> {
+        let adapter = achar_adaptador(|d| (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0)?;
+        // Nunca com vídeo: o objetivo é exercitar o caminho sem Video Processor.
+        Self::create(adapter, false)
+    }
+
+    /// `ID3D11Device::CheckFormatSupport`; em erro, tudo `false`.
+    pub fn format_support(&self, format: PixelFormat) -> FormatSupport {
+        let dxgi = match format {
+            PixelFormat::Bgra8 => DXGI_FORMAT_B8G8R8A8_UNORM,
+            PixelFormat::Nv12 => DXGI_FORMAT_NV12,
+        };
+        // SAFETY: `device` é um objeto COM válido; a chamada só consulta o driver.
+        let bits = match unsafe { self.device.CheckFormatSupport(dxgi) } {
+            Ok(b) => b,
+            Err(_) => return FormatSupport::default(),
+        };
+        let tem = |f: D3D11_FORMAT_SUPPORT| (bits & f.0 as u32) != 0;
+        FormatSupport {
+            texture2d: tem(D3D11_FORMAT_SUPPORT_TEXTURE2D),
+            render_target: tem(D3D11_FORMAT_SUPPORT_RENDER_TARGET),
+            cpu_lockable: tem(D3D11_FORMAT_SUPPORT_CPU_LOCKABLE),
+            video_processor_input: tem(D3D11_FORMAT_SUPPORT_VIDEO_PROCESSOR_INPUT),
+            video_processor_output: tem(D3D11_FORMAT_SUPPORT_VIDEO_PROCESSOR_OUTPUT),
+        }
     }
 
     fn create(adapter: IDXGIAdapter1, com_video: bool) -> Result<Self, GpuError> {
@@ -306,6 +339,57 @@ mod tests {
         drop(guarda);
         let _ = a.join();
         assert!(espera >= std::time::Duration::from_millis(60), "espera = {espera:?}");
+    }
+
+    #[test]
+    fn format_support_bgra_basico() {
+        let Ok(dev) = GpuDevice::create_default() else {
+            eprintln!("pulando: sem GPU");
+            return;
+        };
+        let s = dev.format_support(PixelFormat::Bgra8);
+        assert!(s.texture2d && s.render_target, "{s:?}");
+    }
+
+    #[test]
+    fn format_support_nv12_texture() {
+        let Ok(dev) = GpuDevice::create_default() else {
+            eprintln!("pulando: sem GPU");
+            return;
+        };
+        let s = dev.format_support(PixelFormat::Nv12);
+        assert!(s.texture2d, "{s:?}");
+        if dev.has_video() {
+            assert!(s.video_processor_output, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn create_basic_sem_video() {
+        match GpuDevice::create_basic() {
+            Ok(d) => {
+                assert!(!d.has_video());
+                let nome = d.adapter().name.to_lowercase();
+                assert!(
+                    d.adapter().vendor == Vendor::Microsoft || nome.contains("basic") || nome.contains("warp"),
+                    "adaptador = {:?}",
+                    d.adapter()
+                );
+            }
+            Err(GpuError::AdapterNotFound) => eprintln!("PULANDO: sem adaptador de software"),
+            Err(e) => panic!("erro inesperado: {e}"),
+        }
+    }
+
+    #[test]
+    fn format_support_basico_nv12_cpu_lockable() {
+        let Ok(dev) = GpuDevice::create_basic() else {
+            eprintln!("PULANDO: sem adaptador de software");
+            return;
+        };
+        let s = dev.format_support(PixelFormat::Nv12);
+        assert!(s.texture2d && s.cpu_lockable, "{s:?}");
+        assert!(!s.video_processor_input && !s.video_processor_output, "{s:?}");
     }
 
     fn assert_clone<T: Clone>() {}

@@ -53,6 +53,33 @@ impl PixelFormat {
     }
 }
 
+/// O que o dispositivo permite fazer com um formato (`ID3D11Device::CheckFormatSupport`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FormatSupport {
+    pub texture2d: bool,
+    pub render_target: bool,
+    pub cpu_lockable: bool,
+    pub video_processor_input: bool,
+    pub video_processor_output: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReadbackTiming {
+    /// Do `CopyResource` ao `Map` que deu certo (µs): cópia na GPU + espera.
+    pub copy_wait_us: f64,
+    /// Soma das esperas pelo lock do dispositivo nas chamadas desta leitura (µs).
+    pub lock_wait_us: f64,
+    /// Tentativas de `Map`.
+    pub map_attempts: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UploadTiming {
+    /// Soma das esperas pelo lock (`Map`, `Unmap`, `CopyResource`) (µs).
+    pub lock_wait_us: f64,
+    pub map_attempts: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

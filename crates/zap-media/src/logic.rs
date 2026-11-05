@@ -1,3 +1,35 @@
+/// Resultado de `escolher_conversor`.
+#[allow(dead_code)] // usado só no Windows (win_video) e nos testes
+pub(crate) enum Escolhido<T> {
+    Gpu(T),
+    /// `motivo`: texto do erro que levou à CPU (`None` = a CPU foi pedida).
+    Cpu {
+        motivo: Option<String>,
+    },
+}
+
+/// `Auto`: chama `tentar_gpu`; `Ok` -> `Gpu`; qualquer erro -> `Cpu` com o texto do erro.
+/// `Gpu`: `Ok` -> `Gpu`; erro -> `Err` (sobe). `Cpu`: não chama `tentar_gpu`; `Cpu { motivo: None }`.
+#[allow(dead_code)] // usado só no Windows (win_video) e nos testes
+pub(crate) fn escolher_conversor<T>(
+    modo: crate::ConversionSpec,
+    tentar_gpu: impl FnOnce() -> Result<T, zap_gpu::GpuError>,
+) -> Result<Escolhido<T>, zap_gpu::GpuError> {
+    match modo {
+        // Auto: qualquer falha do Video Processor (Unsupported, Os, ...) vira fallback para a CPU.
+        crate::ConversionSpec::Auto => match tentar_gpu() {
+            Ok(t) => Ok(Escolhido::Gpu(t)),
+            Err(e) => Ok(Escolhido::Cpu {
+                motivo: Some(e.to_string()),
+            }),
+        },
+        // Gpu: nunca cai para a CPU; o erro sobe para quem chamou.
+        crate::ConversionSpec::Gpu => tentar_gpu().map(Escolhido::Gpu),
+        // Cpu: a GPU nem é tentada.
+        crate::ConversionSpec::Cpu => Ok(Escolhido::Cpu { motivo: None }),
+    }
+}
+
 /// Tamanho em bytes de um quadro sintético. Quadro não-chave: `kbps * 1000 / 8 / fps` bytes;
 /// keyframe: 8x isso. Mínimo 16 bytes. `fps == 0` conta como 1.
 pub fn synthetic_frame_size(kbps: u32, fps: u32, keyframe: bool) -> usize {
@@ -243,5 +275,64 @@ mod tests {
         assert_eq!(s.avg(), 0.0);
         assert_eq!(s.p95(), 0.0);
         assert_eq!(s.stage(), crate::StageStats::default());
+    }
+}
+
+#[cfg(test)]
+mod escolha {
+    use super::*;
+    use crate::ConversionSpec;
+    use zap_gpu::GpuError;
+
+    #[test]
+    fn auto_com_ok_fica_na_gpu() {
+        let r = escolher_conversor(ConversionSpec::Auto, || Ok::<u32, GpuError>(7));
+        assert!(matches!(r, Ok(Escolhido::Gpu(7))));
+    }
+
+    #[test]
+    fn auto_com_unsupported_cai_para_cpu() {
+        let r = escolher_conversor(ConversionSpec::Auto, || Err::<u32, GpuError>(GpuError::Unsupported));
+        match r {
+            Ok(Escolhido::Cpu { motivo: Some(m) }) => assert!(!m.is_empty()),
+            _ => panic!("esperava Cpu com motivo"),
+        }
+    }
+
+    #[test]
+    fn auto_com_os_cai_para_cpu() {
+        let r = escolher_conversor(ConversionSpec::Auto, || {
+            Err::<u32, GpuError>(GpuError::Os {
+                context: "x",
+                message: "y".into(),
+            })
+        });
+        match r {
+            Ok(Escolhido::Cpu { motivo: Some(m) }) => assert!(m.contains("y")),
+            _ => panic!("esperava Cpu com motivo contendo o erro"),
+        }
+    }
+
+    #[test]
+    fn gpu_com_ok() {
+        let r = escolher_conversor(ConversionSpec::Gpu, || Ok::<u32, GpuError>(3));
+        assert!(matches!(r, Ok(Escolhido::Gpu(3))));
+    }
+
+    #[test]
+    fn gpu_com_unsupported_sobe_erro() {
+        let r = escolher_conversor(ConversionSpec::Gpu, || Err::<u32, GpuError>(GpuError::Unsupported));
+        assert!(matches!(r, Err(GpuError::Unsupported)));
+    }
+
+    #[test]
+    fn cpu_nao_chama_a_closure() {
+        let chamou = std::cell::Cell::new(false);
+        let r = escolher_conversor(ConversionSpec::Cpu, || {
+            chamou.set(true);
+            Ok::<u32, GpuError>(1)
+        });
+        assert!(!chamou.get());
+        assert!(matches!(r, Ok(Escolhido::Cpu { motivo: None })));
     }
 }

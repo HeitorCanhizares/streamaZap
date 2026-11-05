@@ -1,14 +1,18 @@
 //! Bancada de medição (Windows): `cargo run -p zap-media --example bancada -- --monitor 1
-//! --preset 1080p60 --segundos 10`. Ver tarefa media-08.
+//! --preset 1080p60 --segundos 10` (opções: `--conversao auto|gpu|cpu`, `--software`).
 //!
 //! Liga todas as camadas da escada de um monitor, conta quadros e bytes por camada e imprime os
 //! tempos de cada etapa do pipeline. Fora do Windows só imprime um aviso.
 //! Os argumentos são lidos à mão (sem crate nova), em `parse_args`, que é função pura e testável.
 #![cfg_attr(not(windows), allow(dead_code))]
 
+#[cfg(windows)]
+mod cpu_tempo;
+
+use zap_media::ConversionSpec;
 use zap_rate::ladder::Preset;
 
-const USO: &str = "uso: bancada [--monitor N] [--preset 720p30|720p60|1080p30|1080p60] [--segundos S] [--software] [--animar|--sem-animar] [--aquecimento S]";
+const USO: &str = "uso: bancada [--monitor N] [--preset 720p30|720p60|1080p30|1080p60] [--segundos S] [--software] [--animar|--sem-animar] [--aquecimento S] [--conversao auto|gpu|cpu]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Args {
@@ -22,6 +26,8 @@ struct Args {
     animar: bool,
     /// Segundos de aquecimento antes de contar quadros (padrão: 2).
     aquecimento: u64,
+    /// Onde converter para NV12 (padrão: auto).
+    conversao: ConversionSpec,
 }
 
 /// Lê os argumentos (sem o nome do programa). Erro = mensagem a mostrar junto do uso.
@@ -33,6 +39,7 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         software: false,
         animar: true,
         aquecimento: 2,
+        conversao: ConversionSpec::Auto,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -70,6 +77,14 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 out.aquecimento = s
                     .parse()
                     .map_err(|_| format!("--aquecimento precisa de inteiro, veio {s:?}"))?;
+            }
+            "--conversao" => {
+                out.conversao = match proximo(&mut it, "--conversao")? {
+                    "auto" => ConversionSpec::Auto,
+                    "gpu" => ConversionSpec::Gpu,
+                    "cpu" => ConversionSpec::Cpu,
+                    s => return Err(format!("--conversao inválida: {s:?} (use auto, gpu ou cpu)")),
+                };
             }
             outro => return Err(format!("argumento desconhecido: {outro:?}")),
         }
@@ -131,7 +146,10 @@ fn main() {
 fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     use std::collections::BTreeMap;
     use std::time::{Duration, Instant};
-    use zap_media::{EncodedFrame, EncoderChoiceSpec, MonitorRef, VideoPipeline, VideoPipelineConfig, VideoSourceSpec};
+    use zap_media::{
+        ConverterKind, EncodedFrame, EncoderChoiceSpec, MonitorRef, VideoPipeline, VideoPipelineConfig,
+        VideoPipelineOptions, VideoSourceSpec,
+    };
     use zap_rate::allocator::LayerRequest;
     use zap_rate::ladder::screen_ladder;
 
@@ -172,17 +190,18 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     };
     let timer_txt = if timer_ativo { "sim" } else { "não" };
     println!(
-        "{cabecalho}, preset {:?}, {} s (aquecimento {} s), codificador pedido {:?}, timer 1 ms: {timer_txt}, animação: {}",
+        "{cabecalho}, preset {:?}, {} s (aquecimento {} s), codificador pedido {:?}, timer 1 ms: {timer_txt}, animação: {}, conversão pedida: {:?}",
         args.preset,
         args.segundos,
         args.aquecimento,
         encoder,
-        if animando { "sim" } else { "não" }
+        if animando { "sim" } else { "não" },
+        args.conversao
     );
 
     let (tx, rx) = crossbeam_channel::unbounded::<EncodedFrame>();
     // `pipeline` é declarado depois de `rx`: é descartado primeiro, então a thread encerra antes.
-    let pipeline = VideoPipeline::start(
+    let pipeline = VideoPipeline::start_with(
         VideoPipelineConfig {
             track: 1,
             source: VideoSourceSpec::Monitor(MonitorRef(args.monitor)),
@@ -190,6 +209,9 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             encoder,
         },
         tx,
+        VideoPipelineOptions {
+            conversion: args.conversao,
+        },
     )?;
     let pedidos: Vec<LayerRequest> = escada
         .iter()
@@ -211,6 +233,7 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     contagem.clear();
+    let cpu_ini = cpu_tempo::tempo_cpu_processo();
     let inicio = Instant::now();
     let fim = inicio + Duration::from_secs(args.segundos);
     loop {
@@ -229,6 +252,7 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let decorrido = inicio.elapsed().as_secs_f64().max(f64::EPSILON);
+    let cpu_fim = cpu_tempo::tempo_cpu_processo();
 
     let st = pipeline.stats();
     let da_camada = |camada: u8| {
@@ -243,11 +267,12 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     println!();
     println!(
-        "{:>6} {:>11} {:>8} {:>10} {:>22} {:>22} {:>22} {:>16}",
+        "{:>6} {:>11} {:>8} {:>10} {:>9} {:>22} {:>22} {:>22} {:>16}",
         "camada",
         "WxH",
         "fps",
         "kbps",
+        "conversor",
         "conversão média/p95",
         "conv. GPU média/p95",
         "codificação média/p95",
@@ -259,11 +284,16 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let kbps = bytes as f64 * 8.0 / 1000.0 / decorrido;
         let s = da_camada(l.layer);
         println!(
-            "{:>6} {:>11} {:>8.1} {:>10.0} {:>22} {:>22} {:>22} {:>16}",
+            "{:>6} {:>11} {:>8.1} {:>10.0} {:>9} {:>22} {:>22} {:>22} {:>16}",
             l.layer,
             format!("{}x{}", l.width, l.height),
             fps,
             kbps,
+            match s.converter {
+                Some(ConverterKind::Gpu) => "GPU",
+                Some(ConverterKind::Cpu) => "CPU",
+                None => "-",
+            },
             format!("{:.2} / {:.2}", ms(s.convert.avg_us), ms(s.convert.p95_us)),
             format!("{:.2} / {:.2}", ms(s.convert_gpu.avg_us), ms(s.convert_gpu.p95_us)),
             format!("{:.2} / {:.2}", ms(s.encode.avg_us), ms(s.encode.p95_us)),
@@ -287,7 +317,28 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     );
     let camada0 = da_camada(0);
     let soma = ms(cap.p95_us + camada0.convert.p95_us + camada0.encode.p95_us);
-    println!("p95 captura+conversão+codificação camada 0: {soma:.1} ms (meta <= 8)");
+    // Metas: 8 ms com a conversão na GPU (M2), 12 ms com a camada 0 na CPU (M2b, item 6).
+    let meta = if camada0.converter == Some(ConverterKind::Cpu) {
+        12
+    } else {
+        8
+    };
+    println!("p95 captura+conversão+codificação camada 0: {soma:.1} ms (meta <= {meta})");
+    if st.cpu_threads > 0 {
+        println!(
+            "leitura para a CPU média/p95: {:.2} / {:.2} ms; threads: {}",
+            ms(st.cpu_readback.avg_us),
+            ms(st.cpu_readback.p95_us),
+            st.cpu_threads
+        );
+    }
+    match (cpu_ini, cpu_fim) {
+        (Some(ini), Some(fim)) => println!(
+            "CPU do processo: {:.0}% de um núcleo",
+            cpu_tempo::percentual_de_um_nucleo(ini, fim, decorrido)
+        ),
+        _ => println!("CPU do processo: indisponível"),
+    }
     Ok(())
 }
 
@@ -311,6 +362,7 @@ mod tests {
                 software: false,
                 animar: true,
                 aquecimento: 2,
+                conversao: ConversionSpec::Auto,
             }
         );
     }
@@ -339,6 +391,24 @@ mod tests {
             aviso_tela_parada(2.0, false).as_deref(),
             Some("AVISO: tela quase parada (2.0 quadros novos/s): os tempos medem espera, não trabalho")
         );
+    }
+
+    #[test]
+    fn conversao_cpu_gpu_auto() {
+        let c = |x: &str| parse_args(&v(&["--conversao", x])).map(|a| a.conversao);
+        assert_eq!(c("cpu"), Ok(ConversionSpec::Cpu));
+        assert_eq!(c("gpu"), Ok(ConversionSpec::Gpu));
+        assert_eq!(c("auto"), Ok(ConversionSpec::Auto));
+    }
+
+    #[test]
+    fn conversao_invalida_e_erro() {
+        assert!(parse_args(&v(&["--conversao", "xyz"])).is_err());
+    }
+
+    #[test]
+    fn conversao_sem_valor_e_erro() {
+        assert!(parse_args(&v(&["--conversao"])).is_err());
     }
 
     #[test]

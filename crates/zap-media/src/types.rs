@@ -61,6 +61,31 @@ pub struct VideoPipelineConfig {
     pub encoder: EncoderChoiceSpec,
 }
 
+/// Onde converter para NV12.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ConversionSpec {
+    /// GPU (Video Processor) quando der; senão CPU.
+    #[default]
+    Auto,
+    /// Só GPU: sem Video Processor a camada não liga (tenta de novo a cada 2 s, como hoje).
+    Gpu,
+    /// Só CPU (testes e bancada).
+    Cpu,
+}
+
+/// Conversor em uso numa camada.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConverterKind {
+    Gpu,
+    Cpu,
+}
+
+/// Opções do pipeline que o núcleo não precisa conhecer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VideoPipelineOptions {
+    pub conversion: ConversionSpec,
+}
+
 /// Média e p95 de uma etapa, em microssegundos.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct StageStats {
@@ -84,6 +109,8 @@ pub struct LayerStats {
     pub convert_gpu: StageStats,
     /// Espera pelo lock do dispositivo antes da conversão.
     pub lock_wait: StageStats,
+    /// Conversor da camada; `None` = desligada (ou backend sintético).
+    pub converter: Option<ConverterKind>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -99,4 +126,27 @@ pub struct PipelineStats {
     pub encoder_name: String,
     /// Quadros com imagem nova entregues pela captura no último segundo.
     pub capture_new_fps: f32,
+    /// Leitura da origem para a CPU: do `CopyResource` ao `Map` (µs). Vazio sem camada na CPU.
+    pub cpu_readback: StageStats,
+    /// Threads da conversão na CPU (0 = nenhuma camada na CPU).
+    pub cpu_threads: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conversion_spec_padrao_e_auto() {
+        assert_eq!(ConversionSpec::default(), ConversionSpec::Auto);
+        assert_eq!(VideoPipelineOptions::default().conversion, ConversionSpec::Auto);
+    }
+
+    #[test]
+    fn stats_novas_comecam_vazias() {
+        assert_eq!(LayerStats::default().converter, None);
+        let ps = PipelineStats::default();
+        assert_eq!(ps.cpu_threads, 0);
+        assert_eq!(ps.cpu_readback, StageStats::default());
+    }
 }

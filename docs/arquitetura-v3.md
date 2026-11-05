@@ -34,7 +34,7 @@ Metas mensuráveis (PC médio com GPU dedicada, 1080p60, rede local):
 | Linguagem do núcleo | **Rust** | Multithread sem GIL, sem GC (sem pausas no áudio), acesso direto às APIs do Windows (`windows` crate), binário pequeno | C++ (sem segurança de memória), C# (GC, runtime) |
 | Interface | **Tauri 2 + React + TypeScript (Vite)** | A nova interface já é HTML; Tauri usa o WebView2 do Windows (instalador ~10 MB contra ~150 MB do PyInstaller) e tem updater assinado pronto | PySide6 (exige Python), egui/Slint (reescrever o design) |
 | Captura de tela/janela | **Windows.Graphics.Capture (WGC)**, com DXGI Desktop Duplication de reserva | WGC captura janela atrás de outras **na GPU** (hoje é `PrintWindow` na CPU), entrega textura D3D11 | GDI/PrintWindow |
-| Conversão de cor/escala | **D3D11 Video Processor** (BGRA → NV12 + escala por camada) | Roda no bloco de vídeo da GPU, sem shader próprio, sem cópia para RAM | swscale na CPU (hoje) |
+| Conversão de cor/escala | **D3D11 Video Processor** (BGRA → NV12 + escala por camada); **reserva na CPU** (M2b) quando não há Video Processor ou ele recusa o formato: bilinear igual ao do VP da NVIDIA, luma na grade da saída e croma na própria grade, várias threads (`std::thread::scope`), uma leitura da origem por quadro (staging persistente, `Map` sem segurar o lock) e subida para o NV12 da camada | O VP roda no bloco de vídeo da GPU, sem shader próprio e sem cópia para a RAM. Sem a reserva, um PC sem VP (VM, driver básico, Área de Trabalho Remota) não transmitia. O bilinear da CPU fica a 1 nível do VP da NVIDIA (medido em `docs/planos/m2b-conversao-cpu.md` §2) | swscale/FFmpeg ou libyuv (dependência nativa); média de área na CPU (só a CPU mudaria e custa ~30% mais); `rayon` (pouparia ~0,3 ms por quadro) |
 | Codificação de vídeo | **Media Foundation** (MFT de hardware NVIDIA/AMD/Intel; MFT de software da Microsoft de reserva), H.264 | Recebe textura D3D11 direto (zero cópia), muda bitrate **sem reabrir**, força keyframe, não precisa de DLL do FFmpeg | FFmpeg/PyAV (cópias, DLLs grandes), SDKs NVENC/AMF/QSV separados (3x o código) |
 | Decodificação e exibição | **WebCodecs no WebView2** (`VideoDecoder` com hardware) + `<canvas>` | Decodificação por hardware e desenho na GPU, já dentro da janela do app; o Rust entrega só o H.264 comprimido (poucos Mbps) no instante certo | Decodificar no Rust e copiar quadros para o WebView (cópias de 8 MB/quadro) |
 | Transporte | **QUIC (`quinn`)**, ALPN `zap/4` | Sem bloqueio em fila do TCP; criptografia nativa; streams independentes por quadro com prioridade e descarte; datagramas para áudio; um só porto UDP | TCP (hoje), WebRTC completo (ICE/DTLS/SDP pesados para P2P sobre VPN) |
@@ -58,7 +58,8 @@ crates/
   zap-proto/   tipos e formatos do protocolo (sem I/O, sem plataforma)
   zap-rate/    algoritmos de qualidade/latência (sem I/O, determinísticos, simuláveis)
   zap-net/     QUIC (quinn), descoberta LAN, cliente do servidor Online
-  zap-gpu/     dispositivo D3D11, texturas, conversor BGRA/NV12 → NV12 (Video Processor)
+  zap-gpu/     dispositivo D3D11, texturas, conversor BGRA/NV12 → NV12 (Video Processor; reserva
+               na CPU em módulo portável), stagings de leitura/escrita
   zap-capture/ monitor (DXGI), janela (WGC), câmera (MF Source Reader), listas
   zap-encode/  H.264 por Media Foundation (MFT de hardware e de software)
   zap-audio/   Opus, loopback por app (WASAPI), saída com mixer lock-free
@@ -140,6 +141,10 @@ A camada **L0 é sempre a qualidade escolhida por quem transmite**. As outras sa
      ├─ VideoProcessor BGRA→NV12 L1 ──► MFT encoder L1 ─┤    assíncrono no motor de vídeo
      └─ VideoProcessor BGRA→NV12 L2 ──► MFT encoder L2 ─┤    da GPU; os eventos chegam
                                                          │    nas threads do MF)
+     Sem Video Processor (M2b): uma leitura da origem    │
+     por staging por quadro → conversão na CPU direto    │
+     na staging de escrita da camada → cópia para o NV12 │
+     do anel; o MFT recebe textura do mesmo jeito.       │
                                                          ▼
                               canal (crossbeam, limitado) de EncodedFrame
                                                          ▼
@@ -366,6 +371,7 @@ Ponte com o núcleo:
 | WebCodecs indisponível ou sem hardware em algum PC | Detectar com `VideoDecoder.isConfigSupported`; cair para decodificação por software do próprio WebCodecs |
 | Código Windows sem teste local | `cargo check` em `windows-gnu` em todo commit + testes no CI Windows |
 | QUIC/UDP bloqueado em alguma rede | No Online, ponte pelo servidor; diagnóstico mostra se o UDP passa |
+| PC sem Video Processor (VM, driver básico, Área de Trabalho Remota) ou VP que recusa o formato | Conversão pela CPU automática (`ConversionSpec::Auto`, M2b); testada neste PC com o adaptador básico (WARP) e com `--conversao cpu` na bancada. Medido no fechamento (2026-11-05): 60/30/15 fps pela CPU, p95 somado 11,9 ms na camada 0; a leitura da origem (p95 8,5 ms) ainda passa da meta de 2 ms |
 
 ## 13. Fluxo de trabalho com agentes
 

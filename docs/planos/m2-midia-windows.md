@@ -60,6 +60,8 @@ Outras: `opus = "0.3"` (compila a libopus com cmake; testado em Linux e `windows
 
 ## Frente `gpu` (`crates/zap-gpu`)
 
+> Rodada 4 (M2b): `zap-gpu` também tem o conversor de CPU de reserva (`CpuScaler`, `convert_batch`), stagings persistentes de leitura/escrita, `format_support`, `create_basic` e aceita BGRA de tamanho ímpar no `Converter` (plano `m2b-conversao-cpu.md`).
+
 ```rust
 pub struct GpuDevice { /* ID3D11Device, ID3D11DeviceContext, ID3D11VideoDevice, ID3D11VideoContext, IMFDXGIDeviceManager? (não: fica no encode) */ }
 pub struct AdapterInfo { pub name: String, pub vendor: Vendor, pub luid: i64, pub dedicated_vram_mb: u32 }
@@ -305,3 +307,5 @@ bancada caía em release (ponteiro do `GpuDevice` pendurado nas três capturas);
 Windows (15,6 ms) derrubavam fps e latência; `tamanho_medio_nao_chave` media cor sólida. O laço do
 MFT de hardware passa a ter thread de eventos (item "A seguir" acima). Números da bancada depois
 das correções: seção 8 daquele plano (a frente `media` também os copia aqui).
+
+**Rodada 4 (m2b), fechamento**: a frente `gpu` ganhou um conversor de CPU de reserva (`CpuScaler`, bilinear a 1 nível do Video Processor da NVIDIA, várias threads) e aceita BGRA de tamanho ímpar no `Converter`; `media` escolhe GPU ou CPU por camada (`ConversionSpec::Auto` cai para a CPU sem Video Processor). Bancada release, 1080p60, monitor 1: `--conversao cpu` (mediana de 3) camada 0 a 60,0 fps, conversão 5,15 / 9,56 ms, leitura p95 8,5 ms (meta 2: não atingida), codificação 2,08 / 2,29 ms, p95 somado 11,9 ms (meta 12), CPU do processo 68%; GPU (`auto`, 1 execução) sem regressão: 60,1 fps, p95 somado 7,7 ms; `cpu --software` (1 execução) 60,1 fps. Portão da entrega de memória ao codificador de software aberto. Tabelas em `m2b-conversao-cpu.md` seções 8 e 10.

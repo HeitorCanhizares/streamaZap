@@ -11,7 +11,6 @@ use windows::Win32::Graphics::Direct3D11::{
 /// Máximo de visões de entrada e, separadamente, de saída.
 pub const MAX_VIEWS: usize = 8;
 
-#[allow(dead_code)] // usado via input/output, que o conversor passa a chamar na tarefa gpu-04
 fn os(ctx: &'static str, e: windows::core::Error) -> GpuError {
     GpuError::Os {
         context: ctx,
@@ -27,7 +26,6 @@ pub(crate) struct ViewCache {
     pub(crate) outputs: Vec<(usize, ID3D11Texture2D, ID3D11VideoProcessorOutputView)>,
 }
 
-#[allow(dead_code)] // input/output serão usados pela tarefa gpu-04
 impl ViewCache {
     pub(crate) fn new() -> Self {
         Self::default()

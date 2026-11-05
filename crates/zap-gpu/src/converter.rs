@@ -72,12 +72,21 @@ impl Converter {
         out_w: u32,
         out_h: u32,
     ) -> Result<Self, GpuError> {
-        for (w, h) in [(in_w, in_h), (out_w, out_h)] {
-            if w == 0 || h == 0 || w % 2 != 0 || h % 2 != 0 {
-                return Err(GpuError::InvalidArgument(format!(
-                    "tamanho inválido para o conversor (precisa ser par e maior que 0): {w}x{h}"
-                )));
-            }
+        if in_w == 0 || in_h == 0 {
+            return Err(GpuError::InvalidArgument(format!(
+                "entrada do conversor precisa ter pelo menos 1x1, veio {in_w}x{in_h}"
+            )));
+        }
+        // NV12 tem croma em blocos 2x2, então a entrada NV12 precisa ser par; BGRA pode ser ímpar.
+        if in_fmt == PixelFormat::Nv12 && (in_w % 2 != 0 || in_h % 2 != 0) {
+            return Err(GpuError::InvalidArgument(format!(
+                "entrada NV12 do conversor precisa ser par, veio {in_w}x{in_h}"
+            )));
+        }
+        if out_w < 2 || out_h < 2 || out_w % 2 != 0 || out_h % 2 != 0 {
+            return Err(GpuError::InvalidArgument(format!(
+                "saída do conversor precisa ser par e de pelo menos 2x2, veio {out_w}x{out_h}"
+            )));
         }
         let taxa = DXGI_RATIONAL {
             Numerator: 60,
@@ -253,18 +262,43 @@ impl Converter {
 mod tests {
     use super::*;
 
-    #[test]
-    fn new_tamanho_impar_recusa() {
+    /// Cria o dispositivo ou pula (None) se não há GPU/Video Processor.
+    fn dev_com_vp() -> Option<GpuDevice> {
         let Ok(dev) = GpuDevice::create_default() else {
             eprintln!("pulando: sem GPU");
-            return;
+            return None;
         };
         if !dev.has_video() {
             eprintln!("pulando: GPU sem Video Processor");
-            return;
+            return None;
         }
-        let r = Converter::new(&dev, 641, 360, PixelFormat::Bgra8, 640, 360);
+        Some(dev)
+    }
+
+    #[test]
+    fn new_nv12_impar_recusa() {
+        let Some(dev) = dev_com_vp() else { return };
+        let r = Converter::new(&dev, 641, 360, PixelFormat::Nv12, 640, 360);
         assert!(matches!(r, Err(GpuError::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn new_saida_impar_recusa() {
+        let Some(dev) = dev_com_vp() else { return };
+        let r = Converter::new(&dev, 640, 360, PixelFormat::Bgra8, 641, 360);
+        assert!(matches!(r, Err(GpuError::InvalidArgument(_))));
+    }
+
+    #[test]
+    fn new_bgra_impar_aceita() {
+        let Some(dev) = dev_com_vp() else { return };
+        for (iw, ih, ow, oh) in [(641, 361, 642, 360), (1001, 777, 1002, 778)] {
+            match Converter::new(&dev, iw, ih, PixelFormat::Bgra8, ow, oh) {
+                Ok(_) => {}
+                Err(GpuError::Unsupported | GpuError::Os { .. }) => eprintln!("pulando: VP sem suporte"),
+                Err(e) => panic!("{iw}x{ih} falhou: {e}"),
+            }
+        }
     }
 
     #[test]

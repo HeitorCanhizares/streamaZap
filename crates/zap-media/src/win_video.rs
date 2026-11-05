@@ -1,17 +1,24 @@
 //! Pipeline real de vídeo (Windows): captura -> Converter por camada -> H264Encoder por camada.
+mod conversor;
+mod fase_cpu;
+mod processar;
+
 use crate::logic::{LayerGate, Samples, SeqCounter};
 use crate::video::Shared;
 use crate::{
-    EncodedFrame, EncoderChoiceSpec, LayerStats, MediaError, MonitorRef, VideoPipelineConfig, VideoSourceSpec,
+    EncodedFrame, EncoderChoiceSpec, LayerStats, MediaError, MonitorRef, VideoPipelineConfig, VideoPipelineOptions,
+    VideoSourceSpec,
 };
+use conversor::{criar_conversor, Conversor};
 use crossbeam_channel::{Receiver, SendTimeoutError, Sender};
 use parking_lot::{Condvar, Mutex};
+use processar::processar;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use zap_capture::{CaptureError, CaptureHandle, CapturedFrame, FrameSink};
 use zap_encode::{EncodedPicture, EncoderChoice, EncoderConfig, H264Encoder};
-use zap_gpu::{now_us, ComGuard, Converter, GpuDevice, PixelFormat, Texture, TextureRing};
+use zap_gpu::{now_us, ComGuard, GpuDevice, PixelFormat, ReadbackStaging, Texture, TextureRing};
 use zap_proto::LayerSpec;
 
 /// Janela das estatísticas (1 s, em µs).
@@ -55,7 +62,7 @@ impl FrameSink for SlotSink {
 
 /// Parte da camada que existe só enquanto ela está ligada.
 struct Pipe {
-    conv: Converter,
+    conv: Conversor,
     ring: TextureRing,
     enc: H264Encoder,
     rx: Receiver<EncodedPicture>,
@@ -72,6 +79,10 @@ struct Camada {
     kbps: u32,
     primeiro: bool,
     retentar_em_us: u64,
+    /// Falhas seguidas de `convert` na GPU (zera num sucesso). 3 no modo `Auto` levam à CPU.
+    falhas_gpu: u32,
+    /// A camada caiu para a CPU por falhas da GPU; volta a `false` só quando a escada é refeita.
+    forcar_cpu: bool,
     dropped_acum: u64,
     frames: u64,
     frames_janela: u64,
@@ -92,6 +103,8 @@ impl Camada {
             kbps: 0,
             primeiro: true,
             retentar_em_us: 0,
+            falhas_gpu: 0,
+            forcar_cpu: false,
             dropped_acum: 0,
             frames: 0,
             frames_janela: 0,
@@ -115,6 +128,13 @@ fn construir(ladder: &[LayerSpec]) -> Vec<Camada> {
     ladder.iter().map(Camada::nova).collect()
 }
 
+/// Alguma camada tem pipe com conversão na CPU?
+fn usa_cpu(camadas: &[Camada]) -> bool {
+    camadas
+        .iter()
+        .any(|c| c.pipe.as_ref().is_some_and(|p| matches!(p.conv, Conversor::Cpu(_))))
+}
+
 fn escolha(c: EncoderChoiceSpec) -> EncoderChoice {
     match c {
         EncoderChoiceSpec::Auto => EncoderChoice::Auto,
@@ -128,21 +148,34 @@ fn clonar(t: &Texture) -> Texture {
     Texture::from_raw(t.raw().clone(), t.format(), t.width(), t.height())
 }
 
+/// Estado da thread de vídeo que `processar` e a fase da CPU compartilham.
+struct Contexto {
+    opts: VideoPipelineOptions,
+    /// Codificador pedido (`VideoPipelineConfig::encoder`).
+    encoder: EncoderChoiceSpec,
+    /// Só nos testes: finge que não há Video Processor.
+    simular_sem_vp: bool,
+    /// Leitura persistente da origem para a CPU (uma por pipeline).
+    leitura: Option<ReadbackStaging>,
+    /// `copy_wait_us` das leituras, em µs.
+    leitura_s: Samples,
+    /// Threads da conversão na CPU (`zap_gpu::cpu_threads()`).
+    threads: usize,
+    /// Instante (µs) do último aviso de falha de leitura (no máximo 1 por segundo).
+    ultimo_aviso_leitura_us: u64,
+}
+
 fn criar_pipe(
     dev: &GpuDevice,
     spec: &LayerSpec,
     kbps: u32,
-    choice: EncoderChoiceSpec,
-    in_w: u32,
-    in_h: u32,
-    in_fmt: PixelFormat,
+    ctx: &Contexto,
+    forcar_cpu: bool,
+    entrada: (u32, u32, PixelFormat),
 ) -> Result<Pipe, MediaError> {
+    let (in_w, in_h, in_fmt) = entrada;
     let (w, h) = (u32::from(spec.width), u32::from(spec.height));
-    let mut conv = Converter::new(dev, in_w, in_h, in_fmt, w, h)?;
-    // Medição de GPU é opcional: sem ela a camada funciona igual.
-    if let Err(e) = conv.enable_gpu_timing(dev) {
-        tracing::warn!("sem medição de GPU na conversão: {e}");
-    }
+    let conv = criar_conversor(dev, ctx, forcar_cpu, spec, entrada)?;
     let ring = TextureRing::new(dev, w, h, PixelFormat::Nv12, 4, false)?;
     let (tx, rx) = crossbeam_channel::bounded(8);
     let fps = u32::from(spec.fps);
@@ -152,7 +185,7 @@ fn criar_pipe(
         fps,
         kbps,
         gop_frames: fps * 10,
-        choice: escolha(choice),
+        choice: escolha(ctx.encoder),
     };
     let enc = H264Encoder::new(dev, cfg, tx)?;
     Ok(Pipe {
@@ -183,6 +216,8 @@ pub(crate) fn spawn(
     cfg: VideoPipelineConfig,
     shared: Arc<Shared>,
     out: Sender<EncodedFrame>,
+    opts: VideoPipelineOptions,
+    simular_sem_vp: bool,
 ) -> Result<std::thread::JoinHandle<()>, MediaError> {
     let slot = Arc::new(Slot {
         quadro: Mutex::new(None),
@@ -222,9 +257,18 @@ pub(crate) fn spawn(
             return Err(MediaError::InvalidConfig("fonte sintética no backend real".into()));
         }
     };
+    let ctx = Contexto {
+        opts,
+        encoder: cfg.encoder,
+        simular_sem_vp,
+        leitura: None,
+        leitura_s: Samples::new(JANELA_AMOSTRAS),
+        threads: zap_gpu::cpu_threads(),
+        ultimo_aviso_leitura_us: 0,
+    };
     std::thread::Builder::new()
         .name("zap-video".into())
-        .spawn(move || executar(cfg, shared, out, slot, dev, handle))
+        .spawn(move || executar(cfg, shared, out, slot, dev, handle, ctx))
         .map_err(|e| MediaError::Stopped(format!("falha ao criar thread de vídeo: {e}")))
 }
 
@@ -251,6 +295,7 @@ fn executar(
     slot: Arc<Slot>,
     dev: GpuDevice,
     handle: CaptureHandle,
+    mut ctx: Contexto,
 ) {
     prioridade_acima_do_normal();
     let _com = match ComGuard::new() {
@@ -328,7 +373,11 @@ fn executar(
 
         if origem_nova {
             if let Some(frame) = &ultimo {
-                processar(&mut camadas, &requests, &dev, &cfg, &shared, frame, agora);
+                processar(&mut camadas, &requests, &dev, &shared, frame, agora, &mut ctx);
+            }
+            // Sem camada na CPU, libera a leitura persistente (~8 MB em 1080p).
+            if ctx.leitura.is_some() && !usa_cpu(&camadas) {
+                ctx.leitura = None;
             }
         }
 
@@ -380,6 +429,7 @@ fn executar(
                     encode: c.encode.stage(),
                     convert_gpu: c.convert_gpu.stage(),
                     lock_wait: c.lock_wait.stage(),
+                    converter: c.pipe.as_ref().map(|p| p.conv.kind()),
                 });
                 c.frames_janela = 0;
                 c.bytes_janela = 0;
@@ -389,6 +439,8 @@ fn executar(
             s.capture = capture_s.stage();
             s.capture_new_fps = novos_janela as f32 / secs;
             s.dropped_encode = dropped_encode;
+            s.cpu_readback = ctx.leitura_s.stage();
+            s.cpu_threads = if usa_cpu(&camadas) { ctx.threads as u32 } else { 0 };
             s.encoder_name = encoder_name.clone();
             ultima_stats = agora;
             novos_janela = 0;
@@ -405,237 +457,5 @@ fn executar(
     drop(dev);
 }
 
-/// Converte e entrega o quadro a cada camada ligada cujo `LayerGate` deixar.
-fn processar(
-    camadas: &mut [Camada],
-    requests: &[(u8, u32)],
-    dev: &GpuDevice,
-    cfg: &VideoPipelineConfig,
-    shared: &Shared,
-    frame: &CapturedFrame,
-    agora: u64,
-) {
-    let in_fmt = frame.texture.format();
-    let (in_w, in_h) = (frame.width, frame.height);
-    // Reentrega usa o relógio atual; imagem nova mantém o instante real da captura.
-    let cap_us = if frame.new_content { frame.capture_us } else { agora };
-    for cam in camadas.iter_mut() {
-        let layer = cam.spec.layer;
-        let Some(&(_, kbps)) = requests.iter().find(|(l, _)| *l == layer) else {
-            continue;
-        };
-        // Tamanho/formato da entrada mudou: recria só o conversor.
-        if let Some(p) = &mut cam.pipe {
-            if p.in_w != in_w || p.in_h != in_h || p.in_fmt != in_fmt {
-                match Converter::new(
-                    dev,
-                    in_w,
-                    in_h,
-                    in_fmt,
-                    u32::from(cam.spec.width),
-                    u32::from(cam.spec.height),
-                ) {
-                    Ok(c) => {
-                        p.conv = c;
-                        p.in_w = in_w;
-                        p.in_h = in_h;
-                        p.in_fmt = in_fmt;
-                        // Imagem nova de outro tamanho: o decodificador precisa de um ponto de entrada.
-                        cam.primeiro = true;
-                    }
-                    Err(e) => {
-                        tracing::warn!("camada {layer}: falha ao recriar o conversor: {e}");
-                        cam.soltar();
-                        cam.retentar_em_us = agora + RETENTAR_US;
-                        continue;
-                    }
-                }
-            }
-        }
-        if cam.pipe.is_none() {
-            if agora < cam.retentar_em_us {
-                continue;
-            }
-            match criar_pipe(dev, &cam.spec, kbps, cfg.encoder, in_w, in_h, in_fmt) {
-                Ok(p) => {
-                    cam.pipe = Some(p);
-                    cam.kbps = kbps;
-                    cam.gate.reset();
-                    cam.primeiro = true;
-                    let mut c = shared.control.lock();
-                    if !c.keyframes.contains(&layer) {
-                        c.keyframes.push(layer);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("camada {layer}: falha ao ligar: {e}");
-                    cam.retentar_em_us = agora + RETENTAR_US;
-                    continue;
-                }
-            }
-        }
-        if !cam.gate.ready(agora) {
-            continue;
-        }
-        let Some(p) = &mut cam.pipe else { continue };
-        let t0 = Instant::now();
-        let dst = p.ring.next();
-        if let Err(e) = p.conv.convert(dev, &frame.texture, dst) {
-            tracing::warn!("camada {layer}: falha na conversão: {e}");
-            continue;
-        }
-        let tex = clonar(dst);
-        cam.convert.push(t0.elapsed().as_micros() as f64);
-        cam.lock_wait.push(p.conv.last_timing().lock_wait_us);
-        for us in p.conv.take_gpu_us(dev) {
-            cam.convert_gpu.push(us);
-        }
-        let force = shared.take_keyframe(layer) || cam.primeiro;
-        if p.enc.submit(tex, cap_us, force) {
-            cam.primeiro = false;
-        } else if force {
-            // Fila cheia: o pedido não pode se perder.
-            let mut c = shared.control.lock();
-            if !c.keyframes.contains(&layer) {
-                c.keyframes.push(layer);
-            }
-        }
-    }
-}
-
 #[cfg(all(test, windows))]
-mod tests {
-    use super::*;
-    use crate::VideoPipeline;
-    use zap_capture::movimento::JanelaAnimada;
-    use zap_rate::allocator::LayerRequest;
-
-    fn camada(layer: u8, w: u16, h: u16) -> LayerSpec {
-        LayerSpec {
-            layer,
-            width: w,
-            height: h,
-            fps: 30,
-            kbps: 3000,
-        }
-    }
-
-    /// `None` (com aviso) quando o ambiente não tem GPU ou monitor.
-    fn iniciar(ladder: Vec<LayerSpec>) -> Option<(JanelaAnimada, VideoPipeline, Receiver<EncodedFrame>)> {
-        if !GpuDevice::create_default().is_ok_and(|d| d.has_video()) {
-            eprintln!("sem GPU com Video Processor: teste ignorado");
-            return None;
-        }
-        let monitor1 = match zap_capture::list_monitors() {
-            Ok(m) => m.into_iter().find(|m| m.index == 1),
-            Err(_) => None,
-        };
-        let Some(monitor1) = monitor1 else {
-            eprintln!("sem monitor: teste ignorado");
-            return None;
-        };
-        let janela = match JanelaAnimada::abrir(&monitor1) {
-            Ok(j) => j,
-            Err(e) => {
-                eprintln!("sem janela animada ({e}): teste ignorado");
-                return None;
-            }
-        };
-        let (tx, rx) = crossbeam_channel::bounded(256);
-        let cfg = VideoPipelineConfig {
-            track: 1,
-            source: VideoSourceSpec::Monitor(MonitorRef(1)),
-            ladder,
-            encoder: EncoderChoiceSpec::Auto,
-        };
-        match VideoPipeline::start(cfg, tx) {
-            Ok(p) => Some((janela, p, rx)),
-            Err(e) => {
-                eprintln!("não iniciou ({e}): teste ignorado");
-                None
-            }
-        }
-    }
-
-    fn req(layer: u8) -> LayerRequest {
-        LayerRequest { layer, kbps: 3000 }
-    }
-
-    fn coletar(rx: &Receiver<EncodedFrame>, dur: Duration) -> Vec<EncodedFrame> {
-        let fim = Instant::now() + dur;
-        let mut v = Vec::new();
-        while let Some(resto) = fim.checked_duration_since(Instant::now()) {
-            if let Ok(f) = rx.recv_timeout(resto) {
-                v.push(f);
-            }
-        }
-        v
-    }
-
-    #[test]
-    fn monitor_1_gera_quadros_na_camada_0() {
-        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
-            return;
-        };
-        p.set_requests(&[req(0)]);
-        let v = coletar(&rx, Duration::from_secs(2));
-        assert!(v.len() >= 15, "só {} quadros", v.len());
-        assert!(v[0].keyframe && v[0].has_params);
-        assert!(v.iter().all(|f| f.layer == 0 && f.width == 1280 && f.height == 720));
-    }
-
-    #[test]
-    fn desligar_camada_para_de_emitir() {
-        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
-            return;
-        };
-        p.set_requests(&[req(0)]);
-        assert!(!coletar(&rx, Duration::from_secs(1)).is_empty());
-        p.set_requests(&[]);
-        // Deixa o que já estava em voo sair.
-        let _ = coletar(&rx, Duration::from_millis(800));
-        assert!(coletar(&rx, Duration::from_secs(1)).is_empty());
-    }
-
-    #[test]
-    fn keyframe_pedido_chega() {
-        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
-            return;
-        };
-        p.set_requests(&[req(0)]);
-        let _ = coletar(&rx, Duration::from_secs(1));
-        p.request_keyframe(0);
-        let v = coletar(&rx, Duration::from_secs(2));
-        assert!(v.iter().any(|f| f.keyframe), "nenhum keyframe após o pedido");
-    }
-
-    #[test]
-    fn set_ladder_troca_resolucao() {
-        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
-            return;
-        };
-        p.set_requests(&[req(0)]);
-        assert!(!coletar(&rx, Duration::from_secs(1)).is_empty());
-        p.set_ladder(vec![camada(0, 640, 360)]);
-        p.set_requests(&[req(0)]);
-        let v = coletar(&rx, Duration::from_secs(3));
-        assert!(
-            v.iter().any(|f| f.width == 640 && f.height == 360),
-            "nenhum quadro na nova resolução"
-        );
-    }
-
-    #[test]
-    fn stats_trazem_gpu_e_captura_nova() {
-        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
-            return;
-        };
-        p.set_requests(&[req(0)]);
-        let _ = coletar(&rx, Duration::from_secs(2));
-        let s = p.stats();
-        assert!(s.capture_new_fps > 5.0, "capture_new_fps = {}", s.capture_new_fps);
-        let l = &s.layers[0];
-        assert!(l.lock_wait.p95_us.is_finite() && l.lock_wait.p95_us >= 0.0);
-        assert!(l.convert_gpu.p95_us.is_finite() && l.convert_gpu.p95_us >= 0.0);
-    }
-}
+mod tests;

@@ -95,3 +95,7 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 2
 debug = false
+
+# Conversor de CPU (laços de pixel): sem otimização os testes do caminho da CPU ficam lentos demais.
+[profile.dev.package.zap-gpu]
+opt-level = 3

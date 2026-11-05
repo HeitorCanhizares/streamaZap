@@ -1,5 +1,5 @@
 //! `VideoPipeline`: fachada comum ao backend sintético e ao real (Windows).
-use crate::{EncodedFrame, MediaError, PipelineStats, VideoPipelineConfig, VideoSourceSpec};
+use crate::{EncodedFrame, MediaError, PipelineStats, VideoPipelineConfig, VideoPipelineOptions, VideoSourceSpec};
 use crossbeam_channel::Sender;
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -61,6 +61,35 @@ impl VideoPipeline {
     /// fora do Windows devolve `MediaError::Unsupported`. Escada vazia = `InvalidConfig`.
     /// Nenhuma camada começa ligada: o chamador liga com `set_requests`.
     pub fn start(cfg: VideoPipelineConfig, out: Sender<EncodedFrame>) -> Result<Self, MediaError> {
+        Self::start_with(cfg, out, VideoPipelineOptions::default())
+    }
+
+    /// Como `start`, com opções extras (conversor GPU/CPU). O backend sintético ignora `opts`.
+    pub fn start_with(
+        cfg: VideoPipelineConfig,
+        out: Sender<EncodedFrame>,
+        opts: VideoPipelineOptions,
+    ) -> Result<Self, MediaError> {
+        Self::iniciar(cfg, out, opts, false)
+    }
+
+    /// Só nos testes do crate: finge que não há Video Processor (`Converter::new` nem é chamado; a
+    /// tentativa devolve `GpuError::Unsupported`).
+    #[cfg(all(test, windows))]
+    pub(crate) fn start_sem_vp(
+        cfg: VideoPipelineConfig,
+        out: Sender<EncodedFrame>,
+        opts: VideoPipelineOptions,
+    ) -> Result<Self, MediaError> {
+        Self::iniciar(cfg, out, opts, true)
+    }
+
+    fn iniciar(
+        cfg: VideoPipelineConfig,
+        out: Sender<EncodedFrame>,
+        opts: VideoPipelineOptions,
+        simular_sem_vp: bool,
+    ) -> Result<Self, MediaError> {
         if cfg.ladder.is_empty() {
             return Err(MediaError::InvalidConfig("escada vazia".into()));
         }
@@ -74,11 +103,17 @@ impl VideoPipeline {
         }
         let shared = Arc::new(Shared::new(cfg.ladder.clone()));
         let handle = match cfg.source {
-            VideoSourceSpec::Synthetic { .. } => crate::synth_video::spawn(cfg, shared.clone(), out)?,
+            VideoSourceSpec::Synthetic { .. } => {
+                let _ = (opts, simular_sem_vp);
+                crate::synth_video::spawn(cfg, shared.clone(), out)?
+            }
             #[cfg(windows)]
-            _ => crate::win_video::spawn(cfg, shared.clone(), out)?,
+            _ => crate::win_video::spawn(cfg, shared.clone(), out, opts, simular_sem_vp)?,
             #[cfg(not(windows))]
-            _ => return Err(MediaError::Unsupported("captura real só no Windows".into())),
+            _ => {
+                let _ = (opts, simular_sem_vp);
+                return Err(MediaError::Unsupported("captura real só no Windows".into()));
+            }
         };
         Ok(Self {
             shared,
@@ -228,7 +263,47 @@ mod tests {
         assert_eq!(c.ladder.len(), 1);
     }
 
-    // Depende de media-02 (backend sintético).
+    #[test]
+    fn start_with_sintetico_ignora_opcoes() {
+        use crate::ConversionSpec;
+        for conversion in [ConversionSpec::Cpu, ConversionSpec::Gpu] {
+            let (tx, rx) = crossbeam_channel::bounded(64);
+            let opts = VideoPipelineOptions { conversion };
+            let p = VideoPipeline::start_with(cfg(vec![camada(0)], sintetico()), tx, opts).expect("start_with");
+            p.set_requests(&[req(0, 1000)]);
+            let fim = Instant::now() + Duration::from_secs(2);
+            let mut keyframe = false;
+            while Instant::now() < fim && !keyframe {
+                if let Ok(f) = rx.recv_timeout(Duration::from_millis(50)) {
+                    keyframe = f.keyframe;
+                }
+            }
+            assert!(keyframe, "sem keyframe em 2 s com {conversion:?}");
+        }
+    }
+
+    #[test]
+    fn start_with_escada_vazia_erro() {
+        let (tx, _rx) = crossbeam_channel::bounded(4);
+        let r = VideoPipeline::start_with(cfg(vec![], sintetico()), tx, VideoPipelineOptions::default());
+        assert!(matches!(r, Err(MediaError::InvalidConfig(_))));
+    }
+
+    #[test]
+    fn stats_sinteticas_sem_conversor() {
+        let (tx, rx) = crossbeam_channel::bounded(64);
+        let p = VideoPipeline::start(cfg(vec![camada(0)], sintetico()), tx).expect("start");
+        p.set_requests(&[req(0, 1000)]);
+        let fim = Instant::now() + Duration::from_millis(1500);
+        while Instant::now() < fim {
+            let _ = rx.recv_timeout(Duration::from_millis(50));
+        }
+        let st = p.stats();
+        assert!(!st.layers.is_empty(), "sem estatísticas de camada");
+        assert!(st.layers.iter().all(|l| l.converter.is_none()));
+        assert_eq!(st.cpu_threads, 0);
+    }
+
     #[test]
     fn drop_encerra_thread_rapido() {
         let (tx, _rx) = crossbeam_channel::bounded(64);

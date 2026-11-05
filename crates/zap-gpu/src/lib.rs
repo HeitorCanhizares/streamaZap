@@ -3,6 +3,8 @@
 //! `GpuError::Unsupported`.
 
 mod clock;
+#[forbid(unsafe_code)]
+mod cpu;
 mod error;
 mod types;
 
@@ -15,6 +17,8 @@ mod device;
 #[cfg(windows)]
 mod readback;
 #[cfg(windows)]
+mod staging;
+#[cfg(windows)]
 mod texture;
 #[cfg(windows)]
 pub mod timing;
@@ -25,8 +29,9 @@ mod views;
 mod stub;
 
 pub use clock::now_us;
+pub use cpu::{convert_batch, cpu_threads, BatchOptions, CpuScaler, Nv12Mut, SrcImage};
 pub use error::GpuError;
-pub use types::{AdapterInfo, PixelFormat, Vendor};
+pub use types::{AdapterInfo, FormatSupport, PixelFormat, ReadbackTiming, UploadTiming, Vendor};
 
 #[cfg(windows)]
 pub use com::{pin_mta, ComGuard};
@@ -37,12 +42,14 @@ pub use device::{DeviceLock, GpuDevice};
 #[cfg(windows)]
 pub use readback::{read_back, upload};
 #[cfg(windows)]
+pub use staging::{MappedFrame, MappedUpload, ReadbackStaging, UploadStaging};
+#[cfg(windows)]
 pub use texture::{Texture, TextureRing};
 #[cfg(windows)]
 pub use timing::GpuTimer;
 
 #[cfg(not(windows))]
 pub use stub::{
-    pin_mta, read_back, upload, ComGuard, ConvertTiming, Converter, DeviceLock, GpuDevice, GpuTimer, Texture,
-    TextureRing,
+    pin_mta, read_back, upload, ComGuard, ConvertTiming, Converter, DeviceLock, GpuDevice, GpuTimer, MappedFrame,
+    MappedUpload, ReadbackStaging, Texture, TextureRing, UploadStaging,
 };

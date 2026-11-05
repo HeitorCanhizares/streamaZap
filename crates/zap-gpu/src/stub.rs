@@ -1,5 +1,6 @@
 //! Stub para plataformas sem D3D11: tudo devolve `GpuError::Unsupported`.
-use crate::{AdapterInfo, GpuError, PixelFormat};
+use crate::cpu::{Nv12Mut, SrcImage};
+use crate::{AdapterInfo, FormatSupport, GpuError, PixelFormat, ReadbackTiming, UploadTiming};
 
 #[derive(Clone)]
 pub struct GpuDevice {
@@ -14,6 +15,17 @@ impl GpuDevice {
     }
     pub fn create_for_adapter(_luid: i64) -> Result<Self, GpuError> {
         Err(GpuError::Unsupported)
+    }
+    /// Sem D3D11 não há adaptador básico.
+    pub fn create_basic() -> Result<Self, GpuError> {
+        Err(GpuError::Unsupported)
+    }
+    /// Sem D3D11 nenhum formato é suportado.
+    pub fn format_support(&self, _format: PixelFormat) -> FormatSupport {
+        FormatSupport::default()
+    }
+    pub fn has_video(&self) -> bool {
+        false
     }
     pub fn adapter(&self) -> &AdapterInfo {
         &self.adapter
@@ -137,6 +149,67 @@ impl Converter {
     }
 }
 
+/// Staging de leitura: no stub nunca é criada.
+pub struct ReadbackStaging;
+
+impl ReadbackStaging {
+    pub fn new(_dev: &GpuDevice, _width: u32, _height: u32, _format: PixelFormat) -> Result<Self, GpuError> {
+        Err(GpuError::Unsupported)
+    }
+    pub fn matches(&self, _width: u32, _height: u32, _format: PixelFormat) -> bool {
+        false
+    }
+    pub fn map<'s>(
+        &'s mut self,
+        _dev: &'s GpuDevice,
+        _src: &Texture,
+    ) -> Result<(MappedFrame<'s>, ReadbackTiming), GpuError> {
+        Err(GpuError::Unsupported)
+    }
+}
+
+/// No stub nunca é criada.
+pub struct MappedFrame<'s> {
+    never: std::convert::Infallible,
+    _p: std::marker::PhantomData<&'s ()>,
+}
+
+impl MappedFrame<'_> {
+    pub fn image(&self) -> SrcImage<'_> {
+        match self.never {}
+    }
+}
+
+/// Staging de escrita: no stub nunca é criada.
+pub struct UploadStaging;
+
+impl UploadStaging {
+    pub fn new(_dev: &GpuDevice, _width: u32, _height: u32) -> Result<Self, GpuError> {
+        Err(GpuError::Unsupported)
+    }
+    pub fn size(&self) -> (u32, u32) {
+        (0, 0)
+    }
+    pub fn map<'s>(&'s mut self, _dev: &'s GpuDevice) -> Result<MappedUpload<'s>, GpuError> {
+        Err(GpuError::Unsupported)
+    }
+}
+
+/// No stub nunca é criada.
+pub struct MappedUpload<'s> {
+    never: std::convert::Infallible,
+    _p: std::marker::PhantomData<&'s ()>,
+}
+
+impl MappedUpload<'_> {
+    pub fn nv12(&mut self) -> Nv12Mut<'_> {
+        match self.never {}
+    }
+    pub fn commit(self, _dst: &Texture) -> Result<UploadTiming, GpuError> {
+        match self.never {}
+    }
+}
+
 pub fn read_back(_dev: &GpuDevice, _tex: &Texture) -> Result<Vec<u8>, GpuError> {
     Err(GpuError::Unsupported)
 }
@@ -241,5 +314,44 @@ mod tests {
         pin_mta();
         pin_mta();
         pin_mta();
+    }
+
+    #[test]
+    fn create_basic_unsupported() {
+        assert!(matches!(GpuDevice::create_basic(), Err(GpuError::Unsupported)));
+    }
+
+    #[test]
+    fn format_support_default() {
+        // Sem D3D11 nenhum formato é suportado: o stub devolve o padrão (tudo `false`).
+        let dev = dispositivo_falso();
+        for fmt in [PixelFormat::Bgra8, PixelFormat::Nv12] {
+            let s = dev.format_support(fmt);
+            assert_eq!(s, FormatSupport::default());
+            assert!(!s.texture2d);
+            assert!(!s.render_target);
+            assert!(!s.cpu_lockable);
+            assert!(!s.video_processor_input);
+            assert!(!s.video_processor_output);
+        }
+    }
+
+    #[test]
+    fn readback_staging_new_unsupported() {
+        let dev = dispositivo_falso();
+        let r = ReadbackStaging::new(&dev, 1920, 1080, PixelFormat::Bgra8);
+        assert!(matches!(r, Err(GpuError::Unsupported)));
+    }
+
+    #[test]
+    fn upload_staging_new_unsupported() {
+        let dev = dispositivo_falso();
+        let r = UploadStaging::new(&dev, 1920, 1080);
+        assert!(matches!(r, Err(GpuError::Unsupported)));
+    }
+
+    #[test]
+    fn has_video_false() {
+        assert!(!dispositivo_falso().has_video());
     }
 }

@@ -41,7 +41,7 @@ pub use audio::AudioPipeline;
 pub use error::MediaError;
 pub use logic::{synthetic_frame_size, LayerGate, Samples, SeqCounter};
 pub use types::{
-    EncodedAudio, EncodedFrame, EncoderChoiceSpec, LayerStats, MonitorRef, PipelineStats, StageStats,
-    VideoPipelineConfig, VideoSourceSpec,
+    ConversionSpec, ConverterKind, EncodedAudio, EncodedFrame, EncoderChoiceSpec, LayerStats, MonitorRef,
+    PipelineStats, StageStats, VideoPipelineConfig, VideoPipelineOptions, VideoSourceSpec,
 };
 pub use video::VideoPipeline;

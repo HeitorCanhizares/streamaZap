@@ -82,6 +82,21 @@ fn cores_bt709() {
 }
 
 #[test]
+fn cores_bt709_entrada_impar() {
+    let Some(dev) = device() else { return };
+    for (r, g, b) in [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255), (0, 0, 0)] {
+        let Some((y, u, v)) = converter_solido(&dev, 641, 361, 642, 360, (r, g, b)) else {
+            return;
+        };
+        let (ey, eu, ev) = esperado(r, g, b);
+        let ctx = format!("impar ({r},{g},{b})");
+        perto(y, ey, "Y", &ctx);
+        perto(u, eu, "U", &ctx);
+        perto(v, ev, "V", &ctx);
+    }
+}
+
+#[test]
 fn escala_1080_para_720() {
     let Some(dev) = device() else { return };
     let Some((y, _, _)) = converter_solido(&dev, 1920, 1080, 1280, 720, (0, 128, 255)) else {

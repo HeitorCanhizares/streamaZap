@@ -1,8 +1,8 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-04, no fechamento da rodada 3 (M4c + M2). O trabalho das rodadas M4/M4b/M4c
-está na branch `m4-online`, em commits locais (sem push); `master` e `claude/loving-davinci-le0qac`
-têm o estado anterior.
+Atualizado em 2026-11-05, no fechamento da rodada 4 (M2b: conversão NV12 pela CPU). O trabalho das
+rodadas M4/M4b/M4c/M2b está na branch `m4-online`, em commits locais (sem push); `master` e
+`claude/loving-davinci-le0qac` têm o estado anterior.
 
 ## Antes de qualquer push no `master`
 
@@ -10,7 +10,7 @@ têm o estado anterior.
   marca como a última Release. Até o M6, ponha `[skip release]` na mensagem do commit do topo do
   push (é a do `head_commit` que conta).
 - **O CI da v3 (`rust.yml`) ainda não foi conferido com o M4 pronto.** No Windows (MSVC, GTX 1060)
-  passam fmt, clippy `-D warnings` e `cargo test --workspace` inteiro (1380 testes); o Linux e o
+  passam fmt, clippy `-D warnings` e `cargo test --workspace` inteiro (1454 testes); o Linux e o
   clippy do alvo `windows-gnu` não foram rodados.
 
 ## Resumo
@@ -19,7 +19,7 @@ têm o estado anterior.
 |---|---|---|
 | M0 | ✅ | Plano mestre (`docs/arquitetura-v3.md`), API (`docs/api/`), design (`docs/design/`), hierarquia de agentes (`.claude/`), workspace e CI |
 | M1 | ✅ | `zap-proto` (protocolo 4), `zap-rate` (estimador de banda, balanceamento por espectador, suavização, simulador), `zap-net` (QUIC com prazo por quadro, relatórios, descoberta) |
-| M2 | ✅ na GTX 1060 (bancada release: camada 0 a 60 fps, p95 somado 6,5 ms na mediana de 5; meta de 8 ms atingida) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
+| M2 / M2b | ✅ na GTX 1060 (bancada release: camada 0 a 60 fps, p95 somado 6,5 ms na mediana de 5; meta de 8 ms atingida). M2b: conversão NV12 pela CPU de reserva, 60 fps também por ela (p95 somado 11,9 ms, leitura p95 8,5 ms acima da meta de 2 ms) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
 | M3 / M3b | ✅ | `zap-core` (sala Local, publicação, assinatura, playout), app Tauri (`app/src-tauri`), interface React fiel ao design (`app/src`) ligada ao núcleo |
 | M5 | ✅ (falta testar uma release de verdade) | Atualização assinada (instala ao fechar, nunca reinicia numa sala, canais estável/beta), firewall por COM, diagnóstico real, `release-v3.yml`, instalador NSIS que remove o app Python |
 | **M4** | 🟡 **pronto no app** | Modo Online (núcleo, Tauri, telas, modo só direta, sondagem em degraus) com todos os aceites passando (aceite 2: 5 de 5, e 2 de 2 com carga); falta o servidor de produção seguir o contrato novo e um teste entre dois PCs |
@@ -57,7 +57,10 @@ durante `AcquireNextFrame(100 ms)`, travando conversor e codificadores; agora el
 ligado por padrão) e avisa quando a tela fica parada. Números em
 `docs/planos/m4c-estabilizacao.md` (seção 10). Ainda falta:
 - testar a transmissão entre dois PCs (`cd app && npm install && npm run tauri dev`);
-- a **conversão para NV12 pela CPU**: sem ela, um PC sem Video Processor não transmite;
+- a **conversão para NV12 pela CPU** (M2b, rodada 4) está feita e medida: o `Auto` cai para a CPU sem
+  Video Processor, e a janela de tamanho ímpar passou a transmitir. Falta ver a leitura da origem
+  (p95 8,5 ms contra a meta de 2) e testar num PC sem Video Processor de verdade (aqui só pelo
+  adaptador básico/`--conversao cpu`);
 - rodar a cadeia de dispositivos do `zap-gpu` no CI Windows.
 
 ### 3. Chaves do updater e uma release de teste (M5)
@@ -72,6 +75,43 @@ seção da v3). Depois, testar uma release de verdade pelo `release-v3.yml` (tag
 Paridade com o app Python, remoção de `streamazap/` e, **antes da primeira release da v3**, parar o
 `build.yml` de publicar o Python no `master`; senão a "última release" volta a ser a do Python e o
 updater da v3 não acha o `latest.json`.
+
+## Atualização da rodada 4 (M2b, 2026-11-05, fechamento)
+
+Conversão para NV12 pela CPU (plano `docs/planos/m2b-conversao-cpu.md`). `zap-gpu` ganhou o
+`CpuScaler` (bilinear igual ao Video Processor da NVIDIA dentro de 1 nível, várias threads),
+stagings de leitura/escrita que não seguram o lock, `format_support`, `create_basic` e BGRA de
+tamanho ímpar no `Converter`; `zap-media` escolhe GPU ou CPU por camada (`ConversionSpec`, `Auto`
+padrão) e a bancada ganhou `--conversao`. `zap-core` e o app não mudaram. Verificação: fmt, clippy,
+check e `cargo test --workspace --no-fail-fast` sem falha (no fechamento corrigi um `dead_code` no
+exemplo `cpu_nv12`); testes novos 3 vezes seguidas verdes; `online_aceite_2` e `aceite_camadas_local`
+passam.
+
+Bancada release, 1080p60, monitor 1, ociosa (menos execuções que o plano: `cpu` 3, `auto` 1,
+`cpu --software` 1):
+
+| Modo | fps 0/1/2 | conversão camada 0 média/p95 | leitura p95 | codificação 0 média/p95 | p95 somado | CPU do processo | Descartes de captura |
+|---|---|---|---|---|---|---|---|
+| `auto` (GPU) | 60,1 / 30,0 / 15,0 | 0,06 / 0,09 ms | — | 3,68 / 7,61 ms | 7,7 ms | 15% | 14 |
+| `cpu` (NVENC), mediana de 3 | 60,0 / 30,0 / 15,0 | 5,15 / 9,56 ms | 8,5 ms | 2,08 / 2,29 ms | 11,9 ms (5,7 a 14,1) | 68% | 15 |
+| `cpu --software` | 60,1 / 30,1 / 15,0 | 5,51 / 9,26 ms | 8,0 ms | 5,90 / 7,29 ms | 17,7 ms | 215% | 1 |
+
+`cpu_nv12` (4 threads): 1080p 1,36 ms, 720p 2,33, 360p 0,75, 720p + 360p 2,98, as 3 4,18, NV12
+720p para 360p 0,37 (todas dentro da meta; 1 thread: 3,12 / 5,69 / 1,71 / 7,39 / 10,57 / 0,66).
+
+**Meta do caminho de CPU:** atingida em fps, espera de lock (p95 0,155 ms) e CPU extra (+0,53
+núcleo); o p95 somado de 12 ms bateu na mediana, mas uma de 3 execuções deu 14,1 ms; **a leitura da
+origem (p95 8,5 ms, meta 2) não foi atingida**. Hipótese: o `CopyResource` espera a fila da GPU
+compartilhada com NVENC, animação e captura. Portão da entrega de memória ao codificador de software:
+**aberto** (codificação de software 5,9 ms). Detalhes na seção 10 do plano.
+
+Conferência do orquestrador (seção 11 do plano): os 10 testes do pipeline de vídeo
+(`win_video::tests`) **pulavam em silêncio quando rodavam em paralelo**, porque o Windows só deixa
+uma duplicação do mesmo monitor por processo. Agora entram numa fila (trava `MONITOR_1`) e rodam
+de verdade (3 de 3, nenhum pulou). Duas execuções a mais da bancada `cpu` (60/30/15 fps; p95
+somado 10,6 e 26,1 ms, a segunda logo depois da compilação) mantêm a mediana das 5 em 11,9 ms. O
+`--software` (sem NVENC) também lê devagar, então a espera da leitura parece ser a GPU terminando
+o quadro capturado, não o NVENC.
 
 ## Atualização da rodada 3 (m4c, 2026-11-04, fechamento)
 
@@ -162,7 +202,9 @@ como no servidor de teste, ele precisa de cinco mudanças. A referência em cód
 
 ### Próximos passos
 1. Servidor de produção (acima), depois um teste do app com ele entre dois PCs.
-2. Conversão NV12 pela CPU (PC sem Video Processor) e CI Windows/Linux com o M4.
+2. CI Windows/Linux com o M4 e a cadeia de dispositivos do `zap-gpu`; conversor em uso no Diagnóstico
+   do app (`LayerStats::converter`); leitura da origem mais rápida no caminho da CPU; entrega de
+   memória ao codificador de software (portão aberto).
 3. M5: chaves do updater e uma release de teste. M6: paridade e remoção do app Python.
 
 ## Atualização do M4 (2026-11-04, rodada M4b + M2, fechamento no Windows)
