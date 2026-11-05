@@ -57,6 +57,10 @@ impl HwEncoder {
         unsafe { mft.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, mgr.as_raw() as usize) }
             .map_err(|e| EncodeError::os("SET_D3D_MANAGER", &e))?;
 
+        // Opções do codec antes dos tipos de mídia: alguns drivers só as aceitam assim.
+        let codec: ICodecAPI = mft.cast().map_err(|e| EncodeError::os("ICodecAPI", &e))?;
+        let recusadas = codec_api::apply_settings(&codec, cfg, codec_api::PerfilTaxa::Padrao)?;
+
         // Saída antes da entrada: exigência dos MFTs de codificação.
         let saida = media_types::make_output_type(cfg)?;
         // SAFETY: tipo de mídia válido.
@@ -65,8 +69,11 @@ impl HwEncoder {
         // SAFETY: tipo de mídia válido.
         unsafe { mft.SetInputType(0, &entrada, 0) }.map_err(|e| EncodeError::os("SetInputType", &e))?;
 
-        let codec: ICodecAPI = mft.cast().map_err(|e| EncodeError::os("ICodecAPI", &e))?;
-        codec_api::apply_settings(&codec, cfg)?;
+        // As recusadas podem passar a valer agora que os tipos existem.
+        let ainda = codec_api::reapply_settings(&codec, cfg, codec_api::PerfilTaxa::Padrao, &recusadas);
+        if !ainda.is_empty() {
+            tracing::warn!(?ainda, "opções do ICodecAPI ainda recusadas depois dos tipos");
+        }
         codec_api::log_readback(&codec);
 
         // SAFETY: o MFT já tem os dois tipos definidos.
@@ -98,14 +105,22 @@ impl HwEncoder {
     fn reabrir(&mut self, cfg: &EncoderConfig) -> Result<(), EncodeError> {
         // SAFETY: mensagem sem ponteiros.
         unsafe { self.mft.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0) }.map_err(|e| EncodeError::os("FLUSH", &e))?;
+        let recusadas = match codec_api::apply_settings(&self.codec, cfg, codec_api::PerfilTaxa::Padrao) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("reabertura: apply_settings falhou: {e}");
+                Vec::new()
+            }
+        };
         let saida = media_types::make_output_type(cfg)?;
         // SAFETY: tipo de mídia válido.
         unsafe { self.mft.SetOutputType(0, &saida, 0) }.map_err(|e| EncodeError::os("SetOutputType", &e))?;
         let entrada = media_types::make_input_type(cfg)?;
         // SAFETY: tipo de mídia válido.
         unsafe { self.mft.SetInputType(0, &entrada, 0) }.map_err(|e| EncodeError::os("SetInputType", &e))?;
-        if let Err(e) = codec_api::apply_settings(&self.codec, cfg) {
-            tracing::warn!("reabertura: apply_settings falhou: {e}");
+        let ainda = codec_api::reapply_settings(&self.codec, cfg, codec_api::PerfilTaxa::Padrao, &recusadas);
+        if !ainda.is_empty() {
+            tracing::warn!(?ainda, "reabertura: opções ainda recusadas depois dos tipos");
         }
         // SAFETY: tipo atual válido após SetOutputType.
         if let Ok(t) = unsafe { self.mft.GetOutputCurrentType(0) } {
@@ -378,6 +393,52 @@ mod tests {
     use crate::enumerate::enumerate;
     use crate::mf::MfGuard;
     use crate::EncoderChoice;
+
+    #[test]
+    fn open_hardware_ordem_correta_ou_pula() {
+        let Ok(gpu) = zap_gpu::GpuDevice::create_default() else {
+            eprintln!("sem MFT de hardware: pulando");
+            return;
+        };
+        let Ok(_com) = zap_gpu::ComGuard::new() else {
+            eprintln!("sem MFT de hardware: pulando");
+            return;
+        };
+        let Ok(_mf) = MfGuard::acquire() else {
+            eprintln!("sem MFT de hardware: pulando");
+            return;
+        };
+        let mut lista = match enumerate(true) {
+            Ok(l) if !l.is_empty() => l,
+            _ => {
+                eprintln!("sem MFT de hardware: pulando");
+                return;
+            }
+        };
+        let dev = SendDevice {
+            device: gpu.d3d_device().clone(),
+            context: gpu.context().clone(),
+        };
+        let cfg = EncoderConfig {
+            width: 1280,
+            height: 720,
+            fps: 30,
+            kbps: 4000,
+            gop_frames: 300,
+            choice: EncoderChoice::Hardware,
+        };
+        let cand = lista.remove(0);
+        match HwEncoder::open(&dev, &cfg, cand) {
+            Ok(enc) => {
+                let rb = codec_api::readback(&enc.codec);
+                eprintln!("readback: {rb:?}");
+                if let Some(mbr) = rb.mean_bitrate {
+                    assert_eq!(mbr, cfg.kbps * 1000);
+                }
+            }
+            Err(e) => eprintln!("MFT de hardware não abriu neste driver ({e}): pulando"),
+        }
+    }
 
     #[test]
     fn open_hardware_ou_pula() {

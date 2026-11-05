@@ -591,6 +591,23 @@ async fn sondas_levam_espectador_a_camada_0() {
     );
     eprintln!("camada.atual 0 em {:?}", inicio.elapsed());
 
+    // A sondagem em degraus precisa ter feito >= 2 rajadas com total_kbps crescente. O guard do
+    // lock fica num bloco sem `.await`.
+    let rajadas = {
+        let inner = h.hub.inner.lock();
+        inner
+            .participants
+            .values()
+            .find(|p| p.name == "V")
+            .and_then(|p| p.prober.as_ref().map(|pr| pr.bursts()))
+            .unwrap_or_default()
+    };
+    eprintln!("rajadas (total_kbps): {rajadas:?}");
+    assert!(
+        rajadas.len() >= 2 && rajadas.windows(2).all(|w| w[1] > w[0]),
+        "esperava >= 2 rajadas com total_kbps estritamente crescente, vieram {rajadas:?}"
+    );
+
     let desde = Instant::now();
     let mut viu_camada_0 = false;
     while desde.elapsed() < Duration::from_secs(5) {

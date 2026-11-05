@@ -6,7 +6,7 @@ mod gap;
 use std::{sync::Arc, time::Duration};
 
 use bytes::Bytes;
-pub use frame::read_frame;
+pub use frame::{read_frame, read_frame_with};
 pub use gap::GapTracker;
 use parking_lot::Mutex;
 use tokio::sync::mpsc;
@@ -64,8 +64,8 @@ pub fn spawn_receiver(
                 _ = tick.tick() => {
                     // Copia os buracos vencidos e solta o lock antes de qualquer await.
                     let lost = gap.lock().expire(clock.now_us());
-                    for (track, layer, seq) in lost {
-                        reports.lock().on_lost(track, layer, seq);
+                    for (track, layer, seq, visto_us) in lost {
+                        reports.lock().on_lost(track, layer, seq, visto_us);
                         if tx.send(MediaEvent::Lost { track, layer, seq }).await.is_err() {
                             return;
                         }
@@ -84,7 +84,14 @@ async fn trata_stream(
     reports: ReportBuilderHandle,
     gap: Arc<Mutex<GapTracker>>,
 ) {
-    match read_frame(recv, &clock).await {
+    // Cabeçalho de keyframe avisa o estimador antes do corpo (carência). O lock é solto logo na chamada.
+    let res = read_frame_with(recv, &clock, |h, t| {
+        if h.flags.is_keyframe() {
+            reports.lock().on_keyframe_start(t);
+        }
+    })
+    .await;
+    match res {
         Ok((header, data, arrival_us)) => {
             reports.lock().on_video(&header, arrival_us, (30 + data.len()) as u32);
             gap.lock().on_seq(header.track, header.layer, header.seq, arrival_us);
@@ -305,6 +312,38 @@ mod tests {
         let c = cena().await?;
         c.srv.close(quinn::VarInt::from_u32(0), b"fim");
         tokio::time::timeout(Duration::from_secs(1), c.handle).await??;
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn keyframe_avisa_o_estimador() -> Result<(), Erro> {
+        let (cli, srv, e1, e2) = par_loopback().await?;
+        let clock = Clock::new();
+        let rb: ReportBuilderHandle = Arc::new(Mutex::new(ReportBuilder::new(true)));
+        let (tx, mut rx) = mpsc::channel(64);
+        let _handle = spawn_receiver(srv.clone(), clock.clone(), tx, rb.clone());
+        let sender = MediaSender::new(cli, clock);
+
+        let mut chave = cab(0);
+        chave.flags = VideoFlags(VideoFlags::KEYFRAME);
+        sender
+            .send_video(chave, Bytes::copy_from_slice(&[1u8; 100]), Duration::from_secs(2))
+            .await?;
+        envia_sem_flag(&sender, 1, &[2u8; 100]).await?;
+
+        for _ in 0..2 {
+            proximo(&mut rx).await?;
+        }
+        assert_eq!(rb.lock().keyframe_starts, 1);
+        // Mantém os endpoints vivos até o fim do teste.
+        let _eps = (e1, e2);
+        Ok(())
+    }
+
+    async fn envia_sem_flag(sender: &MediaSender, seq: u32, dados: &[u8]) -> Result<(), Erro> {
+        sender
+            .send_video(cab(seq), Bytes::copy_from_slice(dados), Duration::from_secs(2))
+            .await?;
         Ok(())
     }
 }

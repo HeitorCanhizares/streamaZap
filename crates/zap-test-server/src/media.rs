@@ -1,5 +1,7 @@
 //! Repasse de mídia da ponte (`docs/api/midia.md#ponte-servidor--o-que-repassar`).
 
+use std::sync::Arc;
+
 use bytes::Bytes;
 use zap_net::media_tx::MediaSender;
 use zap_proto::media::{AudioHeader, VideoHeader};
@@ -9,24 +11,25 @@ use crate::state::{Hub, Inner};
 
 /// Resultado do planejamento de um quadro: a quem enviar e quais trocas de camada avisar.
 pub struct VideoPlan {
-    /// Conexões QUIC dos espectadores que devem receber.
-    pub targets: Vec<quinn::Connection>,
+    /// `MediaSender` dos espectadores que devem receber (`ParticipantData::media_tx`).
+    pub targets: Vec<Arc<MediaSender>>,
     /// `(participante, camada nova)` para anunciar `camada.atual`.
     pub switched: Vec<(String, u8)>,
 }
 
-/// Conexões QUIC dos participantes com esses números (quem não tem QUIC fica de fora).
-fn resolve_targets(inner: &Inner, nums: &[u64]) -> Vec<quinn::Connection> {
+/// `MediaSender` dos participantes com esses números. Quem não tem `media_tx` (sem conexão de
+/// mídia) fica de fora.
+fn resolve_targets(inner: &Inner, nums: &[u64]) -> Vec<Arc<MediaSender>> {
     nums.iter()
         .filter_map(|n| inner.participants.values().find(|p| p.num == *n))
-        .filter_map(|p| p.quic.clone())
+        .filter_map(|p| p.media_tx.clone())
         .collect()
 }
 
 impl Hub {
     /// Decide o destino de um quadro vindo de `publisher`: acha a trilha pelo `header.track`
-    /// (número) na sala do publicador, chama `TrackRelay::on_frame(layer, keyframe)`, resolve as
-    /// conexões QUIC dos espectadores em `to`, e avisa `camada.atual` a quem trocou (pelo QUIC do
+    /// (número) na sala do publicador, chama `TrackRelay::on_frame(layer, keyframe)`, resolve os
+    /// `MediaSender` dos espectadores em `to`, e avisa `camada.atual` a quem trocou (pelo QUIC do
     /// espectador: é mensagem da mídia). Trilha desconhecida = plano vazio.
     pub fn plan_video(&self, publisher: &str, header: &VideoHeader) -> VideoPlan {
         let mut guard = self.inner.lock();
@@ -85,8 +88,8 @@ impl Hub {
         }
     }
 
-    /// Conexões QUIC dos espectadores de áudio da trilha `track` (número) do `publisher`.
-    pub fn audio_targets(&self, publisher: &str, track: u16) -> Vec<quinn::Connection> {
+    /// `MediaSender` dos espectadores de áudio da trilha `track` (número) do `publisher`.
+    pub fn audio_targets(&self, publisher: &str, track: u16) -> Vec<Arc<MediaSender>> {
         let inner = self.inner.lock();
         let Some(room_id) = inner.participants.get(publisher).and_then(|p| p.room_id.as_ref()) else {
             return Vec::new();
@@ -102,16 +105,17 @@ impl Hub {
     }
 }
 
-/// Repassa um quadro a todos os alvos: para cada conexão, `MediaSender::send_video` com o mesmo
-/// cabeçalho (o `send_us` é reescrito dentro de `send_video`; `captura_us` e o resto ficam
-/// intactos) e o prazo `sender.deadline()`. Falha em um alvo não afeta os outros (log em
-/// `tracing::debug`). Os `MediaSender` são criados por chamada com `Clock` do `Hub`.
-pub async fn forward_video(hub: &Hub, targets: Vec<quinn::Connection>, header: VideoHeader, data: Bytes) {
+/// Repassa um quadro a todos os alvos: para cada `MediaSender`, `send_video` com o mesmo cabeçalho
+/// (o `send_us` é reescrito dentro de `send_video`; `captura_us` e o resto ficam intactos) e o
+/// prazo `sender.deadline()`. Falha em um alvo não afeta os outros (log em `tracing::debug`).
+/// Os `MediaSender` vêm de `ParticipantData::media_tx`: são o mesmo `Arc` da conexão em todos os
+/// quadros, porque o prazo do keyframe e a admissão têm estado por conexão. `hub` não é usado
+/// aqui; fica na assinatura para não mudar a chamada em `bridge.rs`.
+pub async fn forward_video(_hub: &Hub, targets: Vec<Arc<MediaSender>>, header: VideoHeader, data: Bytes) {
     // Uma tarefa por espectador: um alvo lento não segura os outros, e o prazo é de cada um.
     let tarefas: Vec<_> = targets
         .into_iter()
-        .map(|conn| {
-            let sender = sender_for(hub, conn);
+        .map(|sender| {
             let data = data.clone();
             tokio::spawn(async move {
                 let prazo = sender.deadline();
@@ -128,18 +132,14 @@ pub async fn forward_video(hub: &Hub, targets: Vec<quinn::Connection>, header: V
     }
 }
 
-/// Idem para um pacote de áudio (`MediaSender::send_audio`, que reescreve `send_us`).
-pub fn forward_audio(hub: &Hub, targets: &[quinn::Connection], header: AudioHeader, opus: &[u8]) {
-    for conn in targets {
-        if let Err(e) = sender_for(hub, conn.clone()).send_audio(header, opus) {
+/// Idem para um pacote de áudio (`MediaSender::send_audio`, que reescreve `send_us`). `hub` não é
+/// usado (ver `forward_video`).
+pub fn forward_audio(_hub: &Hub, targets: &[Arc<MediaSender>], header: AudioHeader, opus: &[u8]) {
+    for sender in targets {
+        if let Err(e) = sender.send_audio(header, opus) {
             tracing::debug!("falha ao repassar áudio: {e}");
         }
     }
-}
-
-/// Criador de `MediaSender` (para os testes e `forward_*`).
-pub fn sender_for(hub: &Hub, conn: quinn::Connection) -> MediaSender {
-    MediaSender::new(conn, hub.clock.clone())
 }
 
 #[cfg(test)]
@@ -314,5 +314,15 @@ mod tests {
         drop(inner);
         assert!(hub.audio_targets(&ana, 1).is_empty());
         assert!(hub.audio_targets(&ana, 7).is_empty());
+    }
+
+    #[test]
+    fn resolve_targets_ignora_quem_nao_tem_media_tx() {
+        let (hub, _ana, beto, _rx) = cenario(|pid, n| viewer(pid, n, 0, None, false));
+        let inner = hub.inner.lock();
+        let num_beto = inner.participants[&beto].num;
+        assert!(inner.participants[&beto].media_tx.is_none());
+        let alvos: Vec<Arc<MediaSender>> = resolve_targets(&inner, &[num_beto]);
+        assert!(alvos.is_empty());
     }
 }

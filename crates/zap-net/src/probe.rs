@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use parking_lot::Mutex;
 use tokio::time::MissedTickBehavior;
-use zap_rate::probe::{ProbeBurst, ProbeNeed, ProbePacer, ProbePlanner};
+use zap_rate::probe::{ProbeBurst, ProbeMeter, ProbeNeed, ProbePacer, ProbePlanner};
 
 use crate::{media_tx::MediaSender, NetError};
 
@@ -15,6 +15,10 @@ pub struct Prober {
     sender: Arc<MediaSender>,
     planner: Mutex<ProbePlanner>,
     needs: Mutex<HashMap<u16, ProbeNeed>>,
+    /// Mede, com os relatórios do espectador, os grupos de sondas desta conexão.
+    meter: Mutex<ProbeMeter>,
+    /// `total_kbps` de cada rajada devolvida por `poll`, em ordem (para testes e diagnóstico).
+    rajadas: Mutex<Vec<u32>>,
 }
 
 impl Prober {
@@ -23,6 +27,8 @@ impl Prober {
             sender,
             planner: Mutex::new(ProbePlanner::new()),
             needs: Mutex::new(HashMap::new()),
+            meter: Mutex::new(ProbeMeter::new()),
+            rajadas: Mutex::new(Vec::new()),
         })
     }
     /// Necessidade da trilha `track` (`None` = nada a testar nela). Vale a de menor `next_kbps`.
@@ -45,9 +51,75 @@ impl Prober {
     pub fn poll(&self, now_us: u64, bandwidth_kbps: u32) -> Option<ProbeBurst> {
         // Copia a necessidade e solta o lock de `needs` antes de chamar o planejador.
         let need = menor_necessidade(&self.needs.lock());
-        self.planner
+        let rajada = self
+            .planner
             .lock()
-            .poll(now_us, need, bandwidth_kbps, self.sender.sent_bytes())
+            .poll(now_us, need, bandwidth_kbps, self.sender.sent_bytes());
+        if let Some(b) = &rajada {
+            self.rajadas.lock().push(b.total_kbps);
+        }
+        rajada
+    }
+    /// `total_kbps` de cada rajada que `poll` já devolveu, em ordem. `poll` grava aqui (tarefa net-08).
+    pub fn bursts(&self) -> Vec<u32> {
+        self.rajadas.lock().clone()
+    }
+    /// Última medida do caminho (`ProbePlanner::last_measure`): (kbps, saturou).
+    pub fn last_measure(&self, now_us: u64) -> Option<(u32, bool)> {
+        self.planner.lock().last_measure(now_us)
+    }
+    /// Relatório do espectador (relógio dele nos instantes): junta `report.probes` e
+    /// `report.arrivals` por `chegada_us`, alimenta o `ProbeMeter` desta conexão
+    /// (`on_probe`/`on_media`), fecha o grupo com `poll(maior chegada do relatório)` e, se o
+    /// relatório não tem sondas e há grupo aberto, com `finish()`. Cada resultado vai para
+    /// `ProbePlanner::on_result(now_us, &r)`.
+    pub fn on_report(&self, now_us: u64, report: &zap_proto::Report) {
+        enum Evento {
+            Sonda(u16, u64, u32),
+            Midia(u64, u32),
+        }
+        let mut eventos: Vec<(u64, Evento)> = Vec::new();
+        for &(cluster, _seq, _envio, chegada, bytes) in &report.probes {
+            eventos.push((chegada, Evento::Sonda(cluster, chegada, bytes)));
+        }
+        for &(_trilha, _camada, _seq, _envio, chegada, bytes) in &report.arrivals {
+            eventos.push((chegada, Evento::Midia(chegada, bytes)));
+        }
+        // Ordenação estável: o medidor espera chegadas crescentes.
+        eventos.sort_by_key(|(chegada, _)| *chegada);
+
+        let mut resultados = Vec::new();
+        {
+            let mut meter = self.meter.lock();
+            let maior = eventos.last().map(|(c, _)| *c);
+            for (_, e) in &eventos {
+                match *e {
+                    Evento::Sonda(cluster, chegada, bytes) => {
+                        if let Some(r) = meter.on_probe(cluster, chegada, bytes) {
+                            resultados.push(r);
+                        }
+                    }
+                    Evento::Midia(chegada, bytes) => meter.on_media(chegada, bytes),
+                }
+            }
+            if let Some(maior) = maior {
+                if let Some(r) = meter.poll(maior) {
+                    resultados.push(r);
+                }
+            }
+            if report.probes.is_empty() {
+                if let Some(r) = meter.finish() {
+                    resultados.push(r);
+                }
+            }
+        }
+        // Os dois locks nunca ficam presos juntos.
+        if !resultados.is_empty() {
+            let mut planner = self.planner.lock();
+            for r in &resultados {
+                planner.on_result(now_us, r);
+            }
+        }
     }
     /// Manda a rajada: `ProbePacer` com o relógio do `MediaSender`, tique `interval(5 ms)`
     /// (`MissedTickBehavior::Skip`), `send_probe(cluster, seq, probe_size)`; `seq` de 0 em diante.
@@ -173,6 +245,7 @@ mod tests {
         ProbeBurst {
             cluster: 3,
             kbps: 3300,
+            total_kbps: 3750,
             duration_us,
         }
     }
@@ -221,6 +294,98 @@ mod tests {
         let t0 = std::time::Instant::now();
         let _ = p.run_burst(rajada(200_000)).await;
         assert!(t0.elapsed() < Duration::from_secs(1));
+        Ok(())
+    }
+
+    fn relatorio(
+        probes: Vec<(u16, u32, u32, u64, u32)>,
+        arrivals: Vec<(u16, u8, u32, u32, u64, u32)>,
+    ) -> zap_proto::Report {
+        zap_proto::Report {
+            arrivals,
+            probes,
+            lost: vec![],
+            loss: 0.0,
+            bandwidth_kbps: None,
+            state: None,
+            buffer_ms: None,
+        }
+    }
+
+    async fn prober_com_rajada() -> Result<
+        (
+            Arc<Prober>,
+            ProbeBurst,
+            quinn::Connection,
+            quinn::Endpoint,
+            quinn::Endpoint,
+        ),
+        Erro,
+    > {
+        let (cli, srv, e1, e2) = par_loopback().await?;
+        let p = Prober::new(Arc::new(MediaSender::new(cli, Clock::new())));
+        p.set_need(1, Some(necessidade(2500, 0)));
+        // O planejador precisa de >= 0,5 s de janela de envio antes de sondar.
+        assert!(p.poll(0, 400).is_none());
+        let b = p.poll(1_100_000, 400).ok_or("sem rajada")?;
+        Ok((p, b, srv, e1, e2))
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn poll_registra_total_das_rajadas() -> Result<(), Erro> {
+        let (p, b, _s, _e1, _e2) = prober_com_rajada().await?;
+        assert_eq!(p.bursts(), vec![b.total_kbps]);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn on_report_vazio_nao_faz_nada() -> Result<(), Erro> {
+        let (p, _b, _s, _e1, _e2) = prober_com_rajada().await?;
+        p.on_report(2_000_000, &relatorio(vec![], vec![]));
+        assert_eq!(p.last_measure(2_000_000), None);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn on_report_sem_rajada_conhecida_ignora() -> Result<(), Erro> {
+        let (p, _b, _s, _e1, _e2) = prober_com_rajada().await?;
+        let sondas = (0..60)
+            .map(|i| (99u16, i, 0u32, 1_000_000 + i as u64 * 3000, 1200u32))
+            .collect();
+        p.on_report(2_000_000, &relatorio(sondas, vec![]));
+        p.on_report(2_100_000, &relatorio(vec![], vec![]));
+        assert_eq!(p.last_measure(2_100_000), None);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn on_report_mede_o_grupo() -> Result<(), Erro> {
+        let (p, b, _s, _e1, _e2) = prober_com_rajada().await?;
+        let sondas = (0..60)
+            .map(|i| (b.cluster, i, 0u32, 1_000_000 + i as u64 * 3000, 1200u32))
+            .collect();
+        p.on_report(1_300_000, &relatorio(sondas, vec![]));
+        p.on_report(1_400_000, &relatorio(vec![], vec![]));
+        let (kbps, saturou) = p.last_measure(1_400_000).ok_or("sem medida")?;
+        assert!((2880..=3520).contains(&kbps), "kbps = {kbps}");
+        assert_eq!(saturou, f64::from(kbps) < 0.85 * f64::from(b.total_kbps));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn on_report_junta_chegadas_de_midia() -> Result<(), Erro> {
+        let (p, b, _s, _e1, _e2) = prober_com_rajada().await?;
+        // Sondas de 1200 B a cada 6 ms e vídeo de 1200 B entre elas: o total é o mesmo de 3 ms.
+        let sondas = (0..60)
+            .map(|i| (b.cluster, i, 0u32, 1_000_000 + i as u64 * 6000, 1200u32))
+            .collect();
+        let midia = (0..60)
+            .map(|i| (1u16, 0u8, i, 0u32, 1_003_000 + i as u64 * 6000, 1200u32))
+            .collect();
+        p.on_report(1_500_000, &relatorio(sondas, midia));
+        p.on_report(1_600_000, &relatorio(vec![], vec![]));
+        let (kbps, _) = p.last_measure(1_600_000).ok_or("sem medida")?;
+        assert!((2880..=3520).contains(&kbps), "kbps = {kbps}");
         Ok(())
     }
 }

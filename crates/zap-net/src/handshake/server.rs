@@ -32,12 +32,21 @@ pub async fn accept_handshake_with(
     participant_id: String,
     media_secret: Option<&str>,
 ) -> Result<(ControlTx, ControlRx, Hello), NetError> {
-    tokio::time::timeout(
-        HANDSHAKE_TIMEOUT,
-        executa(conn, auth, room, participant_id, media_secret),
-    )
-    .await
-    .map_err(|_| NetError::Timeout)?
+    accept_handshake_timeout(conn, auth, room, participant_id, media_secret, HANDSHAKE_TIMEOUT).await
+}
+
+/// Igual a `accept_handshake_with`, com o limite de tempo injetável (testes usam um curto).
+async fn accept_handshake_timeout(
+    conn: &quinn::Connection,
+    auth: &ServerAuth,
+    room: &Room,
+    participant_id: String,
+    media_secret: Option<&str>,
+    limite: Duration,
+) -> Result<(ControlTx, ControlRx, Hello), NetError> {
+    tokio::time::timeout(limite, executa(conn, auth, room, participant_id, media_secret))
+        .await
+        .map_err(|_| NetError::Timeout)?
 }
 
 /// Envia `recusado`, dá um tempo para o dado sair e devolve o erro correspondente.
@@ -336,10 +345,21 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    // Auditoria (net-12): decisão (b). O par é QUIC real em loopback; com o tempo pausado o
+    // runtime adianta o relógio sozinho quando só há E/S pendente, e o handshake QUIC ou o
+    // timeout poderiam vencer fora de ordem. Tempo real com limite curto injetado.
+    #[tokio::test(flavor = "multi_thread")]
     async fn timeout_sem_stream() -> Result<(), Box<dyn std::error::Error>> {
         let p = par().await?;
-        let r = accept_handshake(&p.srv, &ServerAuth::Open, &sala(), "p1".into()).await;
+        let r = accept_handshake_timeout(
+            &p.srv,
+            &ServerAuth::Open,
+            &sala(),
+            "p1".into(),
+            None,
+            Duration::from_millis(200),
+        )
+        .await;
         assert!(matches!(r, Err(NetError::Timeout)));
         Ok(())
     }

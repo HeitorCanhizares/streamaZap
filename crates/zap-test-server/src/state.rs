@@ -93,6 +93,10 @@ pub struct ParticipantData {
     pub public_ip: String,
     /// Sondagem de banda da conexão QUIC atual (`None` sem conexão ou na prévia).
     pub prober: Option<std::sync::Arc<zap_net::probe::Prober>>,
+    /// Estado de envio da conexão QUIC atual: um `MediaSender` por conexão, usado para vídeo,
+    /// áudio e sondas (o prazo do keyframe e a admissão dependem de estado por conexão;
+    /// `docs/api/midia.md`). Existe também na prévia. `None` sem conexão.
+    pub media_tx: Option<std::sync::Arc<zap_net::media_tx::MediaSender>>,
 }
 
 /// Ingresso emitido por `entrar`/`previa`.
@@ -241,6 +245,7 @@ impl Hub {
                         quic_port: None,
                         public_ip: remote_ip.to_string(),
                         prober: None,
+                        media_tx: None,
                     },
                 );
                 id

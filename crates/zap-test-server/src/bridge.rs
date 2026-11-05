@@ -170,13 +170,15 @@ fn registrar(
         p.quic_ctl = Some(saida.clone());
         p.quic_room = Some(room_id.to_string());
         p.quic_port = Some(conn.remote_address().port());
+        // Um único `MediaSender` por conexão: o encaminhamento de mídia e a sonda dividem o mesmo
+        // `Arc` (contadores e números de sequência não podem se duplicar).
+        let sender = Arc::new(zap_net::media_tx::MediaSender::new(conn.clone(), hub.clock.clone()));
+        p.media_tx = Some(sender.clone());
         // Sonda só para quem publica; a prévia não manda mídia.
         p.prober = if preview {
             None
         } else {
-            Some(zap_net::probe::Prober::new(std::sync::Arc::new(
-                zap_net::media_tx::MediaSender::new(conn.clone(), hub.clock.clone()),
-            )))
+            Some(zap_net::probe::Prober::new(sender))
         };
         let num = p.num;
 
@@ -226,6 +228,7 @@ fn desregistrar(hub: &Arc<Hub>, who: &str, room_id: &str, conn: &quinn::Connecti
             p.quic_ctl = None;
             p.quic_room = None;
             p.prober = None;
+            p.media_tx = None;
         }
         atual
     };
@@ -376,19 +379,26 @@ pub async fn control_loop(hub: Arc<Hub>, who: String, mut rx: ControlRx, saida: 
     }
 }
 
-/// `relatorio` de quem assiste: atualiza banda e estado dele em toda trilha que ele assina.
+/// `relatorio` de quem assiste: atualiza banda e estado dele em toda trilha que ele assina e
+/// alimenta a sonda de banda da conexão dele (fora do lock da `Hub`).
 fn relatorio_do_espectador(hub: &Hub, who: &str, r: &Report) {
-    let mut guard = hub.inner.lock();
-    let inner = &mut *guard;
-    let Some(num) = inner.participants.get(who).map(|p| p.num) else {
-        return;
-    };
-    for sala in inner.rooms.values_mut() {
-        for t in sala.tracks.iter_mut() {
-            if t.relay.viewers.contains_key(&num) {
-                t.relay.on_report(num, r.bandwidth_kbps, r.state);
+    let prober = {
+        let mut guard = hub.inner.lock();
+        let inner = &mut *guard;
+        let Some(num) = inner.participants.get(who).map(|p| p.num) else {
+            return;
+        };
+        for sala in inner.rooms.values_mut() {
+            for t in sala.tracks.iter_mut() {
+                if t.relay.viewers.contains_key(&num) {
+                    t.relay.on_report(num, r.bandwidth_kbps, r.state);
+                }
             }
         }
+        inner.participants.get(who).and_then(|p| p.prober.clone())
+    };
+    if let Some(pr) = prober {
+        pr.on_report(hub.clock.now_us(), r);
     }
 }
 
@@ -755,5 +765,117 @@ mod tests {
         let _c2 = connect_handshake(&conn2, ola(&ingresso_previa), None).await.unwrap();
         assert!(ate(|| p.hub.inner.lock().participants[&p.bia].quic_ctl.is_some()).await);
         assert!(!tem_prober(&p), "prévia não deve ter sonda");
+    }
+
+    /// Trilha 1 de Ana com Bia assistindo a camada 0, sem troca pendente.
+    fn trilha_de_ana_com_bia(p: &Ponte) {
+        let mut inner = p.hub.inner.lock();
+        let num = inner.participants[&p.bia].num;
+        let camadas = vec![zap_proto::LayerSpec {
+            layer: 0,
+            width: 1280,
+            height: 720,
+            fps: 30,
+            kbps: 2500,
+        }];
+        let mut relay = crate::relay::TrackRelay::new(camadas.clone());
+        relay.subscribe(crate::relay::ViewerEntry {
+            participant_id: p.bia.clone(),
+            num,
+            size: TileSize::Main,
+            max_layer_req: None,
+            audio: false,
+            preview: false,
+            bandwidth_kbps: 0,
+            state: DelayState::Normal,
+            current: 0,
+            pending: None,
+            announced: None,
+        });
+        inner
+            .rooms
+            .get_mut(&p.sala)
+            .unwrap()
+            .tracks
+            .push(crate::state::TrackData {
+                id: "t1".into(),
+                number: 1,
+                participant_id: p.ana.clone(),
+                kind: zap_proto::TrackKind::Camera,
+                title: "câmera".into(),
+                layers: camadas,
+                audio: None,
+                relay,
+            });
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn registrar_cria_media_tx_e_desregistrar_tira() {
+        let p = ponte().await;
+        let tem = |p: &Ponte| p.hub.inner.lock().participants[&p.bia].media_tx.is_some();
+
+        let conn = conectar(p.addr, &p.fp).await;
+        let _c = connect_handshake(&conn, ola(&p.ingresso), None).await.unwrap();
+        assert!(ate(|| tem(&p)).await, "o sender devia existir após registrar");
+
+        conn.close(0u32.into(), b"tchau");
+        assert!(ate(|| !tem(&p)).await, "o sender devia sair ao fechar a conexão");
+
+        // Prévia: não publica (sem sonda), mas também recebe mídia, então tem sender.
+        let codigo = p.hub.list_rooms(&p.ana)[0].code.clone();
+        let ingresso_previa = p.hub.preview_room(&p.bia, &codigo).unwrap().ticket;
+        let conn2 = conectar(p.addr, &p.fp).await;
+        let _c2 = connect_handshake(&conn2, ola(&ingresso_previa), None).await.unwrap();
+        assert!(ate(|| tem(&p)).await, "a prévia também devia ter sender");
+        assert!(p.hub.inner.lock().participants[&p.bia].prober.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn plan_video_reusa_o_sender_da_conexao() {
+        let p = ponte().await;
+        trilha_de_ana_com_bia(&p);
+        let conn = conectar(p.addr, &p.fp).await;
+        let _c = connect_handshake(&conn, ola(&p.ingresso), None).await.unwrap();
+        assert!(ate(|| p.hub.inner.lock().participants[&p.bia].media_tx.is_some()).await);
+
+        let header = zap_proto::media::VideoHeader {
+            flags: zap_proto::media::VideoFlags(0),
+            track: 1,
+            layer: 0,
+            width: 1280,
+            height: 720,
+            seq: 1,
+            capture_us: 0,
+            send_us: 0,
+            size: 0,
+        };
+        let plano1 = p.hub.plan_video(&p.ana, &header);
+        let plano2 = p.hub.plan_video(&p.ana, &header);
+        assert_eq!(plano1.targets.len(), 1);
+        assert!(Arc::ptr_eq(&plano1.targets[0], &plano2.targets[0]));
+        let do_bia = p.hub.inner.lock().participants[&p.bia].media_tx.clone().unwrap();
+        assert!(Arc::ptr_eq(&plano1.targets[0], &do_bia));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn relatorio_do_espectador_alimenta_o_prober() {
+        let p = ponte().await;
+        let conn = conectar(p.addr, &p.fp).await;
+        let (tx, _rx, _w) = connect_handshake(&conn, ola(&p.ingresso), None).await.unwrap();
+        assert!(ate(|| p.hub.inner.lock().participants[&p.bia].prober.is_some()).await);
+        tx.send(&ControlMsg::Report(Report {
+            arrivals: vec![],
+            probes: vec![],
+            lost: vec![],
+            loss: 0.0,
+            bandwidth_kbps: Some(1000),
+            state: Some(DelayState::Normal),
+            buffer_ms: Some(100),
+        }))
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(p.hub.inner.lock().participants[&p.bia].prober.is_some());
+        assert!(conn.close_reason().is_none());
     }
 }

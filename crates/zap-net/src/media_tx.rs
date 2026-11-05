@@ -5,6 +5,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use zap_proto::media::{encode_audio, encode_probe, AudioHeader, ProbeHeader};
 
+mod keyframe;
 mod video;
 
 use crate::{Clock, NetError};
@@ -15,6 +16,9 @@ pub const RESET_LATE: u32 = 0x10;
 /// Piso do prazo de um quadro de vídeo: nem em rede muito rápida o prazo fica menor que isso.
 const PRAZO_MINIMO: Duration = Duration::from_millis(150);
 
+/// Piso do prazo de um keyframe (midia.md "Prazo").
+pub const PRAZO_KEYFRAME_MINIMO: Duration = Duration::from_millis(600);
+
 /// Tamanho mínimo de uma sonda (o cabeçalho sozinho).
 const SONDA_MINIMA: usize = 12;
 
@@ -23,6 +27,11 @@ pub struct MediaSender {
     pub(crate) clock: Clock,
     /// Bytes de vídeo aceitos e ainda não confirmados pelo par (fila do emissor).
     pub(crate) backlog: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Keyframes em voo e terminados desta conexão (prazo estendido e admissão).
+    pub(crate) keyframes: keyframe::KeyframeState,
+    /// Menor RTT suavizado já visto nesta conexão, em µs (`u64::MAX` = nenhum ainda): o RTT de
+    /// base da admissão, sem a fila que o RTT atual já contém.
+    pub(crate) rtt_base_us: std::sync::atomic::AtomicU64,
 }
 
 impl MediaSender {
@@ -31,6 +40,8 @@ impl MediaSender {
             conn,
             clock,
             backlog: Default::default(),
+            keyframes: Default::default(),
+            rtt_base_us: std::sync::atomic::AtomicU64::new(u64::MAX),
         }
     }
 
@@ -41,6 +52,11 @@ impl MediaSender {
     /// `max(150 ms, 2 × RTT)`.
     pub fn deadline(&self) -> Duration {
         PRAZO_MINIMO.max(2 * self.rtt())
+    }
+
+    /// `max(600 ms, 2 × RTT)`: prazo de um keyframe.
+    pub fn keyframe_deadline(&self) -> Duration {
+        PRAZO_KEYFRAME_MINIMO.max(2 * self.rtt())
     }
 
     /// Envia um pacote de áudio em datagrama. `send_us` é preenchido aqui, sobrescrevendo o valor
@@ -140,6 +156,15 @@ mod tests {
     async fn deadline_minimo_150ms() -> Result<(), Erro> {
         let (cli, _srv, _e1, _e2) = par_loopback().await?;
         let tx = MediaSender::new(cli, Clock::new());
+        assert_eq!(tx.deadline(), Duration::from_millis(150));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn keyframe_deadline_minimo_600ms() -> Result<(), Erro> {
+        let (cli, _srv, _e1, _e2) = par_loopback().await?;
+        let tx = MediaSender::new(cli, Clock::new());
+        assert_eq!(tx.keyframe_deadline(), Duration::from_millis(600));
         assert_eq!(tx.deadline(), Duration::from_millis(150));
         Ok(())
     }

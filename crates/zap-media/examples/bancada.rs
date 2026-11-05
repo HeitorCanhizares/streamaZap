@@ -8,7 +8,7 @@
 
 use zap_rate::ladder::Preset;
 
-const USO: &str = "uso: bancada [--monitor N] [--preset 720p30|720p60|1080p30|1080p60] [--segundos S] [--software]";
+const USO: &str = "uso: bancada [--monitor N] [--preset 720p30|720p60|1080p30|1080p60] [--segundos S] [--software] [--animar|--sem-animar] [--aquecimento S]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Args {
@@ -18,6 +18,10 @@ struct Args {
     segundos: u64,
     /// Força o codificador por software (sem tentar hardware).
     software: bool,
+    /// Abre a janela animada no monitor medido (padrão: sim).
+    animar: bool,
+    /// Segundos de aquecimento antes de contar quadros (padrão: 2).
+    aquecimento: u64,
 }
 
 /// Lê os argumentos (sem o nome do programa). Erro = mensagem a mostrar junto do uso.
@@ -27,6 +31,8 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
         preset: Preset::P1080p60,
         segundos: 10,
         software: false,
+        animar: true,
+        aquecimento: 2,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -56,6 +62,15 @@ fn parse_args(args: &[String]) -> Result<Args, String> {
                 out.segundos = n;
             }
             "--software" => out.software = true,
+            "--animar" => out.animar = true,
+            "--sem-animar" => out.animar = false,
+            "--aquecimento" => {
+                let s = proximo(&mut it, "--aquecimento")?;
+                // Zero é válido: mede desde o primeiro quadro.
+                out.aquecimento = s
+                    .parse()
+                    .map_err(|_| format!("--aquecimento precisa de inteiro, veio {s:?}"))?;
+            }
             outro => return Err(format!("argumento desconhecido: {outro:?}")),
         }
     }
@@ -67,6 +82,18 @@ fn proximo<'a>(it: &mut std::slice::Iter<'a, String>, flag: &str) -> Result<&'a 
     it.next()
         .map(|s| s.as_str())
         .ok_or_else(|| format!("{flag} precisa de um valor"))
+}
+
+/// Aviso de tela parada: sem quadros novos da captura os tempos medem espera, não trabalho.
+fn aviso_tela_parada(novos_por_s: f32, animando: bool) -> Option<String> {
+    let limite = if animando { 30.0 } else { 5.0 };
+    if novos_por_s < limite {
+        Some(format!(
+            "AVISO: tela quase parada ({novos_por_s:.1} quadros novos/s): os tempos medem espera, não trabalho"
+        ))
+    } else {
+        None
+    }
 }
 
 fn parse_preset(s: &str) -> Result<Preset, String> {
@@ -120,6 +147,23 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let (w, h) = (m.width, m.height);
     let cabecalho = format!("monitor {} ({}), {}x{}", args.monitor, m.name, w, h);
 
+    // Declarada antes do pipeline: é descartada depois dele, inclusive em erro por `?`.
+    let _janela = if args.animar {
+        match zap_capture::movimento::JanelaAnimada::abrir(m) {
+            Ok(j) => {
+                std::thread::sleep(Duration::from_millis(500));
+                Some(j)
+            }
+            Err(e) => {
+                eprintln!("aviso: não consegui abrir a janela animada ({e}); seguindo sem animação");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let animando = _janela.is_some();
+
     let escada = screen_ladder(args.preset, w, h);
     let encoder = if args.software {
         EncoderChoiceSpec::Software
@@ -128,8 +172,12 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     };
     let timer_txt = if timer_ativo { "sim" } else { "não" };
     println!(
-        "{cabecalho}, preset {:?}, {} s, codificador pedido {:?}, timer 1 ms: {timer_txt}",
-        args.preset, args.segundos, encoder
+        "{cabecalho}, preset {:?}, {} s (aquecimento {} s), codificador pedido {:?}, timer 1 ms: {timer_txt}, animação: {}",
+        args.preset,
+        args.segundos,
+        args.aquecimento,
+        encoder,
+        if animando { "sim" } else { "não" }
     );
 
     let (tx, rx) = crossbeam_channel::unbounded::<EncodedFrame>();
@@ -154,6 +202,15 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     // Por camada: (quadros, bytes) recebidos durante a janela de medição.
     let mut contagem: BTreeMap<u8, (u64, u64)> = BTreeMap::new();
+    // Aquecimento: descarta os quadros para o codificador e o conversor estabilizarem.
+    let fim_aquecimento = Instant::now() + Duration::from_secs(args.aquecimento);
+    loop {
+        let restante = fim_aquecimento.saturating_duration_since(Instant::now());
+        if restante.is_zero() || rx.recv_timeout(restante).is_err() {
+            break;
+        }
+    }
+    contagem.clear();
     let inicio = Instant::now();
     let fim = inicio + Duration::from_secs(args.segundos);
     loop {
@@ -186,8 +243,15 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     println!();
     println!(
-        "{:>6} {:>11} {:>8} {:>10} {:>22} {:>22}",
-        "camada", "WxH", "fps", "kbps", "conversão média/p95", "codificação média/p95"
+        "{:>6} {:>11} {:>8} {:>10} {:>22} {:>22} {:>22} {:>16}",
+        "camada",
+        "WxH",
+        "fps",
+        "kbps",
+        "conversão média/p95",
+        "conv. GPU média/p95",
+        "codificação média/p95",
+        "espera lock p95"
     );
     for l in &escada {
         let (quadros, bytes) = contagem.get(&l.layer).copied().unwrap_or((0, 0));
@@ -195,18 +259,24 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         let kbps = bytes as f64 * 8.0 / 1000.0 / decorrido;
         let s = da_camada(l.layer);
         println!(
-            "{:>6} {:>11} {:>8.1} {:>10.0} {:>22} {:>22}",
+            "{:>6} {:>11} {:>8.1} {:>10.0} {:>22} {:>22} {:>22} {:>16}",
             l.layer,
             format!("{}x{}", l.width, l.height),
             fps,
             kbps,
             format!("{:.2} / {:.2}", ms(s.convert.avg_us), ms(s.convert.p95_us)),
+            format!("{:.2} / {:.2}", ms(s.convert_gpu.avg_us), ms(s.convert_gpu.p95_us)),
             format!("{:.2} / {:.2}", ms(s.encode.avg_us), ms(s.encode.p95_us)),
+            format!("{:.3}", ms(s.lock_wait.p95_us)),
         );
     }
 
     let cap = st.capture;
     println!();
+    println!("quadros novos da captura: {:.1}/s", st.capture_new_fps);
+    if let Some(aviso) = aviso_tela_parada(st.capture_new_fps, animando) {
+        println!("{aviso}");
+    }
     println!(
         "captura média/p95: {:.2} / {:.2} ms; descartados: captura {}, codificação {}; codificador: {}",
         ms(cap.avg_us),
@@ -239,7 +309,35 @@ mod tests {
                 preset: Preset::P1080p60,
                 segundos: 10,
                 software: false,
+                animar: true,
+                aquecimento: 2,
             }
+        );
+    }
+
+    #[test]
+    fn animar_flags() {
+        assert!(!parse_args(&v(&["--sem-animar"])).expect("flag").animar);
+        assert!(parse_args(&v(&["--sem-animar", "--animar"])).expect("flag").animar);
+    }
+
+    #[test]
+    fn aquecimento_lido() {
+        assert_eq!(parse_args(&v(&["--aquecimento", "5"])).map(|a| a.aquecimento), Ok(5));
+        assert_eq!(parse_args(&v(&["--aquecimento", "0"])).map(|a| a.aquecimento), Ok(0));
+        assert!(parse_args(&v(&["--aquecimento", "x"])).is_err());
+        assert!(parse_args(&v(&["--aquecimento"])).is_err());
+    }
+
+    #[test]
+    fn aviso_tela_parada_limites() {
+        assert!(aviso_tela_parada(29.9, true).is_some());
+        assert!(aviso_tela_parada(30.0, true).is_none());
+        assert!(aviso_tela_parada(4.9, false).is_some());
+        assert!(aviso_tela_parada(5.0, false).is_none());
+        assert_eq!(
+            aviso_tela_parada(2.0, false).as_deref(),
+            Some("AVISO: tela quase parada (2.0 quadros novos/s): os tempos medem espera, não trabalho")
         );
     }
 

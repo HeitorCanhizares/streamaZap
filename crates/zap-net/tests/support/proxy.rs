@@ -338,10 +338,16 @@ mod tests {
     async fn rajada(p: &Proxy, sink: &UdpSocket) -> Vec<std::time::Instant> {
         let c = cliente(p).await;
         // Envia em paralelo à leitura: o buffer do socket de destino não comporta 200 pacotes.
+        // Em blocos de 10 com 1 ms entre eles (~100 Mbps, bem acima de qualquer limite testado):
+        // 200 pacotes de uma vez transbordam o buffer do socket do sistema quando outros testes
+        // disputam a CPU, e a perda aparece sem ser do proxy.
         tokio::spawn(async move {
             let pkt = [7u8; 1200];
-            for _ in 0..200 {
+            for i in 0..200 {
                 let _ = c.send(&pkt).await;
+                if i % 10 == 9 {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
             }
         });
         let mut buf = vec![0u8; 2048];

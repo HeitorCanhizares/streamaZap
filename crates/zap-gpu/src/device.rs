@@ -82,6 +82,19 @@ fn criar_d3d(
     }
 }
 
+/// Guarda do lock do dispositivo (`ID3D11Multithread::Enter`/`Leave`). Solta no `Drop`.
+pub struct DeviceLock<'a> {
+    pub(crate) mt: &'a ID3D11Multithread,
+}
+
+impl Drop for DeviceLock<'_> {
+    fn drop(&mut self) {
+        // SAFETY: o guarda só existe depois de um `Enter` bem-sucedido, e não é `Send`,
+        // então o `Leave` roda na mesma thread que fez o `Enter`.
+        unsafe { self.mt.Leave() };
+    }
+}
+
 /// Dispositivo D3D11 com multithread protegido (`ID3D11Multithread::SetMultithreadProtected(TRUE)`).
 ///
 /// Normalmente `BGRA_SUPPORT | VIDEO_SUPPORT` numa GPU de verdade. Sem suporte a vídeo (driver
@@ -96,6 +109,8 @@ pub struct GpuDevice {
     pub(crate) context: ID3D11DeviceContext,
     pub(crate) video: Option<(ID3D11VideoDevice, ID3D11VideoContext)>,
     pub(crate) adapter: AdapterInfo,
+    /// Interface de multithread do mesmo dispositivo (para `lock`).
+    pub(crate) multithread: ID3D11Multithread,
 }
 
 // SAFETY: o dispositivo é criado com SetMultithreadProtected(TRUE); o D3D11 serializa as
@@ -178,7 +193,21 @@ impl GpuDevice {
             context,
             video,
             adapter: adapter_info,
+            multithread: mt,
         })
+    }
+    /// Lock explícito do dispositivo; devolve o guarda e quanto se esperou por ele.
+    /// Reentrante: chamadas D3D11 feitas com o guarda vivo não travam.
+    ///
+    /// Serve para medir a espera pelo lock do dispositivo (decisão em
+    /// docs/arquitetura-v3.md §2): a `Duration` devolvida é o tempo bloqueado no `Enter`.
+    pub fn lock(&self) -> (DeviceLock<'_>, std::time::Duration) {
+        let t0 = std::time::Instant::now();
+        // SAFETY: `multithread` é um objeto COM válido; o `Leave` correspondente
+        // acontece no `Drop` do guarda, na mesma thread.
+        unsafe { self.multithread.Enter() };
+        let espera = t0.elapsed();
+        (DeviceLock { mt: &self.multithread }, espera)
     }
     pub fn adapter(&self) -> &AdapterInfo {
         &self.adapter
@@ -232,6 +261,51 @@ mod tests {
         };
         let b = GpuDevice::create_for_adapter(a.adapter().luid);
         assert!(matches!(&b, Ok(d) if d.adapter().name == a.adapter().name));
+    }
+
+    #[test]
+    fn lock_devolve_espera_pequena_sem_concorrencia() {
+        let Ok(dev) = GpuDevice::create_default() else {
+            eprintln!("pulando: sem GPU");
+            return;
+        };
+        let (guarda, espera) = dev.lock();
+        drop(guarda);
+        assert!(espera < std::time::Duration::from_millis(50), "espera = {espera:?}");
+    }
+
+    #[test]
+    fn lock_e_reentrante() {
+        let Ok(dev) = GpuDevice::create_default() else {
+            eprintln!("pulando: sem GPU");
+            return;
+        };
+        let (_a, _) = dev.lock();
+        let (_b, _) = dev.lock();
+        let tex = crate::Texture::new(&dev, 64, 64, crate::PixelFormat::Bgra8, false);
+        assert!(tex.is_ok());
+    }
+
+    #[test]
+    fn lock_bloqueia_outra_thread() {
+        let Ok(dev) = GpuDevice::create_default() else {
+            eprintln!("pulando: sem GPU");
+            return;
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        let dev_a = dev.clone();
+        let a = std::thread::spawn(move || {
+            let (guarda, _) = dev_a.lock();
+            let _ = tx.send(());
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            drop(guarda);
+        });
+        // Só tenta depois de A já ter pegado o lock.
+        assert!(rx.recv().is_ok());
+        let (guarda, espera) = dev.lock();
+        drop(guarda);
+        let _ = a.join();
+        assert!(espera >= std::time::Duration::from_millis(60), "espera = {espera:?}");
     }
 
     fn assert_clone<T: Clone>() {}

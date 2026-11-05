@@ -116,3 +116,67 @@ fn latencia_hardware() {
         "p95 de encode_us {p95_ms:.2} ms acima de {LIMITE_P95_MS} ms"
     );
 }
+
+/// Intervalo entre envios no teste de saída; também é o tempo máximo de espera por cada saída.
+const CICLO_SAIDA: Duration = Duration::from_millis(100);
+/// Quanto a saída pode demorar após o submit para não segurar o quadro até o seguinte.
+const LIMITE_SAIDA: Duration = Duration::from_millis(40);
+const QUADROS_SAIDA: u32 = 20;
+/// Os primeiros quadros pagam o aquecimento; são enviados e drenados, mas não entram no assert.
+const AQUECIMENTO_SAIDA: u32 = 3;
+
+#[test]
+fn saida_sai_antes_do_proximo_quadro() {
+    let Some(dev) = preparar() else { return };
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let enc = match H264Encoder::new(&dev, cfg(), tx) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("pulando: não abriu o codificador ({e})");
+            return;
+        }
+    };
+    let mut ring = TextureRing::new(&dev, W, H, PixelFormat::Nv12, 4, false).expect("anel NV12");
+    let mut conv = Converter::new(&dev, W, H, PixelFormat::Bgra8, W, H).expect("conversor");
+
+    let mut maior = Duration::ZERO;
+    for i in 0..QUADROS_SAIDA {
+        let tex = support::frame_ruido(&dev, &mut ring, &mut conv, i);
+        let captura = zap_gpu::now_us();
+        let t0 = Instant::now();
+        enc.submit(tex, captura, false);
+
+        // Espera a saída deste quadro (casada pelo carimbo de captura); saídas de quadros
+        // anteriores que chegarem antes são descartadas.
+        let limite = t0 + CICLO_SAIDA;
+        let mut saida = None;
+        while saida.is_none() {
+            let restante = limite.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(restante) {
+                Ok(p) if p.capture_us == captura => saida = Some(t0.elapsed()),
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+
+        match saida {
+            None => assert!(i < AQUECIMENTO_SAIDA, "quadro {i} não saiu em 100 ms"),
+            Some(e) if i >= AQUECIMENTO_SAIDA => {
+                assert!(
+                    e <= LIMITE_SAIDA,
+                    "quadro {i} saiu em {e:?}, acima de 40 ms após o submit"
+                );
+                maior = maior.max(e);
+            }
+            Some(_) => {}
+        }
+
+        // Completa o ciclo de 100 ms antes do próximo envio.
+        std::thread::sleep(CICLO_SAIDA.saturating_sub(t0.elapsed()));
+    }
+
+    eprintln!(
+        "saida_sai_antes_do_proximo_quadro: maior tempo até a saída = {:.2} ms",
+        maior.as_secs_f64() * 1000.0
+    );
+}

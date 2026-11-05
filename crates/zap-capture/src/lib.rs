@@ -21,6 +21,8 @@ mod dxgi_dup;
 #[cfg(windows)]
 mod monitors;
 #[cfg(windows)]
+pub mod movimento;
+#[cfg(windows)]
 mod wgc;
 #[cfg(windows)]
 mod windows_list;

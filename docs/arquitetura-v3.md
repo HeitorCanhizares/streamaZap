@@ -42,6 +42,9 @@ Metas mensuráveis (PC médio com GPU dedicada, 1080p60, rede local):
 | Câmera | **Media Foundation Source Reader** → NV12 na GPU → mesmo codificador | Mesmo pipeline da tela; a câmera vira só mais uma trilha | `getUserMedia` no WebView (no Windows 10 a câmera é exclusiva de um processo) |
 | Atualização | **tauri-plugin-updater** com assinatura ed25519 + `latest.json` nas Releases | Confere assinatura (hoje só SHA-256 do mesmo lugar), instalação por usuário sem UAC, nunca reinicia no meio de uma sala | Updater próprio |
 | Timers no Windows | **Resolução de 1 ms (`timeBeginPeriod(1)`) enquanto houver sala ativa** (`zap-sys::platform`) | Sem isso as esperas do tokio/quinn, `Condvar`/`recv_timeout` andam em passos de 15,6 ms: um `interval` de 16,7 ms vira 31 ms (fonte a 32 fps), ACK atrasado infla o RTT e o emissor descarta quadros que a rede carregaria (medido no M4b) | Deixar o padrão do sistema; laços com espera ativa |
+| Prazo do keyframe | **Keyframe com prazo de `max(600 ms, 2 × RTT)`; quadros comuns atrás dele contam o prazo a partir do fim dele** (`docs/api/midia.md`) | O keyframe tem ~8 × um quadro comum; com o prazo único de 150 ms ele era sempre resetado em enlaces com pouca folga (camada 1 num enlace de 4 Mbps) e quem assiste nunca decodificava a camada nova (medido no M4c) | Prazo único maior (piora a latência de todos os quadros); ritmo próprio de envio do vídeo (fica como reserva) |
+| Sondagem | **Em degraus**: teto `1,5 × M` (última medida sem saturar) ou `1,25 × M` (saturou), medida feita por quem sonda com o relatório do espectador (`docs/api/balanceamento.md` §4) | A rajada direto no alvo da camada seguinte (12 Mbps num enlace de 4) enchia a fila do gargalo e derrubava quem estava estável (medido no M4c); `1,5 × M` cabe numa fila de 100 ms | Teto relativo à estimativa (ela sobe sozinha até 2 × a vazão sem prova); sondar sempre o alvo |
+| Captura DXGI | **`AcquireNextFrame(0)` e espera fora do dispositivo** (`WaitForVBlank` da saída) | O D3D11 com proteção multithread segura o lock do dispositivo durante toda a espera do `AcquireNextFrame`; com 100 ms de espera, conversor e MFTs no mesmo dispositivo ficavam parados (conversão p95 30–200 ms, codificação 41–500 ms no M2/M4b). Mesma correção do Sunshine/Apollo | Dispositivo separado para a captura com textura compartilhada (reserva, se a medida mostrar contenção restante) |
 | COM no Windows | **MTA preso pelo processo inteiro** (`CoIncrementMTAUsage` uma vez) | Se a última thread que fez `CoInitializeEx` sai, o MTA morre junto com objetos (fábricas WinRT em cache) que outras threads ainda usam: violação de acesso (medido no M4b em `zap-capture`) | `CoInitialize`/`CoUninitialize` por thread sem mais nada |
 
 Protocolo novo: **versão 4** (incompatível com o app Python, que é o 3). A tela "Diagnóstico" e
@@ -129,6 +132,8 @@ A camada **L0 é sempre a qualidade escolhida por quem transmite**. As outras sa
 
 ```
 [thread captura]  WGC FrameArrived (pool free-threaded) ──textura BGRA──┐
+                  (DXGI: AcquireNextFrame(0) + WaitForVBlank; nunca espera com o
+                   dispositivo travado, ver §2 "Captura DXGI")
                                                                          ▼
 [thread vídeo da trilha]  dona do contexto D3D11 imediato
      ├─ VideoProcessor BGRA→NV12 L0 ──► MFT encoder L0 ─┐   (cada MFT de hardware roda
@@ -199,6 +204,11 @@ Ajustes decididos no fechamento do M1 (provados no simulador e no teste de rede 
 - **Filtro de rajada**: grupo com mais de 4× os bytes médios (keyframe) e os grupos logo atrás
   dele ficam fora da tendência até o atraso voltar ao nível de antes (no máximo 200 ms); se o
   atraso **piorar** além do da própria rajada, é congestionamento e o filtro sai na hora.
+- **Carência de rajada própria** (M4c): sondas e keyframes (o app sabe pelo cabeçalho do quadro)
+  abrem uma janela em que sobrecarga não reduz a estimativa nem é anunciada e descartes do emissor
+  (pelo instante em que o buraco foi visto) não contam. Fecha quando a fila escoa (≤ 30 ms acima
+  da base; para sondas, nunca antes de 300 ms da última) ou 1 s depois do último evento. Sem ela o
+  keyframe de 83 KB da camada 1 num enlace de 4 Mbps (fila de ~0,5 s) derrubava o espectador.
 - **Fila persistente** (ideia do CoDel): se o menor atraso dos últimos 300 ms está 30 ms acima da
   base (menor atraso em 10 s), a fila nunca esvazia → sobrecarga, mesmo sem tendência (platô de
   fila cheia, gargalo com fila curta).
@@ -207,12 +217,14 @@ Ajustes decididos no fechamento do M1 (provados no simulador e no teste de rede 
   não vê atraso e a estimativa subiria até o dobro do que a rota aguenta.
 5. **Sondagem**: para saber se cabe uma camada maior sem arriscar, quem roda o alocador daquele
    espectador (a ponte no Online com ponte; o publicador no Local e no direto) envia rajadas de
-   enchimento (datagramas `0x03`) de 200 ms para que chegue `1,5 × kbps(próxima camada)`; o
-   receptor mede a taxa de chegada do grupo e adota `max(estimativa, 0,95 × taxa)`. A própria
-   fila da rajada não conta como sobrecarga (300 ms de carência). Sem sondas a estimativa de quem
+   enchimento (datagramas `0x03`) de 200 ms para que chegue `1,5 × kbps(próxima camada)`, em
+   degraus de no máximo `1,5 ×` a última taxa medida sem saturar (M4c); o receptor mede a taxa de
+   chegada do grupo e adota `max(estimativa, 0,95 × taxa)`, e quem sonda mede a mesma taxa pelo
+   relatório para decidir o degrau seguinte. A própria fila da rajada não conta como sobrecarga
+   (carência de rajada própria). Sem sondas a estimativa de quem
    recebe uma camada barata fica presa em ~2× a vazão (regra de fonte limitada) e ninguém sobe
-   da camada 2. Regras e números: `docs/api/balanceamento.md` §4 (decisão do M4b,
-   `docs/planos/m4b-pendencias.md`).
+   da camada 2. Regras e números: `docs/api/balanceamento.md` §4 (decisões do M4b e do M4c,
+   `docs/planos/m4b-pendencias.md` e `docs/planos/m4c-estabilizacao.md`).
 
 ### 6.2 Alocador de camadas (`Allocator`): o "balanceamento por pessoa"
 
@@ -241,7 +253,8 @@ publica roda a parte de subida (publicador → servidor). O algoritmo está espe
 - Cada quadro vai num stream QUIC próprio, em ordem FIFO (`send_fairness = false`), keyframe com
   prioridade maior. Controle de congestionamento do QUIC: Cubic.
 - O quadro só termina quando o outro lado **confirma** todos os bytes. Sem confirmação em
-  `max(150 ms, 2 × RTT)`: o stream é resetado (`reset`, sem retransmitir). Antes de abrir o stream,
+  `max(150 ms, 2 × RTT)` (keyframe: `max(600 ms, 2 × RTT)`; quadro atrás de um keyframe em voo:
+  contado a partir do fim do keyframe): o stream é resetado (`reset`, sem retransmitir). Antes de abrir o stream,
   **admissão**: se a fila à frente não esvazia no prazo na taxa atual (cwnd/RTT), o quadro é
   descartado na hora. O espectador marca a trilha como "precisa de keyframe".
 - Keyframe de recuperação: no máximo 1 a cada 2 s por espectador lento, para um espectador ruim não

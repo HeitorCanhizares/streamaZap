@@ -30,13 +30,48 @@ pub(crate) struct SwEncoder {
     provides_samples: bool,
 }
 
+/// Perfil de taxa escolhido para o MFT de software (resultado da medição da tarefa encode-04).
+const PERFIL_SW_ESCOLHIDO: codec_api::PerfilTaxa = codec_api::PerfilTaxa::Sw1;
+
+/// Converte "1".."4" em `Sw1..Sw4`.
+fn perfil_de_texto(s: &str) -> Option<codec_api::PerfilTaxa> {
+    use codec_api::PerfilTaxa::*;
+    match s {
+        "1" => Some(Sw1),
+        "2" => Some(Sw2),
+        "3" => Some(Sw3),
+        "4" => Some(Sw4),
+        _ => None,
+    }
+}
+
+/// Perfil de taxa do MFT de software. A variável de ambiente `ZAP_ENCODE_SW_PERFIL` ("1".."4")
+/// existe só para medição; ausente ou inválida vale `PERFIL_SW_ESCOLHIDO`.
+fn perfil_software() -> codec_api::PerfilTaxa {
+    std::env::var("ZAP_ENCODE_SW_PERFIL")
+        .ok()
+        .and_then(|v| perfil_de_texto(&v))
+        .unwrap_or(PERFIL_SW_ESCOLHIDO)
+}
+
 impl SwEncoder {
-    /// Ativa o MFT do candidato, tipos de saída e entrada (NV12 em memória), `apply_settings`
-    /// (opções recusadas ignoradas), `NOTIFY_BEGIN_STREAMING`/`START_OF_STREAM`.
+    /// Ativa o MFT do candidato, `apply_settings` antes dos tipos de saída e entrada (NV12 em memória),
+    /// `reapply_settings` depois, `NOTIFY_BEGIN_STREAMING`/`START_OF_STREAM`.
     pub(crate) fn open(cfg: &EncoderConfig, cand: Candidate) -> Result<Self, EncodeError> {
         // SAFETY: o ativador é um objeto COM válido; a thread tem COM/MF inicializados.
         let mft: IMFTransform =
             unsafe { cand.activate.ActivateObject() }.map_err(|e| EncodeError::os("ActivateObject", &e))?;
+
+        let codec: ICodecAPI = mft.cast().map_err(|e| EncodeError::os("ICodecAPI", &e))?;
+        let perfil = perfil_software();
+        // As opções vão antes dos tipos; o MFT de software aceita menos, então erro só é logado.
+        let recusadas = match codec_api::apply_settings(&codec, cfg, perfil) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("apply_settings no MFT de software: {e}");
+                Vec::new()
+            }
+        };
 
         // Saída antes da entrada: exigência dos MFTs de codificação.
         let saida = media_types::make_output_type(cfg)?;
@@ -46,11 +81,12 @@ impl SwEncoder {
         // SAFETY: tipo de mídia válido.
         unsafe { mft.SetInputType(0, &entrada, 0) }.map_err(|e| EncodeError::os("SetInputType", &e))?;
 
-        let codec: ICodecAPI = mft.cast().map_err(|e| EncodeError::os("ICodecAPI", &e))?;
-        // O MFT de software aceita menos opções: qualquer erro é só logado.
-        if let Err(e) = codec_api::apply_settings(&codec, cfg) {
-            tracing::warn!("apply_settings no MFT de software: {e}");
+        // Algumas opções só são aceitas depois dos tipos: tenta de novo as recusadas.
+        let ainda = codec_api::reapply_settings(&codec, cfg, perfil, &recusadas);
+        if !ainda.is_empty() {
+            tracing::warn!("opções ainda recusadas pelo MFT de software: {ainda:?}");
         }
+        codec_api::log_readback(&codec);
 
         // SAFETY: o MFT já tem os dois tipos definidos.
         let tipo_saida =
@@ -341,5 +377,60 @@ mod tests {
             Ok(enc) => assert!(!enc.info().hardware),
             Err(e) => eprintln!("MFT de software não abriu ({e}): pulando"),
         }
+    }
+
+    #[test]
+    fn perfil_de_texto_aceita_1_a_4() {
+        use codec_api::PerfilTaxa::*;
+        assert_eq!(perfil_de_texto("1"), Some(Sw1));
+        assert_eq!(perfil_de_texto("2"), Some(Sw2));
+        assert_eq!(perfil_de_texto("3"), Some(Sw3));
+        assert_eq!(perfil_de_texto("4"), Some(Sw4));
+        for ruim in ["0", "5", "", "x"] {
+            assert_eq!(perfil_de_texto(ruim), None);
+        }
+    }
+
+    #[test]
+    fn software_aceita_controle_de_taxa() {
+        let Ok(_com) = zap_gpu::ComGuard::new() else {
+            eprintln!("sem COM: pulando");
+            return;
+        };
+        let Ok(_mf) = MfGuard::acquire() else {
+            eprintln!("sem Media Foundation: pulando");
+            return;
+        };
+        let mut lista = match enumerate(false) {
+            Ok(l) if !l.is_empty() => l,
+            _ => {
+                eprintln!("sem MFT de software: pulando");
+                return;
+            }
+        };
+        let cfg = EncoderConfig {
+            width: 1280,
+            height: 720,
+            fps: 30,
+            kbps: 4000,
+            gop_frames: 300,
+            choice: EncoderChoice::Software,
+        };
+        let enc = match SwEncoder::open(&cfg, lista.remove(0)) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("MFT de software não abriu ({e}): pulando");
+                return;
+            }
+        };
+        let rb = codec_api::readback(&enc.codec);
+        eprintln!("readback completo: {rb:?}");
+        let esperado = if perfil_software() == codec_api::PerfilTaxa::Sw4 {
+            3_600_000
+        } else {
+            4_000_000
+        };
+        assert!(rb.rate_control.is_some(), "modo de controle de taxa ilegível");
+        assert_eq!(rb.mean_bitrate, Some(esperado));
     }
 }

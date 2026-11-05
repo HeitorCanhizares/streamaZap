@@ -137,3 +137,81 @@ fn com_guard_ok() {
     let g = ComGuard::new();
     assert!(g.is_ok(), "ComGuard falhou: {:?}", g.err());
 }
+
+#[test]
+fn gpu_timer_mede_blt() {
+    let Some(dev) = device() else { return };
+    let Some(mut conv) = conversor(&dev, 1920, 1080, PixelFormat::Bgra8, 1280, 720) else {
+        return;
+    };
+    let src = Texture::new(&dev, 1920, 1080, PixelFormat::Bgra8, false).expect("src");
+    upload(&dev, &src, &bgra_solido(1920, 1080, 10, 20, 30), 1920 * 4).expect("upload");
+    let dst = Texture::new(&dev, 1280, 720, PixelFormat::Nv12, false).expect("dst");
+    // Aquecimento sem medir: a primeira BLT paga a criação das visões e o clock da GPU subindo do repouso.
+    for _ in 0..5 {
+        conv.convert(&dev, &src, &dst).expect("aquecimento");
+    }
+    read_back(&dev, &dst).expect("read_back");
+    conv.enable_gpu_timing(&dev).expect("enable_gpu_timing");
+    let mut amostras = Vec::new();
+    for i in 0..20 {
+        conv.convert(&dev, &src, &dst)
+            .unwrap_or_else(|e| panic!("conversão {i} falhou: {e}"));
+        // O anel de consultas tem 8 conjuntos: sem colher a cada BLT, as medições seguintes são perdidas.
+        // O read_back sincroniza com a GPU, então as consultas já estão prontas para `take_gpu_us`.
+        read_back(&dev, &dst).expect("read_back");
+        amostras.extend(conv.take_gpu_us(&dev));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    amostras.extend(conv.take_gpu_us(&dev));
+    assert!(amostras.len() >= 10, "poucas amostras de GPU: {}", amostras.len());
+    // O piso é 0.0 (e não 1.0): neste driver (NVIDIA) o VideoProcessorBlt roda no motor de vídeo, que não
+    // avança os timestamps da fila 3D, então a medição sai 0.0 mesmo com o timer funcionando.
+    for us in &amostras {
+        assert!(
+            (0.0..=20000.0).contains(us),
+            "tempo de GPU fora da faixa: {us} µs; todas: {amostras:?}"
+        );
+    }
+}
+
+#[test]
+fn lock_sem_concorrencia_espera_pouco() {
+    let Some(dev) = device() else { return };
+    let mut esperas = Vec::with_capacity(100);
+    for _ in 0..100 {
+        let (guarda, espera) = dev.lock();
+        drop(guarda);
+        esperas.push(espera.as_secs_f64() * 1e6);
+    }
+    esperas.sort_by(f64::total_cmp);
+    let p95 = esperas[94];
+    assert!(p95 <= 100.0, "p95 da espera pelo lock: {p95} µs");
+}
+
+#[test]
+fn cache_de_visoes_nao_cresce() {
+    let Some(dev) = device() else { return };
+    let Some(mut conv) = conversor(&dev, 640, 360, PixelFormat::Bgra8, 640, 360) else {
+        return;
+    };
+    let mut srcs = Vec::new();
+    for _ in 0..3 {
+        let t = Texture::new(&dev, 640, 360, PixelFormat::Bgra8, false).expect("src");
+        upload(&dev, &t, &bgra_solido(640, 360, 1, 2, 3), 640 * 4).expect("upload");
+        srcs.push(t);
+    }
+    let dsts: Vec<Texture> = (0..4)
+        .map(|_| Texture::new(&dev, 640, 360, PixelFormat::Nv12, false).expect("dst"))
+        .collect();
+    for i in 0..100 {
+        conv.convert(&dev, &srcs[i % 3], &dsts[i % 4])
+            .unwrap_or_else(|e| panic!("conversão {i} falhou: {e}"));
+    }
+    let (entradas, saidas) = conv.cached_views();
+    assert!(
+        entradas <= 8 && saidas <= 8,
+        "cache cresceu além do limite: {entradas}/{saidas}"
+    );
+    assert_eq!((entradas, saidas), (3, 4), "cache com visões a mais ou a menos");
+}

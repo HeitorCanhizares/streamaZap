@@ -16,6 +16,10 @@ mod device;
 mod readback;
 #[cfg(windows)]
 mod texture;
+#[cfg(windows)]
+pub mod timing;
+#[cfg(windows)]
+mod views;
 
 #[cfg(not(windows))]
 mod stub;
@@ -27,13 +31,18 @@ pub use types::{AdapterInfo, PixelFormat, Vendor};
 #[cfg(windows)]
 pub use com::{pin_mta, ComGuard};
 #[cfg(windows)]
-pub use converter::Converter;
+pub use converter::{ConvertTiming, Converter};
 #[cfg(windows)]
-pub use device::GpuDevice;
+pub use device::{DeviceLock, GpuDevice};
 #[cfg(windows)]
 pub use readback::{read_back, upload};
 #[cfg(windows)]
 pub use texture::{Texture, TextureRing};
+#[cfg(windows)]
+pub use timing::GpuTimer;
 
 #[cfg(not(windows))]
-pub use stub::{pin_mta, read_back, upload, ComGuard, Converter, GpuDevice, Texture, TextureRing};
+pub use stub::{
+    pin_mta, read_back, upload, ComGuard, ConvertTiming, Converter, DeviceLock, GpuDevice, GpuTimer, Texture,
+    TextureRing,
+};

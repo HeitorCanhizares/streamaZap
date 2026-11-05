@@ -18,6 +18,36 @@ impl GpuDevice {
     pub fn adapter(&self) -> &AdapterInfo {
         &self.adapter
     }
+    /// Sem D3D11 não há dispositivo; devolve um guarda vazio.
+    pub fn lock(&self) -> (DeviceLock<'_>, std::time::Duration) {
+        (DeviceLock(std::marker::PhantomData), std::time::Duration::ZERO)
+    }
+}
+
+/// No stub não faz nada.
+pub struct DeviceLock<'a>(std::marker::PhantomData<&'a ()>);
+
+/// No stub nunca é criado.
+pub struct GpuTimer;
+
+impl GpuTimer {
+    pub fn new(_dev: &GpuDevice) -> Result<Self, GpuError> {
+        Err(GpuError::Unsupported)
+    }
+    pub fn begin(&mut self, _dev: &GpuDevice) -> Option<usize> {
+        None
+    }
+    pub fn end(&mut self, _dev: &GpuDevice, _slot: usize) {}
+    pub fn collect(&mut self, _dev: &GpuDevice) -> Vec<f64> {
+        Vec::new()
+    }
+}
+
+/// Tempos da última `convert`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ConvertTiming {
+    pub lock_wait_us: f64,
+    pub cpu_us: f64,
 }
 
 pub struct Texture {
@@ -92,6 +122,18 @@ impl Converter {
     }
     pub fn convert(&mut self, _dev: &GpuDevice, _src: &Texture, _dst: &Texture) -> Result<(), GpuError> {
         Err(GpuError::Unsupported)
+    }
+    pub fn enable_gpu_timing(&mut self, _dev: &GpuDevice) -> Result<(), GpuError> {
+        Err(GpuError::Unsupported)
+    }
+    pub fn last_timing(&self) -> ConvertTiming {
+        ConvertTiming::default()
+    }
+    pub fn take_gpu_us(&mut self, _dev: &GpuDevice) -> Vec<f64> {
+        Vec::new()
+    }
+    pub fn cached_views(&self) -> (usize, usize) {
+        (0, 0)
     }
 }
 

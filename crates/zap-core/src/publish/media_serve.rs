@@ -19,7 +19,8 @@ use super::{MediaServer, PublishedTrack};
 ///   `camada.atual` inicial ("inicio") com a camada mais barata; se `audio == Some(true)`,
 ///   também liga o `ViewerLink` de áudio (primeira `PublishedTrack::Audio` registrada).
 /// - `Unsubscribe{track_id}`: remove o link. `KeyframeRequest{track_id}`: `request_keyframe` da
-///   camada atual do link. `Report`: `apply_report` em todos os links da conexão. `Ping`→`Pong`.
+///   camada atual do link. `Report`: `Prober::on_report` (uma vez, com o relógio do publicador)
+///   e `apply_report` em todos os links da conexão. `Ping`→`Pong`.
 /// - Ao terminar (stream fechado, erro): remove todos os links da conexão dos publicadores.
 pub(crate) async fn serve_viewer(
     server: Arc<MediaServer>,
@@ -59,6 +60,8 @@ pub(crate) async fn serve_viewer(
                 }
             }
             ControlMsg::Report(r) => {
+                // Antes do apply: a sondagem usa as chegadas do relatório com o relógio deste lado.
+                prober.on_report(server.clock.now_us(), &r);
                 for (link, _) in links.values() {
                     link.state.lock().apply_report(&r);
                 }
@@ -512,6 +515,71 @@ mod tests {
         let v2 = video2.shared.viewers.lock()[0].clone();
         assert!(Arc::ptr_eq(v.prober.as_ref().unwrap(), v2.prober.as_ref().unwrap()));
         video2.stop();
+        encerra(&c);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn relatorio_do_espectador_alimenta_o_prober() {
+        use zap_rate::probe::ProbeNeed;
+
+        let c = cenario().await;
+        c.tx.send(&assinar("v1", TileSize::Main, Some(false))).await.unwrap();
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        while c.video.shared.viewers.lock().is_empty() && tokio::time::Instant::now() < fim {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let link = c.video.shared.viewers.lock()[0].clone();
+        let prober = link.prober.clone().unwrap();
+
+        // Planejador com necessidade e uma rajada conhecida (mesmo roteiro de zap-net: poll após 1,1 s).
+        prober.set_need(
+            1,
+            Some(ProbeNeed {
+                next_kbps: 2500,
+                reserve_kbps: 0,
+            }),
+        );
+        assert!(prober.poll(0, 400).is_none());
+        let rajada = prober.poll(1_100_000, 400).unwrap();
+
+        // 60 sondas de 1200 B a cada 3 ms: 1200 * 8 / 3 ms = 3200 kbps no grupo.
+        let sondas = (0..60)
+            .map(|i| (rajada.cluster, i, 0u32, 1_000_000 + i as u64 * 3000, 1200u32))
+            .collect();
+        let com_sondas = zap_proto::Report {
+            arrivals: vec![],
+            probes: sondas,
+            lost: vec![],
+            loss: 0.0,
+            bandwidth_kbps: Some(2000),
+            state: None,
+            buffer_ms: None,
+        };
+        // Relatório sem sondas fecha o grupo aberto (`finish`).
+        let sem_sondas = zap_proto::Report {
+            arrivals: vec![],
+            probes: vec![],
+            lost: vec![],
+            loss: 0.0,
+            bandwidth_kbps: None,
+            state: None,
+            buffer_ms: None,
+        };
+        c.tx.send(&ControlMsg::Report(com_sondas)).await.unwrap();
+        c.tx.send(&ControlMsg::Report(sem_sondas)).await.unwrap();
+
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        let mut medida = None;
+        while medida.is_none() && tokio::time::Instant::now() < fim {
+            medida = prober.last_measure(c.server.clock.now_us());
+            if medida.is_none() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+        let (kbps, _) = medida.expect("o prober não recebeu o relatório");
+        assert!((2880..=3520).contains(&kbps), "kbps = {kbps}");
+        // O `apply_report` continua valendo no mesmo relatório.
+        assert_eq!(link.state.lock().bandwidth_kbps, 2000);
         encerra(&c);
     }
 

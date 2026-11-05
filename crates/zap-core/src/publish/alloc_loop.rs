@@ -504,9 +504,11 @@ mod tests {
         assert!(matches!(pendente, Some(0 | 1)), "alvo de subida esperado");
         sh.viewers.lock().push(link);
 
+        // Ligar a camada abre o codificador numa thread; com a máquina carregada (`cargo test
+        // --workspace`) isso passa de 1 s. 5 s só aumentam a espera, não o que se confere.
         let ini = Instant::now();
         let mut ligou = false;
-        while ini.elapsed() < Duration::from_secs(1) {
+        while ini.elapsed() < Duration::from_secs(5) {
             run_alloc_tick(&sh, &rt);
             tokio::time::sleep(Duration::from_millis(100)).await;
             if sh.pipeline.stats().layers.iter().any(|l| l.enabled && l.layer <= 1) {

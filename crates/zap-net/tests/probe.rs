@@ -61,10 +61,17 @@ fn hello() -> Hello {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sonda_sobe_banda_no_loopback() -> Res {
     let _timer = support::timer();
-    tokio::time::timeout(Duration::from_secs(15), cenario()).await?
+    tokio::time::timeout(Duration::from_secs(15), cenario(false)).await?
 }
 
-async fn cenario() -> Res {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn on_report_mede_o_grupo() -> Res {
+    let _timer = support::timer();
+    tokio::time::timeout(Duration::from_secs(15), cenario(true)).await?
+}
+
+/// `medir`: os relatórios também alimentam `Prober::on_report` e o cenário espera a medida.
+async fn cenario(medir: bool) -> Res {
     // Par QUIC: o cliente emite, o servidor recebe e reporta.
     let id = Identity::generate("zap")?;
     let (servidor, porta) = endpoint::bind_server(&id, 0).await?;
@@ -91,24 +98,6 @@ async fn cenario() -> Res {
     let _rep = spawn_reporter(srv_tx, rb, clock_rx);
     tokio::spawn(async move { while ev_rx.recv().await.is_some() {} });
 
-    // Emissor lê os relatórios: guarda (instante, banda) e a última banda para o `poll`.
-    let inicio = Instant::now();
-    let ultima = Arc::new(Mutex::new(0u32));
-    let rels: Relatorios = Arc::new(Mutex::new(Vec::new()));
-    {
-        let (ultima, rels) = (ultima.clone(), rels.clone());
-        tokio::spawn(async move {
-            while let Ok(Some(msg)) = cli_rx.recv().await {
-                if let ControlMsg::Report(r) = msg {
-                    if let Some(b) = r.bandwidth_kbps {
-                        *ultima.lock() = b;
-                    }
-                    rels.lock().push((inicio.elapsed(), r.bandwidth_kbps));
-                }
-            }
-        });
-    }
-
     let clock = Clock::new();
     let sender = Arc::new(MediaSender::new(conn_cli.clone(), clock.clone()));
     let prober = Prober::new(sender.clone());
@@ -120,6 +109,28 @@ async fn cenario() -> Res {
         }),
     );
 
+    // Emissor lê os relatórios: guarda (instante, banda) e a última banda para o `poll`.
+    let inicio = Instant::now();
+    let ultima = Arc::new(Mutex::new(0u32));
+    let rels: Relatorios = Arc::new(Mutex::new(Vec::new()));
+    {
+        let (ultima, rels) = (ultima.clone(), rels.clone());
+        let (prober, clock) = (prober.clone(), clock.clone());
+        tokio::spawn(async move {
+            while let Ok(Some(msg)) = cli_rx.recv().await {
+                if let ControlMsg::Report(r) = msg {
+                    if medir {
+                        prober.on_report(clock.now_us(), &r);
+                    }
+                    if let Some(b) = r.bandwidth_kbps {
+                        *ultima.lock() = b;
+                    }
+                    rels.lock().push((inicio.elapsed(), r.bandwidth_kbps));
+                }
+            }
+        });
+    }
+
     let tamanho_sonda = sender.probe_size();
     let quadro = Bytes::from(vec![0x5au8; 1666]);
     let prazo = Duration::from_secs(2);
@@ -130,7 +141,9 @@ async fn cenario() -> Res {
     let mut rajadas: Vec<(Duration, JoinHandle<Result<u32, NetError>>)> = Vec::new();
     let mut rajadas_3s = 0;
 
-    while inicio.elapsed() < Duration::from_secs(5) {
+    let limite = Duration::from_secs(if medir { 8 } else { 5 });
+    let mut medida = None;
+    while inicio.elapsed() < limite {
         tokio::select! {
             _ = t_video.tick() => {
                 let h = VideoHeader {
@@ -148,6 +161,12 @@ async fn cenario() -> Res {
                 seq += 1;
             }
             _ = t_poll.tick() => {
+                if medir {
+                    medida = prober.last_measure(clock.now_us());
+                    if medida.is_some() {
+                        break;
+                    }
+                }
                 let banda = *ultima.lock();
                 if let Some(b) = prober.poll(clock.now_us(), banda) {
                     let t = inicio.elapsed();
@@ -159,6 +178,21 @@ async fn cenario() -> Res {
                 }
             }
         }
+    }
+
+    if medir {
+        let (m, saturou) = medida.ok_or("timeout: last_measure não virou Some em 8 s")?;
+        let total = *prober.bursts().first().ok_or("nenhuma rajada saiu")?;
+        let (min, max) = (f64::from(total) * 0.9, f64::from(total) * 1.1);
+        println!("medida={m} saturou={saturou} total_kbps={total}");
+        assert!(
+            (min..=max).contains(&f64::from(m)),
+            "medida {m} kbps fora de ±10% de {total} kbps"
+        );
+        assert!(!saturou, "não devia saturar no loopback");
+        conn_cli.close(0u32.into(), b"fim");
+        conn_srv.close(0u32.into(), b"fim");
+        return Ok(());
     }
 
     assert_eq!(rajadas_3s, 1, "rajadas nos primeiros 3 s");

@@ -35,6 +35,8 @@ fn os_err(context: &'static str, e: windows::core::Error) -> CaptureError {
 
 pub(crate) struct Duplication {
     dupl: IDXGIOutputDuplication,
+    /// Saída DXGI do monitor (para `WaitForVBlank`, que espera sem segurar o lock do dispositivo).
+    output: IDXGIOutput,
     width: u32,
     height: u32,
 }
@@ -93,6 +95,7 @@ impl Duplication {
         let desc = unsafe { dupl.GetDesc() };
         Ok(Self {
             dupl,
+            output,
             width: desc.ModeDesc.Width,
             height: desc.ModeDesc.Height,
         })
@@ -121,6 +124,19 @@ impl Duplication {
             Err(e) if e.code() == DXGI_ERROR_WAIT_TIMEOUT => Ok(Acquired::Timeout),
             Err(e) if e.code() == DXGI_ERROR_ACCESS_LOST => Ok(Acquired::Lost),
             Err(e) => Err(os_err("AcquireNextFrame", e)),
+        }
+    }
+
+    /// `IDXGIOutput::WaitForVBlank`: bloqueia até a próxima atualização do monitor. Devolve `false`
+    /// em erro (o chamador então dorme 2 ms). Não toma o lock do dispositivo D3D11.
+    pub(crate) fn wait_vblank(&self) -> bool {
+        // SAFETY: chamada COM sobre a saída DXGI válida, sem ponteiros.
+        match unsafe { self.output.WaitForVBlank() } {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::debug!("WaitForVBlank falhou: {e}");
+                false
+            }
         }
     }
 
@@ -201,5 +217,18 @@ mod tests {
             }
         }
         // Tela parada: só timeouts é aceitável.
+    }
+
+    #[test]
+    fn wait_vblank_retorna_em_ate_100ms() {
+        let Some((dev, mon)) = preparar() else { return };
+        let Ok(dup) = Duplication::new(&dev, &mon) else {
+            eprintln!("pulando: duplicação indisponível");
+            return;
+        };
+        let inicio = std::time::Instant::now();
+        let _ = dup.wait_vblank();
+        let dt = inicio.elapsed();
+        assert!(dt < std::time::Duration::from_millis(100), "wait_vblank levou {dt:?}");
     }
 }

@@ -9,8 +9,6 @@ use zap_gpu::{now_us, ComGuard, GpuDevice, PixelFormat, Texture, TextureRing};
 
 /// Quantas texturas o anel de entrega tem (o consumidor tem folga de 2 quadros).
 const TAMANHO_ANEL: usize = 3;
-/// Espera de cada `AcquireNextFrame`.
-const ESPERA_MS: u32 = 100;
 /// Intervalo entre tentativas de recriar a duplicação e tempo total máximo.
 const RETENTATIVA: Duration = Duration::from_millis(100);
 const RETENTATIVAS_MAX: u32 = 10;
@@ -134,9 +132,13 @@ fn laco<S: FrameSink>(
         timer: StaleTimer::new(Duration::from_secs(1)),
     };
     let mut dup = Some(dup);
+    // AcquireNextFrame com espera segura o lock do ID3D11Multithread do dispositivo compartilhado
+    // e bloqueia conversor e codificadores (defeito também corrigido no Sunshine/Apollo). Por
+    // isso o timeout é 0 e a espera é feita em WaitForVBlank, que não toma o lock. Ver
+    // docs/arquitetura-v3.md §2. A espera máxima por volta é ~1 vblank, então `stop` é checado cedo.
     while !stop.load(Ordering::Acquire) {
         let Some(d) = dup.as_mut() else { return };
-        match d.acquire(ESPERA_MS) {
+        match d.acquire(0) {
             Err(e) => {
                 sink.on_error(e);
                 return;
@@ -144,6 +146,10 @@ fn laco<S: FrameSink>(
             Ok(Acquired::Timeout) => {
                 if ent.tem_imagem && ent.timer.due(now_us()) {
                     ent.entregar(false);
+                }
+                // Sem quadro novo: espera o próximo vblank (ou 2 ms se a espera falhar).
+                if !d.wait_vblank() {
+                    std::thread::sleep(Duration::from_millis(2));
                 }
             }
             Ok(Acquired::Lost) => {

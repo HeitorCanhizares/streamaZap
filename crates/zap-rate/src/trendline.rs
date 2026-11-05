@@ -85,6 +85,8 @@ pub struct DelayDetector {
     /// Chegada do primeiro grupo (a janela curta só vale depois de cheia).
     primeira_chegada: Option<Us>,
     fila_persistente: bool,
+    /// Fila estimada (µs) no último grupo fechado; atualizada até durante rajadas.
+    fila_us: f64,
 }
 
 impl DelayDetector {
@@ -109,6 +111,7 @@ impl DelayDetector {
             atraso_min_curto: SlidingMin::new(JANELA_FILA_PERSISTENTE_US),
             primeira_chegada: None,
             fila_persistente: false,
+            fila_us: 0.0,
         }
     }
 
@@ -140,6 +143,12 @@ impl DelayDetector {
         self.state
     }
 
+    /// Fila atual estimada (µs): atraso de ida do último grupo fechado menos o menor atraso dos
+    /// últimos 10 s (`atraso_min`). 0.0 antes de dois grupos. Nunca negativo.
+    pub fn fila_us(&self) -> f64 {
+        self.fila_us
+    }
+
     #[cfg(test)]
     pub(crate) fn gamma(&self) -> f64 {
         self.gamma
@@ -152,6 +161,8 @@ impl DelayDetector {
             return;
         };
         let base = self.atraso_min.push(g.ultima_chegada, g.atraso());
+        // Fila = atraso deste grupo acima da base; antes do filtro de rajada para acompanhá-la.
+        self.fila_us = (g.atraso() - base).max(0.0);
         let curto = self.atraso_min_curto.push(g.ultima_chegada, g.atraso());
         let inicio = *self.primeira_chegada.get_or_insert(g.ultima_chegada);
         let janela_cheia = g.ultima_chegada.saturating_sub(inicio) >= JANELA_FILA_PERSISTENTE_US;
@@ -391,6 +402,58 @@ mod tests {
                 !det.fila_persistente,
                 "fila persistente acusada no quadro {i} só com jitter"
             );
+        }
+    }
+
+    /// Pacotes de 1250 B a cada 5 ms (um grupo por pacote) com atraso fixo; a chegada nunca
+    /// volta atrás (`max` com a anterior), como num enlace real.
+    fn pacotes(det: &mut DelayDetector, inicio_envio: u64, n: u64, atraso_us: u64, ult: &mut u64) {
+        for i in 0..n {
+            let envio = inicio_envio + i * 5_000;
+            let chegada = (envio + atraso_us).max(*ult);
+            *ult = chegada;
+            det.on_packet(envio, chegada, 1250);
+        }
+    }
+
+    #[test]
+    fn fila_us_sobe_e_desce() {
+        let mut det = DelayDetector::new();
+        let mut ult = 0u64;
+        // Base: 1 s com atraso de 20 ms.
+        pacotes(&mut det, 0, 200, 20_000, &mut ult);
+        assert!(det.fila_us() <= 5_000.0, "fila = {}", det.fila_us());
+        // Fila cresce: 40 pacotes (200 ms de envio) com atraso de 100 ms.
+        let envio = 200 * 5_000;
+        pacotes(&mut det, envio, 40, 100_000, &mut ult);
+        assert!(det.fila_us() >= 70_000.0, "fila = {}", det.fila_us());
+        // Fila esvazia: 1 s de volta aos 20 ms.
+        let envio = envio + 40 * 5_000;
+        pacotes(&mut det, envio, 200, 20_000, &mut ult);
+        assert!(det.fila_us() <= 5_000.0, "fila = {}", det.fila_us());
+    }
+
+    #[test]
+    fn fila_us_zero_no_inicio() {
+        let mut det = DelayDetector::new();
+        assert_eq!(det.fila_us(), 0.0);
+        // Um pacote: grupo ainda aberto.
+        det.on_packet(0, 20_000, 1250);
+        assert_eq!(det.fila_us(), 0.0);
+        // Segundo grupo: fecha só o primeiro, que ainda não basta para a fila.
+        det.on_packet(10_000, 30_000, 1250);
+        assert_eq!(det.fila_us(), 0.0);
+    }
+
+    #[test]
+    fn fila_us_nunca_negativa() {
+        let mut det = DelayDetector::new();
+        let mut ult = 0u64;
+        // Atraso caindo de 100 ms para 20 ms: o último grupo está sempre no mínimo.
+        for i in 0..200u64 {
+            let atraso = 100_000 - i * 400;
+            pacotes(&mut det, i * 5_000, 1, atraso, &mut ult);
+            assert!(det.fila_us() >= 0.0, "fila = {} no pacote {i}", det.fila_us());
         }
     }
 }

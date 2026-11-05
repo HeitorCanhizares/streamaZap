@@ -80,6 +80,10 @@ pub struct LayerStats {
     pub frames: u64,
     pub convert: StageStats,
     pub encode: StageStats,
+    /// Tempo de GPU do `VideoProcessorBlt` (consulta de tempo).
+    pub convert_gpu: StageStats,
+    /// Espera pelo lock do dispositivo antes da conversão.
+    pub lock_wait: StageStats,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -93,4 +97,6 @@ pub struct PipelineStats {
     pub dropped_encode: u64,
     /// Nome do codificador em uso ("synthetic" no backend sintético).
     pub encoder_name: String,
+    /// Quadros com imagem nova entregues pela captura no último segundo.
+    pub capture_new_fps: f32,
 }

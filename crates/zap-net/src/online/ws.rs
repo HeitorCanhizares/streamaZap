@@ -67,6 +67,22 @@ fn agora_ms() -> u64 {
 /// percent-encoding) e inicia a tarefa de fundo (ping a cada 15 s, pong automático, morte
 /// em 45 s sem frames).
 pub(crate) async fn connect(base_url: &str, token: &str) -> Result<(WsTx, WsRx), ApiError> {
+    connect_with(
+        base_url,
+        token,
+        Duration::from_secs(PING_INTERVAL_SECS),
+        Duration::from_secs(DEAD_AFTER_SECS),
+    )
+    .await
+}
+
+/// `connect` com intervalo de ping e limite de morte injetáveis (testes usam tempos curtos).
+async fn connect_with(
+    base_url: &str,
+    token: &str,
+    ping_every: Duration,
+    dead_after: Duration,
+) -> Result<(WsTx, WsRx), ApiError> {
     let base = base_url.trim_end_matches('/');
     let base = if let Some(r) = base.strip_prefix("https://") {
         format!("wss://{r}")
@@ -94,11 +110,8 @@ pub(crate) async fn connect(base_url: &str, token: &str) -> Result<(WsTx, WsRx),
     let (in_tx, in_rx) = mpsc::channel::<Result<ControlMsg, ApiError>>(64);
 
     tokio::spawn(async move {
-        let mut ping = tokio::time::interval_at(
-            Instant::now() + Duration::from_secs(PING_INTERVAL_SECS),
-            Duration::from_secs(PING_INTERVAL_SECS),
-        );
-        let dead = tokio::time::sleep(Duration::from_secs(DEAD_AFTER_SECS));
+        let mut ping = tokio::time::interval_at(Instant::now() + ping_every, ping_every);
+        let dead = tokio::time::sleep(dead_after);
         tokio::pin!(dead);
         loop {
             tokio::select! {
@@ -124,7 +137,7 @@ pub(crate) async fn connect(base_url: &str, token: &str) -> Result<(WsTx, WsRx),
                 }
                 frame = stream.next() => {
                     // Qualquer frame prova que a conexão está viva.
-                    dead.as_mut().reset(Instant::now() + Duration::from_secs(DEAD_AFTER_SECS));
+                    dead.as_mut().reset(Instant::now() + dead_after);
                     match frame {
                         None | Some(Ok(Message::Close(_))) => break,
                         Some(Err(e)) => {
@@ -263,10 +276,16 @@ mod tests {
             }
         })
         .await;
-        let (_tx, _rx) = connect(&base, "tok").await.unwrap();
-        tokio::time::pause();
+        // Auditoria (net-12): decisão (b). Havia E/S real com o tempo pausado; agora tempo real
+        // com ping de 100 ms (proporção de 15 s) e morte longa para não interferir.
+        let (_tx, _rx) = connect_with(&base, "tok", Duration::from_millis(100), Duration::from_secs(30))
+            .await
+            .unwrap();
         for _ in 0..2 {
-            let t = prx.recv().await.unwrap();
+            let t = tokio::time::timeout(Duration::from_secs(10), prx.recv())
+                .await
+                .unwrap()
+                .unwrap();
             assert!(t.contains(r#""t":"ping""#), "{t}");
         }
     }
@@ -274,8 +293,11 @@ mod tests {
     #[tokio::test]
     async fn morre_apos_45s_sem_trafego() {
         let base = servidor(|mut s, _| async move { while s.recv().await.is_some() {} }).await;
-        let (tx, mut rx) = connect(&base, "tok").await.unwrap();
-        tokio::time::pause();
+        // Auditoria (net-12): decisão (b). Tempo real com morte em 400 ms (proporção de 45 s)
+        // em vez de relógio pausado com socket real.
+        let (tx, mut rx) = connect_with(&base, "tok", Duration::from_secs(30), Duration::from_millis(400))
+            .await
+            .unwrap();
         assert!(matches!(rx.recv().await, Some(Err(ApiError::Network(_)))));
         assert!(rx.recv().await.is_none());
         assert_eq!(

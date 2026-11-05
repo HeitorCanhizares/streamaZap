@@ -63,10 +63,30 @@ Cabeçalho de 30 bytes + um *access unit* H.264 completo em Annex B (com start c
 Regras:
 - Todo keyframe traz SPS/PPS (`flags` = `0x03`).
 - **Prazo**: quem envia reseta o stream (código `0x10`, "atrasado") se o quadro não foi
-  **confirmado pelo outro lado** (todos os bytes com ACK) em `max(150 ms, 2 × RTT)` desde que
-  entrou na fila. Antes de abrir o stream, quem envia também pode descartar o quadro na hora
-  (admissão) se a fila à frente não esvazia dentro do prazo. Quem recebe descarta streams
-  resetados ou incompletos; o `seq` que faltou vai em `perdidos`.
+  **confirmado pelo outro lado** (todos os bytes com ACK) dentro do prazo:
+  - keyframe: `max(600 ms, 2 × RTT)` desde que entrou na fila;
+  - quadro comum: `max(150 ms, 2 × RTT)`, contados a partir do **mais tarde** entre a entrada dele
+    na fila e o fim (confirmação ou reset) de todo keyframe **da mesma conexão** que entrou na fila
+    antes dele.
+
+  O RTT é o RTT suavizado **atual** da conexão, reavaliado na hora de decidir o reset (não o da
+  entrada na fila): se uma perda no gargalo fez o RTT subir enquanto o quadro esperava a
+  retransmissão, o piso de `2 × RTT` acompanha.
+
+  Antes de abrir o stream, quem envia também pode descartar o quadro na hora (admissão) se a fila
+  à frente não esvazia dentro do prazo; na conta da fila à frente de um quadro comum **não entram**
+  os bytes de keyframes em voo (o prazo dele só começa quando eles terminam). A espera estimada é
+  `fila / (cwnd / RTT) + RTT de base` (o menor RTT visto na conexão): o RTT atual já contém a fila
+  e contaria a mesma espera duas vezes. Quem recebe descarta
+  streams resetados ou incompletos; o `seq` que faltou vai em `perdidos`.
+
+  Por que o keyframe tem prazo próprio: ele tem até ~8 × o tamanho de um quadro comum. Na camada
+  1 (2500 kbps, 30 fps) são ~83 KB, que levam ~170 ms num enlace de 4 Mbps; com o prazo de 150 ms
+  ele era sempre resetado, junto com os 3 quadros atrás dele, e quem assiste nunca decodificava a
+  camada nova (medido no M4c, `docs/planos/m4c-estabilizacao.md` §2.1). 600 ms cobrem um keyframe
+  de 15 fps no menor enlace que o alocador aceita (1,28 × kbps da camada: ~420 ms) mais uma
+  retransmissão. Os quadros atrás dele herdam a espera, senão o primeiro P-quadro depois do
+  keyframe estoura o prazo e a camada volta a ficar sem referência.
 - Depois de um quadro perdido, a camada só volta a ser decodificável no próximo keyframe. Quem
   envia já sabe (resetou) e manda keyframe; quem recebe, se ficar 300 ms sem quadro decodificável,
   manda `keyframe.pedir`.
@@ -124,7 +144,7 @@ quando o estado vira `sobrecarga`):
 |---|---|---|
 | `chegadas` | sim | `[trilha, camada, seq, envio_us, chegada_us, bytes]` de cada quadro (último byte) e pacote de áudio (`camada` = 0) recebidos desde o último relatório. `chegada_us` é o relógio de quem recebe |
 | `sondas` | se houve | `[cluster, seq, envio_us, chegada_us, bytes]` |
-| `perdidos` | sim | quadros resetados/incompletos |
+| `perdidos` | sim | quadros resetados/incompletos (buraco de `seq` entre quadros da mesma camada; o salto de `seq` ao voltar para uma camada depois de uma troca não conta) |
 | `perda` | sim | fração de **datagramas de áudio** perdidos na rede nos últimos 2 s (0–1), por buraco de `seq`. Quadros de vídeo descartados por quem envia **não** contam (vão em `perdidos`) |
 | `banda_kbps` | app: sim; servidor: não | estimativa de banda **de recepção** feita por quem recebe. Leva em conta atraso (tendência e fila persistente) e quadros descartados pelo emissor (buracos de `seq`): com ≥ 3 por segundo, vai para 0,95 × a vazão que chega |
 | `estado` | app: sim; servidor: não | `sobrecarga` \| `normal` \| `ociosa` (detector de atraso) |
@@ -137,7 +157,8 @@ Como isso divide o trabalho:
   ao publicador, que roda o mesmo estimador do lado dele. O servidor **não precisa** implementar
   estimador de banda. O `relatorio` do servidor só sai quando houve chegadas, sondas ou perdas, e
   não traz `banda_kbps` nem `estado`.
-- **Sondas**: a ponte manda sondas para quem assiste abaixo do teto
+- **Sondas**: a ponte manda sondas para quem assiste abaixo do teto, em degraus guiados pela taxa
+  que ela mesma mede com `relatorio.sondas` e `relatorio.chegadas`
   ([`balanceamento.md`](balanceamento.md#4-sondagem)); é o único jeito de a `banda_kbps` de quem
   recebe uma camada barata subir até a camada seguinte. O publicador não sonda a própria subida
   pela ponte (no modo ponte ele codifica o que `camadas.pedidas` manda).
@@ -148,8 +169,9 @@ Como isso divide o trabalho:
 2. Para cada espectador e trilha assinada, escolhe a camada (algoritmo em
    [`balanceamento.md`](balanceamento.md)) e repassa os quadros dela **sem alterar** nada além de
    `envio_us`. Áudio idem.
-3. Mantém por espectador a regra de prazo (reset de quadro atrasado) e a troca de camada só em
-   keyframe.
+3. Mantém por espectador a regra de prazo (reset de quadro atrasado, com o prazo próprio do
+   keyframe e a extensão dos quadros atrás dele: o estado é **por conexão** do espectador, não por
+   quadro) e a troca de camada só em keyframe.
 4. Pede ao publicador só as camadas em uso (`camadas.pedidas`) e repassa `keyframe.pedir`
    respeitando 1 por segundo por camada.
 5. Mantém o relógio `captura_us` intacto: é ele que sincroniza áudio e vídeo no espectador.

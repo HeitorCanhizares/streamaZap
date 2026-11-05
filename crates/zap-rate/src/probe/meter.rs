@@ -54,6 +54,14 @@ impl ProbeMeter {
         }
         None
     }
+    /// Fecha o grupo aberto agora (quem sonda chama quando chega um relatório sem sondas).
+    pub fn finish(&mut self) -> Option<ProbeResult> {
+        // Sem grupo aberto não há nada para fechar; `fechar` zera `aberto`, então a segunda chamada devolve None.
+        if !self.aberto {
+            return None;
+        }
+        self.fechar()
+    }
     fn fechar(&mut self) -> Option<ProbeResult> {
         self.aberto = false;
         // Mídia que chegou depois da última sonda nunca conta.
@@ -164,6 +172,49 @@ mod tests {
         assert!(m.poll(ultima + 49_999).is_none());
         assert!(m.poll(ultima + 50_000).is_some());
         assert!(m.poll(ultima + 100_000).is_none());
+    }
+
+    #[test]
+    fn finish_fecha_grupo_aberto() {
+        let mut m = ProbeMeter::new();
+        for i in 0..70 {
+            assert!(m.on_probe(1, i * 2866, 1200).is_none());
+        }
+        // Sem esperar FIM_GRUPO_US: fecha agora.
+        let r = m.finish().expect("grupo com 70 sondas fecha");
+        assert_eq!(r.cluster, 1);
+        assert_eq!(r.probes, 70);
+        // ~3 Mbps: 69 sondas x 1200 bytes em 197754 us.
+        assert!((r.kbps as f64 - 3349.0).abs() <= 3349.0 * 0.02, "kbps {}", r.kbps);
+        // Mesmo resultado que o poll daria no mesmo instante.
+        let mut p = ProbeMeter::new();
+        for i in 0..70 {
+            p.on_probe(1, i * 2866, 1200);
+        }
+        let rp = p.poll(69 * 2866 + FIM_GRUPO_US).expect("poll");
+        assert_eq!(r.kbps, rp.kbps);
+        assert_eq!(r.span_us, rp.span_us);
+        // Segunda chamada: grupo já fechado.
+        assert!(m.finish().is_none());
+        assert!(m.poll(10_000_000).is_none());
+    }
+
+    #[test]
+    fn finish_sem_grupo_none() {
+        let mut m = ProbeMeter::new();
+        assert!(m.finish().is_none());
+    }
+
+    #[test]
+    fn finish_grupo_curto_none() {
+        let mut m = ProbeMeter::new();
+        for i in 0..4 {
+            m.on_probe(1, i * 2866, 1200);
+        }
+        assert!(m.finish().is_none());
+        // O grupo ficou fechado mesmo descartado.
+        assert!(!m.aberto);
+        assert!(m.poll(10_000_000).is_none());
     }
 
     #[test]

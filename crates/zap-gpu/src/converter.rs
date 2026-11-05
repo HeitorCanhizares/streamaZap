@@ -1,15 +1,14 @@
+use crate::timing::GpuTimer;
+use crate::views::ViewCache;
 use crate::{GpuDevice, GpuError, PixelFormat, Texture};
 use std::mem::ManuallyDrop;
+use std::time::Instant;
 use windows::core::Interface;
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11VideoContext1, ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorInputView,
-    ID3D11VideoProcessorOutputView, D3D11_TEX2D_VPIV, D3D11_TEX2D_VPOV, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
+    ID3D11VideoContext1, ID3D11VideoProcessor, ID3D11VideoProcessorEnumerator, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
     D3D11_VIDEO_PROCESSOR_COLOR_SPACE, D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_INPUT,
-    D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
-    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC,
-    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
-    D3D11_VPIV_DIMENSION_TEXTURE2D, D3D11_VPOV_DIMENSION_TEXTURE2D,
+    D3D11_VIDEO_PROCESSOR_FORMAT_SUPPORT_OUTPUT, D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709, DXGI_FORMAT,
@@ -38,6 +37,15 @@ fn color_space(rgb_range: u32, matrix: u32, nominal: u32) -> D3D11_VIDEO_PROCESS
     }
 }
 
+/// Tempos da última `convert`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ConvertTiming {
+    /// Espera pelo lock do dispositivo (µs).
+    pub lock_wait_us: f64,
+    /// CPU dentro do lock: visões + `VideoProcessorBlt` (µs).
+    pub cpu_us: f64,
+}
+
 /// Conversor/escalador por `ID3D11VideoProcessor`: BGRA ou NV12 -> NV12 BT.709 faixa limitada.
 pub struct Converter {
     pub(crate) enumerator: ID3D11VideoProcessorEnumerator,
@@ -47,6 +55,9 @@ pub struct Converter {
     pub(crate) in_fmt: PixelFormat,
     pub(crate) out_w: u32,
     pub(crate) out_h: u32,
+    pub(crate) cache: ViewCache,
+    pub(crate) timer: Option<GpuTimer>,
+    pub(crate) timing: ConvertTiming,
 }
 
 // SAFETY: criado a partir de um dispositivo com multithread protegido.
@@ -149,7 +160,27 @@ impl Converter {
             in_fmt,
             out_w,
             out_h,
+            cache: ViewCache::new(),
+            timer: None,
+            timing: ConvertTiming::default(),
         })
+    }
+    /// Liga a medição de GPU do `VideoProcessorBlt` (cria um `GpuTimer`).
+    pub fn enable_gpu_timing(&mut self, dev: &GpuDevice) -> Result<(), GpuError> {
+        self.timer = Some(GpuTimer::new(dev)?);
+        Ok(())
+    }
+    /// Tempos da última `convert` (CPU e lock).
+    pub fn last_timing(&self) -> ConvertTiming {
+        self.timing
+    }
+    /// Tempos de GPU (µs) prontos desde a última chamada (vazio se não ligado).
+    pub fn take_gpu_us(&mut self, dev: &GpuDevice) -> Vec<f64> {
+        self.timer.as_mut().map(|t| t.collect(dev)).unwrap_or_default()
+    }
+    /// (visões de entrada, visões de saída) no cache; para testes.
+    pub fn cached_views(&self) -> (usize, usize) {
+        self.cache.len()
     }
     /// Converte/escala `src` para NV12 em `dst`. `src` e `dst` devem ter exatamente os tamanhos e
     /// o formato de entrada dados em `new` (senão `InvalidArgument`); `dst` deve ser Nv12.
@@ -177,44 +208,14 @@ impl Converter {
                 self.out_h
             )));
         }
-        let in_desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
-            FourCC: 0,
-            ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
-            Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 {
-                Texture2D: D3D11_TEX2D_VPIV {
-                    MipSlice: 0,
-                    ArraySlice: 0,
-                },
-            },
-        };
-        let out_desc = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
-            ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2D,
-            Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 {
-                Texture2D: D3D11_TEX2D_VPOV { MipSlice: 0 },
-            },
-        };
-        let mut in_view: Option<ID3D11VideoProcessorInputView> = None;
-        // SAFETY: textura, enumerador e descritor são válidos; `in_view` é saída local.
-        unsafe {
-            dev.video()?
-                .0
-                .CreateVideoProcessorInputView(src.raw(), &self.enumerator, &in_desc, Some(&mut in_view))
-        }
-        .map_err(|e| os("CreateVideoProcessorInputView", e))?;
-        let mut out_view: Option<ID3D11VideoProcessorOutputView> = None;
-        // SAFETY: idem acima, para a visão de saída.
-        unsafe {
-            dev.video()?
-                .0
-                .CreateVideoProcessorOutputView(dst.raw(), &self.enumerator, &out_desc, Some(&mut out_view))
-        }
-        .map_err(|e| os("CreateVideoProcessorOutputView", e))?;
-        let (Some(in_view), Some(out_view)) = (in_view, out_view) else {
-            return Err(GpuError::Os {
-                context: "CreateVideoProcessor*View",
-                message: "visão nula após sucesso".to_string(),
-            });
-        };
+        let (vd, vctx) = dev.video()?;
+        // O guarda precisa viver até depois do Blt; não é Send, e aqui não há await.
+        let (guard, espera) = dev.lock();
+        let lock_wait_us = espera.as_secs_f64() * 1e6;
+        let t_cpu = Instant::now();
+        let in_view = self.cache.input(vd, &self.enumerator, src.raw())?;
+        let out_view = self.cache.output(vd, &self.enumerator, dst.raw())?;
+        let slot = self.timer.as_mut().and_then(|t| t.begin(dev));
 
         let stream = D3D11_VIDEO_PROCESSOR_STREAM {
             Enable: true.into(),
@@ -231,15 +232,19 @@ impl Converter {
         };
         let streams = [stream];
         // SAFETY: processador, visão de saída e o stream (com a visão de entrada viva) são válidos.
-        let r = unsafe {
-            dev.video()?
-                .1
-                .VideoProcessorBlt(&self.processor, &out_view, 0, &streams)
-        };
+        let r = unsafe { vctx.VideoProcessorBlt(&self.processor, &out_view, 0, &streams) };
         // Libera a visão de entrada: o ManuallyDrop não faz isso sozinho.
         let [mut stream] = streams;
         // SAFETY: `pInputSurface` foi inicializado acima e não é usado depois.
         unsafe { ManuallyDrop::drop(&mut stream.pInputSurface) };
+        if let (Some(t), Some(slot)) = (self.timer.as_mut(), slot) {
+            t.end(dev, slot);
+        }
+        self.timing = ConvertTiming {
+            lock_wait_us,
+            cpu_us: t_cpu.elapsed().as_secs_f64() * 1e6,
+        };
+        drop(guard);
         r.map_err(|e| os("VideoProcessorBlt", e))
     }
 }
@@ -293,5 +298,48 @@ mod tests {
             return;
         };
         assert!(matches!(c.convert(&dev, &src, &dst), Err(GpuError::InvalidArgument(_))));
+    }
+
+    fn par_640(dev: &GpuDevice) -> Option<(Converter, Texture, Texture)> {
+        if !dev.has_video() {
+            eprintln!("pulando: GPU sem Video Processor");
+            return None;
+        }
+        let c = Converter::new(dev, 640, 360, PixelFormat::Bgra8, 640, 360).ok()?;
+        let src = Texture::new(dev, 640, 360, PixelFormat::Bgra8, false).ok()?;
+        let dst = Texture::new(dev, 640, 360, PixelFormat::Nv12, false).ok()?;
+        Some((c, src, dst))
+    }
+
+    #[test]
+    fn convert_preenche_timing() {
+        let Ok(dev) = GpuDevice::create_default() else {
+            eprintln!("pulando: sem GPU");
+            return;
+        };
+        let Some((mut c, src, dst)) = par_640(&dev) else {
+            eprintln!("pulando: sem conversor/texturas");
+            return;
+        };
+        c.convert(&dev, &src, &dst).expect("convert");
+        let t = c.last_timing();
+        assert!(t.cpu_us > 0.0);
+        assert!(t.lock_wait_us >= 0.0);
+    }
+
+    #[test]
+    fn cache_reusa_visoes() {
+        let Ok(dev) = GpuDevice::create_default() else {
+            eprintln!("pulando: sem GPU");
+            return;
+        };
+        let Some((mut c, src, dst)) = par_640(&dev) else {
+            eprintln!("pulando: sem conversor/texturas");
+            return;
+        };
+        for _ in 0..3 {
+            c.convert(&dev, &src, &dst).expect("convert");
+        }
+        assert_eq!(c.cached_views(), (1, 1));
     }
 }

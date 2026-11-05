@@ -6,8 +6,13 @@ use crate::window::{LossMeter, RateMeter};
 use crate::Us;
 use zap_proto::DelayState;
 
-/// Carência depois da última sonda: sobrecarga e descarte do emissor não reduzem nem aparecem.
-const CARENCIA_SONDA_US: Us = 300_000;
+/// Mínimo da carência depois da última sonda (keyframe não tem mínimo): sobrecarga e descarte
+/// do emissor não reduzem nem aparecem.
+const CARENCIA_SONDA_MIN_US: Us = 300_000;
+/// Máximo da carência depois do último evento de rajada própria.
+const CARENCIA_MAX_US: Us = 1_000_000;
+/// Fila (atraso acima da base) abaixo da qual a rajada já escoou.
+const FILA_ESCOADA_US: f64 = 30_000.0;
 /// Fração da taxa medida no grupo que vira estimativa.
 const FATOR_SONDA: f64 = 0.95;
 /// Janela da vazão medida (µs).
@@ -90,8 +95,13 @@ pub struct Bwe {
     fase_inicial: bool,
     /// Instantes dos quadros descartados pelo emissor (janela de 1 s).
     descartes: std::collections::VecDeque<Us>,
-    /// Chegada da última sonda (inicia a carência de `CARENCIA_SONDA_US`).
+    /// Instante do último evento de sonda (mantém a carência por no mínimo
+    /// `CARENCIA_SONDA_MIN_US`, e até `CARENCIA_MAX_US` enquanto houver fila).
     ultima_sonda: Option<Us>,
+    /// Instante do último evento de keyframe (carência só enquanto houver fila, até o máximo).
+    ultimo_keyframe: Option<Us>,
+    /// Sobrecarga atual do detector: quando começou e se começou dentro da carência.
+    overuse_desde: Option<(Us, bool)>,
 }
 impl Bwe {
     pub fn new(cfg: BweConfig) -> Self {
@@ -117,21 +127,32 @@ impl Bwe {
             fase_inicial: true,
             descartes: std::collections::VecDeque::new(),
             ultima_sonda: None,
+            ultimo_keyframe: None,
+            overuse_desde: None,
         }
     }
     pub fn on_packet(&mut self, send_us: Us, arrival_us: Us, bytes: u32) {
+        let antes = self.state;
         self.state = self.detector.on_packet(send_us, arrival_us, bytes);
         self.rate.add(arrival_us, bytes);
         self.primeiro_pacote.get_or_insert(arrival_us);
         self.now_chegada = arrival_us;
+        if self.state != DelayState::Overuse {
+            self.overuse_desde = None;
+        } else if antes != DelayState::Overuse {
+            self.overuse_desde = Some((arrival_us, self.em_carencia(arrival_us)));
+        }
     }
     /// Um quadro de vídeo que o emissor descartou (o receptor vê um buraco de `seq`).
-    pub fn on_frame_dropped(&mut self, now: Us) {
-        // Na carência o emissor está só reagindo à rajada de sonda: não conta.
-        if self.em_carencia(now) {
+    /// `seen_us` = quando o buraco de `seq` foi visto (não quando venceu).
+    pub fn on_frame_dropped(&mut self, seen_us: Us) {
+        // Na carência o emissor está só reagindo à rajada própria: não conta.
+        if self.em_carencia(seen_us) {
             return;
         }
-        self.descartes.push_back(now);
+        // Mantém ordenado: o `pop_front` da janela depende disso.
+        let pos = self.descartes.partition_point(|&t| t <= seen_us);
+        self.descartes.insert(pos, seen_us);
     }
     pub fn on_loss_fraction(&mut self, _now: Us, loss: f32) {
         // A janela de 2 s vem do relatório; aqui usamos a fração direto.
@@ -167,6 +188,7 @@ impl Bwe {
         }
         let descartando = self.descartes.len() >= DESCARTES_LIMITE && passou_carencia;
         let carencia = self.em_carencia(now);
+        let ignora_overuse = self.ignora_overuse(now);
 
         match self.state {
             _ if descartando && !carencia => {
@@ -180,7 +202,7 @@ impl Bwe {
                     self.fase_inicial = false;
                 }
             }
-            DelayState::Overuse if !carencia => {
+            DelayState::Overuse if !ignora_overuse => {
                 if passou_carencia && separado(self.ultima_reducao, ESPACO_REDUCAO_US) {
                     self.alvo = self.alvo.min(FATOR_OVERUSE * vazao);
                     self.ultima_reducao = Some(now);
@@ -189,7 +211,7 @@ impl Bwe {
                     self.fase_inicial = false;
                 }
             }
-            // Sobrecarga durante a carência da sonda é da própria sonda: não mexe em nada.
+            // Sobrecarga da própria rajada (sonda/keyframe): não mexe em nada.
             DelayState::Overuse => {}
             DelayState::Underuse => {}
             DelayState::Normal => {
@@ -224,11 +246,28 @@ impl Bwe {
     /// Sonda chegou: igual a `on_packet` (detector e vazão) e marca a janela de sondagem.
     pub fn on_probe_packet(&mut self, send_us: Us, arrival_us: Us, bytes: u32) {
         self.on_packet(send_us, arrival_us, bytes);
-        self.ultima_sonda = Some(self.ultima_sonda.map_or(arrival_us, |u| u.max(arrival_us)));
+        self.marca_sonda(arrival_us);
+    }
+    fn marca_sonda(&mut self, t: Us) {
+        self.ultima_sonda = Some(self.ultima_sonda.map_or(t, |u| u.max(t)));
+    }
+    fn marca_keyframe(&mut self, t: Us) {
+        self.ultimo_keyframe = Some(self.ultimo_keyframe.map_or(t, |u| u.max(t)));
+    }
+    /// Cabeçalho de um keyframe chegou (o quadro ainda vai chegar): evento de rajada (keyframe).
+    pub fn on_keyframe_start(&mut self, arrival_us: Us) {
+        self.marca_keyframe(arrival_us);
+    }
+    /// Keyframe terminou de chegar: `on_packet` + evento de rajada (keyframe) em `arrival_us`.
+    pub fn on_keyframe_packet(&mut self, send_us: Us, arrival_us: Us, bytes: u32) {
+        self.on_packet(send_us, arrival_us, bytes);
+        self.marca_keyframe(arrival_us);
     }
     /// Fim de um grupo (`ProbeMeter`). Com perda <= PERDA_ALTA: `alvo = max(alvo, 0,95 x kbps)`,
     /// limitado a `max_kbps`; `estimate_kbps()` ja devolve o novo valor.
     pub fn on_probe_cluster(&mut self, now: Us, kbps: u32) {
+        // Estende a carência a partir do fim do grupo, mesmo se a perda for alta.
+        self.marca_sonda(now);
         if self.loss_atual > PERDA_ALTA {
             return;
         }
@@ -236,20 +275,48 @@ impl Bwe {
         let max = f64::from(self.cfg.max_kbps).max(min);
         self.alvo = self.alvo.max(FATOR_SONDA * f64::from(kbps)).clamp(min, max);
         self.estimate_kbps = self.alvo.round() as u32;
-        // Estende a carência a partir do fim do grupo.
-        self.ultima_sonda = Some(self.ultima_sonda.unwrap_or(now).max(now));
     }
-    /// Dentro de `CARENCIA_SONDA_US` da última sonda (ou antes dela).
-    fn em_carencia(&self, now: Us) -> bool {
-        self.ultima_sonda
-            .is_some_and(|u| now.saturating_sub(u) <= CARENCIA_SONDA_US)
+    /// Rajada própria (sonda/keyframe) ainda em curso em `t`: até 1 s do último evento; nos
+    /// primeiros 300 ms da última sonda sempre, depois só enquanto a fila não escoou.
+    fn em_carencia(&self, t: Us) -> bool {
+        let Some(ultimo) = self.ultima_sonda.max(self.ultimo_keyframe) else {
+            return false;
+        };
+        if t.saturating_sub(ultimo) > CARENCIA_MAX_US {
+            return false;
+        }
+        if self
+            .ultima_sonda
+            .is_some_and(|s| t.saturating_sub(s) <= CARENCIA_SONDA_MIN_US)
+        {
+            return true;
+        }
+        self.detector.fila_us() > FILA_ESCOADA_US
+    }
+    /// Sobrecarga que é da rajada própria em `t`: durante a carência, e também a que **começou**
+    /// na carência e ainda dura, até 1 s do último evento de rajada e 1 s do início dela. A fila
+    /// pode escoar (fim da carência) antes de a tendência do detector voltar ao normal: sem isso o
+    /// resto da sobrecarga do keyframe cortava a estimativa para 0,85 × vazão logo depois dele
+    /// (medido no M4c, `docs/planos/m4c-estabilizacao.md` §11). Sobrecarga real que começa junto
+    /// da rajada continua sendo vista, no máximo 1 s depois.
+    fn ignora_overuse(&self, t: Us) -> bool {
+        if self.em_carencia(t) {
+            return true;
+        }
+        let Some((inicio, na_carencia)) = self.overuse_desde else {
+            return false;
+        };
+        let Some(ultimo) = self.ultima_sonda.max(self.ultimo_keyframe) else {
+            return false;
+        };
+        na_carencia && t.saturating_sub(ultimo) <= CARENCIA_MAX_US && t.saturating_sub(inicio) <= CARENCIA_MAX_US
     }
     pub fn estimate_kbps(&self) -> u32 {
         self.estimate_kbps
     }
     pub fn state(&self) -> DelayState {
-        // A sonda causa fila de propósito: não anuncia sobrecarga durante a carência.
-        if self.state == DelayState::Overuse && self.em_carencia(self.now_chegada) {
+        // A rajada própria causa fila de propósito: não anuncia essa sobrecarga.
+        if self.state == DelayState::Overuse && self.ignora_overuse(self.now_chegada) {
             return DelayState::Normal;
         }
         self.state
@@ -474,12 +541,156 @@ mod tests {
         }
         assert!(b.descartes.is_empty());
         // Depois da carência, descarte volta a contar.
-        let depois = ultima_chegada + CARENCIA_SONDA_US + 1_000;
+        let depois = ultima_chegada + CARENCIA_MAX_US + 1_000;
         for k in 0..3 {
             b.on_frame_dropped(depois + k * 1000);
         }
         assert_eq!(b.descartes.len(), 3);
         assert!(!b.em_carencia(depois));
+    }
+
+    /// Bwe aquecido com vídeo de 400 kbps por 3 s e uma sonda em t0 = 3 s (atraso base de 20 ms).
+    fn bwe_com_sonda() -> (Bwe, u64) {
+        let mut b = Bwe::new(BweConfig::default());
+        video_400(&mut b, 0, 3_000_000);
+        let t0 = 3_000_000u64;
+        b.on_probe_packet(t0, t0 + 20_000, 1200);
+        (b, t0 + 20_000)
+    }
+
+    #[test]
+    fn descarte_visto_na_carencia_ignorado() {
+        // Visto dentro da carência: ignorado, mesmo processado 300 ms depois.
+        let (mut b, t0) = bwe_com_sonda();
+        let antes = b.estimate_kbps();
+        video_400(&mut b, 3_025_000, 3_300_000);
+        for k in 0..3 {
+            b.on_frame_dropped(t0 + 100_000 + k * 1000);
+        }
+        b.update(t0 + 300_000);
+        assert!(b.estimate_kbps() >= antes, "estimate = {}", b.estimate_kbps());
+
+        // Visto fora da carência: conta e puxa a estimativa para 0,95 x vazão.
+        let (mut b, t0) = bwe_com_sonda();
+        let antes = b.estimate_kbps();
+        video_400(&mut b, 3_025_000, 5_300_000);
+        for k in 0..3 {
+            b.on_frame_dropped(t0 + 2_000_000 + k * 1000);
+        }
+        b.update(t0 + 2_300_000);
+        assert!(b.estimate_kbps() < antes, "estimate = {}", b.estimate_kbps());
+        assert!(b.estimate_kbps() <= 500, "estimate = {}", b.estimate_kbps());
+    }
+
+    #[test]
+    fn carencia_fecha_em_1s_com_fila() {
+        let mut b = Bwe::new(BweConfig::default());
+        video_400(&mut b, 0, 3_000_000);
+        // Sonda com atraso de 120 ms (fila de ~100 ms) e depois o atraso fica parado.
+        let t0 = 3_000_000u64;
+        let sonda = t0 + 120_000;
+        b.on_probe_packet(t0, sonda, 1200);
+        let (mut dentro, mut fora) = (0, 0);
+        for i in 1..200u64 {
+            let envio = t0 + i * 10_000;
+            let chegada = envio + 120_000;
+            b.on_packet(envio, chegada, 1250);
+            if chegada <= sonda + 300_000 {
+                continue;
+            }
+            if chegada <= sonda + CARENCIA_MAX_US {
+                assert!(b.em_carencia(chegada), "chegada = {chegada}");
+                dentro += 1;
+            } else {
+                assert!(!b.em_carencia(chegada), "chegada = {chegada}");
+                fora += 1;
+            }
+        }
+        assert!(dentro > 10 && fora > 10, "dentro = {dentro}, fora = {fora}");
+    }
+
+    #[test]
+    fn keyframe_start_abre_carencia() {
+        let rodar_atraso = |com_keyframe: bool| {
+            let mut b = Bwe::new(BweConfig::default());
+            video_400(&mut b, 0, 3_000_000);
+            let t0 = 3_000_000u64;
+            if com_keyframe {
+                b.on_keyframe_start(t0);
+            }
+            let mut ult = 0;
+            let mut viu_overuse = false;
+            for i in 0..40u64 {
+                let envio = t0 + i * 10_000;
+                let chegada = (envio + 20_000 + i * i * 400).max(ult);
+                ult = chegada;
+                b.on_packet(envio, chegada, 1250);
+                if com_keyframe && b.detector.fila_us() > FILA_ESCOADA_US && chegada - t0 <= CARENCIA_MAX_US {
+                    assert_ne!(b.state(), DelayState::Overuse, "i = {i}");
+                }
+                viu_overuse |= b.state() == DelayState::Overuse;
+            }
+            viu_overuse
+        };
+        rodar_atraso(true);
+        assert!(rodar_atraso(false), "sem keyframe deveria dar Overuse");
+    }
+
+    /// Bwe aquecido (vídeo de 400 kbps por 3 s) com uma sobrecarga do detector que começou num
+    /// keyframe em `t0`, dentro da carência, e cuja fila já escoou.
+    fn bwe_overuse_do_keyframe() -> (Bwe, u64) {
+        let mut b = Bwe::new(BweConfig::default());
+        video_400(&mut b, 0, 3_000_000);
+        let t0 = 3_000_000u64;
+        b.on_keyframe_start(t0);
+        b.state = DelayState::Overuse;
+        b.overuse_desde = Some((t0 + 100_000, true));
+        assert!(b.detector.fila_us() < FILA_ESCOADA_US);
+        assert!(!b.em_carencia(t0 + 200_000));
+        (b, t0)
+    }
+
+    #[test]
+    fn overuse_nascido_na_carencia_ignorado_ate_1s() {
+        let (mut b, t0) = bwe_overuse_do_keyframe();
+        let antes = b.estimate_kbps();
+        b.now_chegada = t0 + 300_000;
+        assert_eq!(b.state(), DelayState::Normal);
+        b.update(t0 + 300_000);
+        assert!(b.estimate_kbps() >= antes, "estimate = {}", b.estimate_kbps());
+        // Passou 1 s do keyframe: é sobrecarga de verdade.
+        b.now_chegada = t0 + 1_100_001;
+        assert_eq!(b.state(), DelayState::Overuse);
+    }
+
+    #[test]
+    fn overuse_nascido_fora_da_carencia_conta() {
+        let (mut b, t0) = bwe_overuse_do_keyframe();
+        b.overuse_desde = Some((t0 + 100_000, false));
+        b.now_chegada = t0 + 300_000;
+        assert_eq!(b.state(), DelayState::Overuse);
+        let antes = b.estimate_kbps();
+        b.update(t0 + 300_000);
+        assert!(b.estimate_kbps() < antes, "estimate = {}", b.estimate_kbps());
+    }
+
+    #[test]
+    fn overuse_longo_conta_mesmo_nascido_na_carencia() {
+        let (mut b, t0) = bwe_overuse_do_keyframe();
+        // Um keyframe novo não estende uma sobrecarga que já dura mais de 1 s.
+        b.on_keyframe_start(t0 + 1_000_000);
+        b.now_chegada = t0 + 1_200_000;
+        assert_eq!(b.state(), DelayState::Overuse);
+    }
+
+    #[test]
+    fn carencia_fecha_quando_fila_escoa() {
+        let (mut b, t0) = bwe_com_sonda();
+        video_400(&mut b, 3_025_000, 3_500_000);
+        assert!(b.detector.fila_us() < FILA_ESCOADA_US);
+        assert!(b.em_carencia(t0 + CARENCIA_SONDA_MIN_US));
+        assert!(!b.em_carencia(t0 + CARENCIA_SONDA_MIN_US + 1));
+        assert!(!b.em_carencia(t0 + 400_000));
     }
 
     #[test]
@@ -532,7 +743,7 @@ mod tests {
                     b.on_packet(envio, c, bytes);
                 }
                 if let Some(p) = primeira_sonda {
-                    if c <= ultima_sonda.max(burst_fim + 200_000) + CARENCIA_SONDA_US {
+                    if c <= ultima_sonda.max(burst_fim + 200_000) + CARENCIA_SONDA_MIN_US {
                         let _ = p;
                         assert_ne!(b.state(), DelayState::Overuse, "t = {c}");
                     }

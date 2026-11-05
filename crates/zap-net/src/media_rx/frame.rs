@@ -13,8 +13,13 @@ const PREALOC_MAX: usize = 1024 * 1024;
 /// Bytes além do `size` anunciado que ainda lemos esperando o FIN.
 const MAX_SOBRA: usize = 64 * 1024;
 
-/// Lê um quadro de um stream uni: cabeçalho + `size` bytes (limite `crate::media_rx::MAX_FRAME_BYTES`).
-pub async fn read_frame(mut recv: quinn::RecvStream, clock: &Clock) -> Result<(VideoHeader, Bytes, u64), NetError> {
+/// Como `read_frame`, chamando `on_header(&cabecalho, instante_us)` assim que o cabeçalho é lido
+/// e validado (antes do corpo), com `instante_us` no relógio de `clock`.
+pub async fn read_frame_with(
+    mut recv: quinn::RecvStream,
+    clock: &Clock,
+    on_header: impl FnOnce(&VideoHeader, u64),
+) -> Result<(VideoHeader, Bytes, u64), NetError> {
     let mut cabecalho = [0u8; VIDEO_HEADER_LEN];
     recv.read_exact(&mut cabecalho).await.map_err(erro_leitura)?;
     let header = VideoHeader::decode(&cabecalho)?;
@@ -23,6 +28,9 @@ pub async fn read_frame(mut recv: quinn::RecvStream, clock: &Clock) -> Result<(V
     if header.size > MAX_FRAME_BYTES {
         return Err(ProtoError::TooLarge(header.size as usize).into());
     }
+
+    // Aviso só para cabeçalho aceito, antes de ler o corpo (quem avisa precisa do instante de chegada do cabeçalho)
+    on_header(&header, clock.now_us());
 
     let tamanho = header.size as usize;
     let mut corpo = Vec::with_capacity(tamanho.min(PREALOC_MAX));
@@ -51,6 +59,11 @@ pub async fn read_frame(mut recv: quinn::RecvStream, clock: &Clock) -> Result<(V
         }
     }
     Ok((header, Bytes::from(corpo), arrival_us))
+}
+
+/// Lê um quadro de um stream uni: cabeçalho + `size` bytes (limite `crate::media_rx::MAX_FRAME_BYTES`).
+pub async fn read_frame(recv: quinn::RecvStream, clock: &Clock) -> Result<(VideoHeader, Bytes, u64), NetError> {
+    read_frame_with(recv, clock, |_, _| {}).await
 }
 
 fn erro_leitura(e: quinn::ReadExactError) -> NetError {
@@ -189,6 +202,68 @@ mod tests {
         let rx = srv.accept_uni().await?;
         let r = tokio::time::timeout(Duration::from_secs(5), read_frame(rx, &relogio)).await?;
         assert!(matches!(r, Err(NetError::Proto(ProtoError::TooLarge(_)))), "veio {r:?}");
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn on_header_chamado_uma_vez_antes_do_corpo() -> Result<(), Erro> {
+        let (cli, srv, _e1, _e2) = par_loopback().await?;
+        let relogio = Clock::new();
+        let payload: Vec<u8> = (0..50_000u32).map(|i| (i % 253) as u8).collect();
+        let h = cabecalho(payload.len() as u32);
+        envia(&cli, &h, &payload).await?;
+
+        let chamadas = std::cell::Cell::new(0u32);
+        let gravado = std::cell::Cell::new((0u32, 0u64));
+        let rx = srv.accept_uni().await?;
+        let (recebido, dados, chegada) = read_frame_with(rx, &relogio, |hd, instante| {
+            chamadas.set(chamadas.get() + 1);
+            gravado.set((hd.seq, instante));
+        })
+        .await?;
+
+        assert_eq!(chamadas.get(), 1, "callback tem de ser chamado exatamente uma vez");
+        let (seq, instante) = gravado.get();
+        assert_eq!(seq, h.seq);
+        assert!(
+            instante <= chegada,
+            "aviso ({instante}) depois da chegada do corpo ({chegada})"
+        );
+        assert_eq!(recebido, h);
+        assert_eq!(dados.as_ref(), payload.as_slice());
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn on_header_nao_chamado_se_tamanho_excede() -> Result<(), Erro> {
+        let (cli, srv, _e1, _e2) = par_loopback().await?;
+        let relogio = Clock::new();
+        envia(&cli, &cabecalho(MAX_FRAME_BYTES + 1), &[]).await?;
+
+        let chamadas = std::cell::Cell::new(0u32);
+        let rx = srv.accept_uni().await?;
+        let r = tokio::time::timeout(
+            Duration::from_secs(5),
+            read_frame_with(rx, &relogio, |_, _| chamadas.set(chamadas.get() + 1)),
+        )
+        .await?;
+        assert!(matches!(r, Err(NetError::Proto(ProtoError::TooLarge(_)))), "veio {r:?}");
+        assert_eq!(chamadas.get(), 0, "cabeçalho recusado não pode avisar");
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn on_header_recebe_flag_de_keyframe() -> Result<(), Erro> {
+        let (cli, srv, _e1, _e2) = par_loopback().await?;
+        let relogio = Clock::new();
+        let h = cabecalho(10);
+        envia(&cli, &h, &[0x11; 10]).await?;
+
+        let key = std::cell::Cell::new(false);
+        let rx = srv.accept_uni().await?;
+        let (recebido, _, _) = read_frame_with(rx, &relogio, |hd, _| key.set(hd.flags.is_keyframe())).await?;
+        assert!(key.get(), "flag de keyframe não chegou ao callback");
+        assert_eq!(recebido, h);
         Ok(())
     }
 }

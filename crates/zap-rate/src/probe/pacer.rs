@@ -45,6 +45,7 @@ mod tests {
         ProbeBurst {
             cluster: 1,
             kbps: 9500,
+            total_kbps: 12_000,
             duration_us: 200_000,
         }
     }

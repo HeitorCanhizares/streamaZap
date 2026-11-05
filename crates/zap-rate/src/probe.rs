@@ -6,6 +6,8 @@ use crate::Us;
 mod meter;
 mod pacer;
 mod planner;
+#[cfg(test)]
+mod planner_degraus;
 
 pub use meter::ProbeMeter;
 pub use pacer::ProbePacer;
@@ -27,6 +29,17 @@ pub const JANELA_ENVIADO_US: Us = 1_000_000;
 pub const FIM_GRUPO_US: Us = 50_000;
 pub const MIN_SONDAS: u32 = 5;
 pub const MIN_DURACAO_US: Us = 100_000;
+
+/// Teto do degrau sobre a última medida que não saturou.
+pub const FATOR_DEGRAU: f64 = 1.5;
+/// Teto depois de uma medida que saturou.
+pub const FATOR_APOS_SATURAR: f64 = 1.25;
+/// Medida abaixo desta fração do alvo da rajada = saturou.
+pub const FATOR_SATURADO: f64 = 0.85;
+/// Espera entre um degrau e o seguinte (a partir do fim da rajada).
+pub const DEGRAU_US: Us = 1_000_000;
+/// Validade da medida do caminho.
+pub const VALIDADE_MEDIDA_US: Us = 60_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProbeNeed {
@@ -53,6 +66,8 @@ pub struct ProbeBurst {
     pub cluster: u16,
     /// Taxa só das sondas (o vídeo já enviado não entra).
     pub kbps: u32,
+    /// Taxa total que deve chegar durante a rajada (`alvo(e)` do contrato): `kbps + enviado`.
+    pub total_kbps: u32,
     pub duration_us: Us,
 }
 

@@ -1,16 +1,17 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-04, no fechamento da rodada M4b + M2. O trabalho desta rodada está na branch
-`m4-online` (sem commit ainda); `master` e `claude/loving-davinci-le0qac` têm o estado anterior.
+Atualizado em 2026-11-04, no fechamento da rodada 3 (M4c + M2). O trabalho das rodadas M4/M4b/M4c
+está na branch `m4-online`, em commits locais (sem push); `master` e `claude/loving-davinci-le0qac`
+têm o estado anterior.
 
 ## Antes de qualquer push no `master`
 
 - **Todo push no `master` publica uma Release do app Python.** O `build.yml` gera o instalador e
   marca como a última Release. Até o M6, ponha `[skip release]` na mensagem do commit do topo do
   push (é a do `head_commit` que conta).
-- **O CI da v3 (`rust.yml`) ainda não foi conferido com o M4 pronto.** Não há mais `todo!`, mas o
-  `cargo test --workspace` tem falhas abertas (ver "Atualização do M4") e o clippy do alvo
-  `windows-gnu` não foi rodado (o fechamento usou o alvo nativo MSVC).
+- **O CI da v3 (`rust.yml`) ainda não foi conferido com o M4 pronto.** No Windows (MSVC, GTX 1060)
+  passam fmt, clippy `-D warnings` e `cargo test --workspace` inteiro (1380 testes); o Linux e o
+  clippy do alvo `windows-gnu` não foram rodados.
 
 ## Resumo
 
@@ -18,10 +19,10 @@ Atualizado em 2026-11-04, no fechamento da rodada M4b + M2. O trabalho desta rod
 |---|---|---|
 | M0 | ✅ | Plano mestre (`docs/arquitetura-v3.md`), API (`docs/api/`), design (`docs/design/`), hierarquia de agentes (`.claude/`), workspace e CI |
 | M1 | ✅ | `zap-proto` (protocolo 4), `zap-rate` (estimador de banda, balanceamento por espectador, suavização, simulador), `zap-net` (QUIC com prazo por quadro, relatórios, descoberta) |
-| M2 | 🟡 (rodou numa GTX 1060; bancada fora da meta) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
+| M2 | ✅ na GTX 1060 (bancada release: camada 0 a 60 fps, p95 somado 6,5 ms na mediana de 5; meta de 8 ms atingida) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
 | M3 / M3b | ✅ | `zap-core` (sala Local, publicação, assinatura, playout), app Tauri (`app/src-tauri`), interface React fiel ao design (`app/src`) ligada ao núcleo |
 | M5 | ✅ (falta testar uma release de verdade) | Atualização assinada (instala ao fechar, nunca reinicia numa sala, canais estável/beta), firewall por COM, diagnóstico real, `release-v3.yml`, instalador NSIS que remove o app Python |
-| **M4** | 🟡 **quase** | Modo Online implementado (núcleo, Tauri, telas, modo só direta, sondagem); falta o aceite 2 (camadas por enlace) e o servidor de produção sondar |
+| **M4** | 🟡 **pronto no app** | Modo Online (núcleo, Tauri, telas, modo só direta, sondagem em degraus) com todos os aceites passando (aceite 2: 5 de 5, e 2 de 2 com carga); falta o servidor de produção seguir o contrato novo e um teste entre dois PCs |
 | M6 | ⏳ | Paridade e remoção do app Python |
 
 O app Python (`streamazap/`) continua intacto e é o que as Releases atuais publicam.
@@ -48,17 +49,16 @@ senha por enquanto (`requer_senha: false`).
 ### 2. Teste num PC com GPU (M2)
 
 Feito neste PC (Windows 10, GTX 1060, NVENC): captura DXGI, conversão NV12 e H.264 por hardware
-rodam; os testes de `zap-capture`, `zap-gpu` e `zap-media` passam, a violação de acesso do
-`zap-capture` e da bancada foi resolvida (MTA preso, `GpuDevice: Clone`) e a bancada release não
-caiu. **Mas a bancada não bate a meta**: com movimento na tela, 25,9 fps na camada 0 e p95 somado
-de 72 ms (meta 8 ms), com quadros descartados (números em `docs/planos/m4b-pendencias.md`, seção 8).
-Com a tela parada a duplicação entrega ~0,5 quadro/s e a bancada mede espera (os 2,9 fps / 703 ms
-registrados antes): a bancada precisa gerar movimento sozinha. Falta investigar por que conversão
-(~12 ms) e codificação (~21 ms) estão tão altas numa GTX 1060 (contenção do contexto D3D11 entre
-conversor e codificador, relógio da GPU, três sessões NVENC). Ainda falta
-testar a transmissão entre dois PCs (`cd app && npm install && npm run tauri dev`), a **conversão
-para NV12 pela CPU** (sem ela, um PC sem Video Processor não transmite) e a cadeia de dispositivos
-do `zap-gpu` no CI Windows.
+rodam, e os testes de `zap-capture`, `zap-gpu`, `zap-encode` e `zap-media` passam. **A bancada bate
+a meta** (rodada 3): camada 0 a 60 fps, p95 somado de 6,5 ms na mediana de 5 execuções (meta 8 ms).
+Antes eram 25,9 fps e 72 ms. A causa era a captura DXGI segurar o lock do dispositivo D3D11
+durante `AcquireNextFrame(100 ms)`, travando conversor e codificadores; agora ela usa
+`AcquireNextFrame(0)` e espera o `WaitForVBlank`. A bancada gera movimento sozinha (`--animar`,
+ligado por padrão) e avisa quando a tela fica parada. Números em
+`docs/planos/m4c-estabilizacao.md` (seção 10). Ainda falta:
+- testar a transmissão entre dois PCs (`cd app && npm install && npm run tauri dev`);
+- a **conversão para NV12 pela CPU**: sem ela, um PC sem Video Processor não transmite;
+- rodar a cadeia de dispositivos do `zap-gpu` no CI Windows.
 
 ### 3. Chaves do updater e uma release de teste (M5)
 
@@ -72,6 +72,98 @@ seção da v3). Depois, testar uma release de verdade pelo `release-v3.yml` (tag
 Paridade com o app Python, remoção de `streamazap/` e, **antes da primeira release da v3**, parar o
 `build.yml` de publicar o Python no `master`; senão a "última release" volta a ser a do Python e o
 updater da v3 não acha o `latest.json`.
+
+## Atualização da rodada 3 (m4c, 2026-11-04, fechamento)
+
+Plano: `docs/planos/m4c-estabilizacao.md`. A seção 10 é o fechamento da hierarquia de agentes; a 11
+são as correções feitas direto pelo orquestrador depois dele.
+
+**Tudo passa no Windows** (MSVC, GTX 1060):
+- `cargo fmt --all --check` e `cargo clippy --workspace --all-targets -- -D warnings`;
+- `cargo test --workspace --no-fail-fast`: 1380 testes, 0 falhas, 2 ignorados;
+- `npm run check` e `vitest` (83 arquivos, 666 testes), rodados no fechamento; o app não mudou
+  depois dele.
+
+Repetições:
+
+| Teste | Resultado |
+|---|---|
+| aceite 2 (`online_aceite_2`) | 5 de 5 sem carga, 2 de 2 com `cargo build` em paralelo. Antes das correções falhava 4 de 4 |
+| aceites 1, 3, 4 (3 funções), prévia, reconexão, `aceite_camadas_local` | 3 de 3 cada |
+| `zap-net`: `prazo_keyframe`, `impaired`, `probe` | 3 de 3 cada |
+| `zap-net`: `online::` | 20 de 20 |
+| `zap-test-server --test bridge` | 3 de 3 |
+| `zap-encode --test latencia` | 2 de 2 |
+
+O que entrou:
+
+**Aceite 2.** Três causas:
+1. O keyframe da troca de camada levava 170 ms num enlace de 4 Mbps e era resetado pelo prazo de
+   150 ms. O keyframe agora tem prazo de `max(600 ms, 2 × RTT)`, e os quadros atrás dele contam o
+   prazo a partir do fim dele.
+2. Sobrava sobrecarga no estimador logo depois do keyframe. Isso agora tem carência de rajada
+   própria (sondas e keyframes).
+3. Ao voltar para uma camada antiga, o salto de `seq` virava centenas de "descartes".
+
+Também entraram:
+- sondagem em degraus, guiada pela medida do relatório do espectador;
+- um `MediaSender` por conexão na ponte;
+- admissão com o RTT de base e prazo com o RTT atual.
+
+**GPU.**
+- Captura sem segurar o lock do dispositivo.
+- Medida por etapa: consultas de tempo da GPU e espera de lock.
+- Bancada e testes com janela animada.
+
+**Codificador de software.** As opções do `ICodecAPI` passaram a ser aplicadas antes dos tipos de
+mídia, com leitura de volta. O teste de tamanho passa.
+
+**Testes instáveis.**
+- `renovacao_automatica_dispara`: relógio de renovação injetado.
+- `alloc_loop::tick_com_espectador_...`: espera de 5 s.
+- Proxy de apoio do `zap-net`: rajada em blocos.
+
+**Bancada release** (mediana de 5, 1080p60, monitor 1, máquina ociosa):
+
+| Camada | fps | kbps | Codificação média / p95 |
+|---|---|---|---|
+| 0 | 60,0 | 2214 | 3,69 / 6,23 ms |
+| 1 | 30 | 1506 | — |
+| 2 | 15 | 323 | — |
+
+- p95 somado da camada 0: 6,5 ms. As 5 execuções deram 6,5 / 6,3 / 6,9 / 2,2 / 9,1.
+- A etapa que domina é a codificação. A conversão (0,08 ms) e a espera de lock são desprezíveis.
+- Descartes de captura: mediana 27 em 10 s. O limite de 1% não foi confirmado.
+- Na NVIDIA o `VideoProcessorBlt` roda no motor de vídeo, e a consulta de tempo da GPU marca 0 µs.
+
+### O que o servidor de produção precisa mudar
+
+O servidor de produção (repositório privado) segue o contrato antigo. Para o app novo funcionar
+como no servidor de teste, ele precisa de cinco mudanças. A referência em código é o
+`zap-test-server`, com `zap-rate::probe` e `zap-net::{probe, media_tx}`.
+
+1. **Sondar quem assiste pela ponte** (`docs/api/balanceamento.md` §4). Rajadas de 200 ms em
+   degraus: 1,5 × a taxa medida, ou 1,25 × depois de saturar. A medida vem do próprio
+   `relatorio.sondas`/`chegadas` do espectador. O intervalo começa em 5 s e dobra até 60 s na
+   falha. Sem isso, quem assiste pela ponte de produção fica preso na camada 2.
+2. **Prazo do keyframe** (`docs/api/midia.md`, "Prazo"):
+   - keyframe: `max(600 ms, 2 × RTT)`;
+   - quadros atrás dele: o prazo conta a partir do fim do keyframe;
+   - RTT: o atual, na hora de decidir o reset;
+   - admissão: com o RTT de base.
+3. **Um estado de envio por conexão** de espectador na ponte. Não pode haver um por quadro, senão o
+   prazo do keyframe e a admissão não funcionam.
+4. **Tolerar 5 s de queda da ponte** (`docs/api/midia.md`). Quando a conexão QUIC de um
+   participante cai, o servidor espera 5 s antes de tirar as trilhas e as assinaturas dele. Uma
+   conexão nova do mesmo participante nesse prazo substitui a antiga. Referência:
+   `TOLERANCIA_QUEDA` em `zap-test-server/src/bridge.rs`.
+5. **Conferir os canais.** `camadas.pedidas`, `keyframe.pedir` e `camada.atual` seguem só pelo
+   controle QUIC da ponte. O `relatorio` sai quando houve chegadas, sondas ou perdas.
+
+### Próximos passos
+1. Servidor de produção (acima), depois um teste do app com ele entre dois PCs.
+2. Conversão NV12 pela CPU (PC sem Video Processor) e CI Windows/Linux com o M4.
+3. M5: chaves do updater e uma release de teste. M6: paridade e remoção do app Python.
 
 ## Atualização do M4 (2026-11-04, rodada M4b + M2, fechamento no Windows)
 
@@ -101,7 +193,7 @@ direta, `Drop` do `Core` seguro, timer de 1 ms com sala ativa, MTA preso no COM,
 Também aberto: a **bancada** fora da meta (ver seção 2 acima); `vite build`, clippy do alvo
 `windows-gnu` e o binário no X virtual não foram rodados.
 
-### O que o servidor de produção precisa mudar
+### O que o servidor de produção precisa mudar (versão da M4b, superada pela da rodada 3)
 
 O servidor de produção (repositório privado) segue o contrato antigo. Para o app novo funcionar
 como no servidor de teste:
@@ -138,14 +230,10 @@ como no servidor de teste:
 
 ## Como continuar o M4
 
-1. Estabilizar o aceite 2 (`docs/planos/m4b-pendencias.md`, seção 9; `Bwe`, `Prober` e a ponte do
-   servidor de teste).
-2. Decidir o limite do teste de tamanho do codificador de software e o teste `win_video` instável.
-3. Bancada: gerar movimento na tela durante a medição e investigar conversão/codificação lentas e
-   quadros descartados (contenção do D3D11, relógio da GPU, sessões NVENC).
-4. Depois disso, o fechamento (`core-online-27`) e o servidor de produção (acima).
-- Disco: o `target/` já passou de 25 GB numa sessão. O perfil de desenvolvimento gera bem menos
-  agora, e o `CLAUDE.md` manda rodar `cargo clean` se encher.
+O app está pronto e os aceites passam (ver "Atualização da rodada 3"). Falta o servidor de
+produção seguir o contrato novo e um teste entre dois PCs com ele.
+- Disco: o `target/` já passou de 25 GB numa sessão. O `CLAUDE.md` manda rodar `cargo clean` se
+  encher.
 
 ## O que foi verificado e como
 

@@ -287,6 +287,8 @@ na camada 0 e o exemplo `bancada` exigem PC real com GPU.
 - Testes de integração Windows rodam com `allow(unwrap/expect)` (convenção do workspace).
 - Riscos de MFT por fabricante, runner sem GPU e câmera ocupada seguem como na tabela acima.
 
+**Rodada 3 (m4c), fechamento**: bancada release, mediana de 5, 1080p60, monitor 1, máquina ociosa: camada 0 a 60,0 fps, 2214 kbps, codificação 3,69 / 6,23 ms (média/p95), p95 somado 6,5 ms. A meta de 8 ms foi atingida na mediana (4 de 5 execuções; uma deu 9,1 ms) e 60 fps >= 57. Descartes de captura mediana 27, de codificação 0. Etapa dominante: codificação; conversão (0,08 ms) e espera de lock (0,17 ms) são desprezíveis; etapa B não necessária. Tabela completa em `m4c-estabilizacao.md` seção 10.
+
 ### Revisão do arquiteto
 - Corrigido no fechamento: `zap-net` soltava o stream do quadro antes do FIN, o quinn mandava
   STOP_SENDING e o emissor (que espera a confirmação) contava o quadro como não entregue. Agora o

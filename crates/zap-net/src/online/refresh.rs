@@ -1,8 +1,33 @@
 //! Renovação automática do token de sessão (1 h antes de expirar).
-use std::time::Duration;
+use std::{future::Future, pin::Pin, time::Duration};
 
 /// Antecedência da renovação.
 pub(crate) const RENEW_BEFORE: Duration = Duration::from_secs(3600);
+
+/// Relógio da renovação do token: hora de parede e espera. Produção: `SystemTime` +
+/// `tokio::time::sleep` (`SystemClock`); os testes injetam um relógio controlado.
+pub(crate) trait RenewClock: Send + Sync + 'static {
+    /// Segundos desde 1970-01-01 UTC.
+    fn now_unix(&self) -> u64;
+    /// Espera `d`.
+    fn sleep(&self, d: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+}
+
+/// Relógio de produção.
+pub(crate) struct SystemClock;
+
+impl RenewClock for SystemClock {
+    fn now_unix(&self) -> u64 {
+        // Relógio do sistema antes da época: erro vira 0, como `agora_unix` do cliente.
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+    fn sleep(&self, d: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(tokio::time::sleep(d))
+    }
+}
 
 /// Converte `2026-11-05T21:30:00Z` (ISO 8601 UTC, com ou sem fração de segundo) em segundos
 /// desde 1970-01-01 UTC. Formato inválido = `None`. Sem dependência de crate de datas.
@@ -114,5 +139,23 @@ mod tests {
     fn renew_delay_ja_expirado() {
         let agora = 1_000_000;
         assert_eq!(renew_delay(agora - 60, agora), Duration::ZERO);
+    }
+
+    #[test]
+    fn system_clock_now_unix_razoavel() {
+        let agora = SystemClock.now_unix();
+        assert!(agora > 1_700_000_000);
+        let referencia = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        assert!(referencia.abs_diff(agora) <= 2);
+    }
+
+    #[tokio::test]
+    async fn system_clock_sleep_espera() {
+        let inicio = std::time::Instant::now();
+        SystemClock.sleep(Duration::from_millis(30)).await;
+        assert!(inicio.elapsed() >= Duration::from_millis(25));
     }
 }

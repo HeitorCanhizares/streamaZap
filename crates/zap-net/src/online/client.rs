@@ -60,6 +60,15 @@ impl ServerClient {
 
     /// `POST /v1/sessoes`; inicia a tarefa de renovação automática (ver `refresh`).
     pub async fn login(base: &str, req: LoginRequest) -> Result<Self, ApiError> {
+        Self::login_with_clock(base, req, Arc::new(super::refresh::SystemClock)).await
+    }
+
+    /// Como `login`, com o relógio da renovação dado (testes). `login` usa `SystemClock`.
+    pub(crate) async fn login_with_clock(
+        base: &str,
+        req: LoginRequest,
+        clock: Arc<dyn super::refresh::RenewClock>,
+    ) -> Result<Self, ApiError> {
         let base_url = sem_barra(base).to_string();
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
@@ -90,7 +99,7 @@ impl ServerClient {
                 participant_id: sessao.participant_id,
             }),
         });
-        tokio::spawn(renovacao_automatica(Arc::downgrade(&inner)));
+        tokio::spawn(renovacao_automatica(Arc::downgrade(&inner), clock));
         Ok(Self { inner })
     }
 
@@ -228,6 +237,7 @@ impl ServerClient {
     }
 }
 
+#[cfg(test)]
 fn agora_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -237,7 +247,7 @@ fn agora_unix() -> u64 {
 
 /// Tarefa de fundo: renova o token antes de expirar. Só guarda um `Weak`, então termina
 /// quando o último cliente for descartado.
-async fn renovacao_automatica(fraco: std::sync::Weak<Inner>) {
+async fn renovacao_automatica(fraco: std::sync::Weak<Inner>, clock: Arc<dyn super::refresh::RenewClock>) {
     const ESPERA_INICIAL: Duration = Duration::from_secs(30);
     const ESPERA_MAXIMA: Duration = Duration::from_secs(300);
     // Sem data legível, assume 23 h.
@@ -254,11 +264,11 @@ async fn renovacao_automatica(fraco: std::sync::Weak<Inner>) {
             let expira = inner.session.lock().expires_at.clone();
             drop(inner);
             match super::refresh::parse_iso_utc(&expira) {
-                Some(e) => super::refresh::renew_delay(e, agora_unix()),
+                Some(e) => super::refresh::renew_delay(e, clock.now_unix()),
                 None => SEM_DATA,
             }
         };
-        tokio::time::sleep(espera).await;
+        clock.sleep(espera).await;
         let Some(inner) = fraco.upgrade() else { return };
         let cliente = ServerClient { inner };
         match cliente.renew().await {
@@ -466,38 +476,80 @@ mod tests {
         assert_eq!(n.load(Ordering::SeqCst), 1);
     }
 
-    #[tokio::test(start_paused = true)]
+    /// Relógio de teste: hora real; `sleep` avisa a duração pelo canal e espera uma permissão.
+    struct RelogioTeste {
+        tx: tokio::sync::mpsc::UnboundedSender<Duration>,
+        libera: Arc<tokio::sync::Semaphore>,
+    }
+
+    impl super::super::refresh::RenewClock for RelogioTeste {
+        fn now_unix(&self) -> u64 {
+            agora_unix()
+        }
+        fn sleep(&self, d: Duration) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+            let _ = self.tx.send(d);
+            let libera = self.libera.clone();
+            Box::pin(async move {
+                if let Ok(p) = libera.acquire().await {
+                    p.forget();
+                }
+            })
+        }
+    }
+
+    fn relogio_teste() -> (
+        Arc<RelogioTeste>,
+        tokio::sync::mpsc::UnboundedReceiver<Duration>,
+        Arc<tokio::sync::Semaphore>,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let libera = Arc::new(tokio::sync::Semaphore::new(0));
+        (
+            Arc::new(RelogioTeste {
+                tx,
+                libera: libera.clone(),
+            }),
+            rx,
+            libera,
+        )
+    }
+
+    async fn recebe(rx: &mut tokio::sync::mpsc::UnboundedReceiver<Duration>) -> Option<Duration> {
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("tempo esgotado esperando o relógio")
+    }
+
+    #[tokio::test]
     async fn renovacao_automatica_dispara() {
         let expira = iso(agora_unix() + 3600 + 10);
         let (app, n) = app_sessoes(expira);
         let base = sobe(app).await;
-        let c = ServerClient::login(&base, pedido()).await.unwrap();
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        let (relogio, mut rx, libera) = relogio_teste();
+        let c = ServerClient::login_with_clock(&base, pedido(), relogio).await.unwrap();
+        let d1 = recebe(&mut rx).await.unwrap();
+        assert!(d1 >= Duration::from_secs(9) && d1 <= Duration::from_secs(10), "{d1:?}");
         assert_eq!(n.load(Ordering::SeqCst), 0);
-        tokio::time::sleep(Duration::from_secs(8)).await;
-        // Dá folga para a requisição real terminar.
-        for _ in 0..50 {
-            if n.load(Ordering::SeqCst) > 0 && c.token() == "t1" {
-                break;
-            }
-            tokio::task::yield_now().await;
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        libera.add_permits(1);
+        // O segundo sleep só começa depois que a renovação terminou.
+        let d2 = recebe(&mut rx).await.unwrap();
         assert_eq!(n.load(Ordering::SeqCst), 1);
         assert_eq!(c.token(), "t1");
+        assert!(d2 >= Duration::from_secs(9) && d2 <= Duration::from_secs(10), "{d2:?}");
     }
 
-    #[tokio::test(start_paused = true)]
+    #[tokio::test]
     async fn tarefa_termina_ao_descartar_cliente() {
         let expira = iso(agora_unix() + 3600 + 10);
         let (app, n) = app_sessoes(expira);
         let base = sobe(app).await;
-        let c = ServerClient::login(&base, pedido()).await.unwrap();
-        let fraco = Arc::downgrade(&c.inner);
+        let (relogio, mut rx, libera) = relogio_teste();
+        let c = ServerClient::login_with_clock(&base, pedido(), relogio).await.unwrap();
+        recebe(&mut rx).await.unwrap();
         drop(c);
-        assert!(fraco.upgrade().is_none());
-        tokio::time::sleep(Duration::from_secs(60)).await;
-        tokio::task::yield_now().await;
+        libera.add_permits(1);
+        // A tarefa termina e solta o relógio (e o `Sender`): o canal fecha.
+        assert!(recebe(&mut rx).await.is_none());
         assert_eq!(n.load(Ordering::SeqCst), 0);
     }
 

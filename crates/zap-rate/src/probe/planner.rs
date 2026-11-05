@@ -1,4 +1,4 @@
-//! Planejador de sondagem (tarefa rate-03).
+//! Planejador de sondagem (tarefas rate-03 e rate-04).
 
 use super::*;
 use std::collections::VecDeque;
@@ -14,6 +14,14 @@ pub struct ProbePlanner {
     avaliando: Option<(Us, u32)>,
     cluster: u16,
     enviados: VecDeque<(Us, u64)>,
+    /// Últimas 8 rajadas: (cluster, total_kbps, limitada pelo teto da medida).
+    rajadas: VecDeque<(u16, u32, bool)>,
+    /// Última medida: (instante, kbps, saturou).
+    medida: Option<(Us, u32, bool)>,
+    /// A medida da rajada em avaliação (a mais recente) já chegou.
+    medida_da_rajada: bool,
+    /// Após um degrau, a próxima rajada fica elegível neste instante (substitui o intervalo).
+    degrau_ate: Option<Us>,
 }
 impl Default for ProbePlanner {
     fn default() -> Self {
@@ -31,6 +39,10 @@ impl ProbePlanner {
             avaliando: None,
             cluster: 0,
             enviados: VecDeque::new(),
+            rajadas: VecDeque::new(),
+            medida: None,
+            medida_da_rajada: false,
+            degrau_ate: None,
         }
     }
     /// Chamar a cada ~100 ms. `need`: `None` = nada a testar. `bandwidth_kbps`: último
@@ -62,6 +74,7 @@ impl ProbePlanner {
             self.elegivel_em = now + PRIMEIRA_SONDA_US;
             self.intervalo = INTERVALO_MIN_US;
             self.avaliando = None;
+            self.degrau_ate = None; // a medida continua valendo
         }
 
         // 3. rajada em andamento / recém-terminada
@@ -75,10 +88,17 @@ impl ProbePlanner {
 
         // 4. resultado da última rajada
         if let Some((fim, req)) = self.avaliando {
+            let limitada = self.rajadas.back().is_some_and(|r| r.2);
+            let saturou = self.medida.is_some_and(|m| m.2);
             if bandwidth_kbps >= req {
                 self.intervalo = INTERVALO_MIN_US;
                 self.avaliando = None;
-            } else if now >= fim + JANELA_RESULTADO_US {
+            } else if self.medida_da_rajada && !saturou && limitada {
+                // Degrau: a banda aguenta o teto; sobe logo para o próximo, sem esperar o intervalo.
+                self.degrau_ate = Some(fim + DEGRAU_US);
+                self.avaliando = None;
+            } else if (self.medida_da_rajada && saturou) || now >= fim + JANELA_RESULTADO_US {
+                // Saturou (falha na hora) ou o prazo da janela de resultado acabou.
                 self.intervalo = (self.intervalo * 2).min(INTERVALO_MAX_US);
                 self.avaliando = None;
             } else {
@@ -91,29 +111,67 @@ impl ProbePlanner {
         if bandwidth_kbps == 0
             || now < self.elegivel_em
             // ultimo_fim == 0: ainda não houve rajada, só vale a elegibilidade
-            || (self.ultimo_fim != 0 && now < self.ultimo_fim + self.intervalo)
+            || self.degrau_ate.map_or(
+                self.ultimo_fim != 0 && now < self.ultimo_fim + self.intervalo,
+                |d| now < d,
+            )
             || janela_us < 500_000
         {
             return None;
         }
-        let sonda = need.burst_total_kbps().saturating_sub(enviado_kbps.round() as u32);
+        let alvo_camada = need.burst_total_kbps();
+        let alvo = match self.last_measure(now) {
+            Some((m, saturou)) => {
+                let fator = if saturou { FATOR_APOS_SATURAR } else { FATOR_DEGRAU };
+                alvo_camada.min((fator * f64::from(m)).ceil() as u32)
+            }
+            None => alvo_camada,
+        };
+        let sonda = alvo.saturating_sub(enviado_kbps.round() as u32);
         if sonda < SONDA_MIN_KBPS {
             // Vídeo já ocupa quase tudo: tenta de novo depois do intervalo.
             self.ultimo_fim = now;
+            self.degrau_ate = None;
             return None;
         }
 
         // 6. sondando
         self.cluster = self.cluster.wrapping_add(1);
         self.em_rajada_ate = now + DURACAO_RAJADA_US;
+        self.degrau_ate = None;
+        self.medida_da_rajada = false;
+        self.rajadas.push_back((self.cluster, alvo, alvo < alvo_camada));
+        while self.rajadas.len() > 8 {
+            self.rajadas.pop_front();
+        }
         Some(ProbeBurst {
             cluster: self.cluster,
             kbps: sonda,
+            total_kbps: alvo,
             duration_us: DURACAO_RAJADA_US,
         })
     }
     pub fn interval_us(&self) -> Us {
         self.intervalo
+    }
+    /// Resultado medido de um grupo (por quem sonda, com o relatório do espectador). Grupo de
+    /// `cluster` que não é de uma rajada recente deste planejador (últimas 8) é ignorado.
+    /// Guarda `M = r.kbps`, `saturou = M < 0,85 × total_kbps` da rajada e o instante `now`.
+    pub fn on_result(&mut self, now: Us, r: &ProbeResult) {
+        let Some(&(_, total, _)) = self.rajadas.iter().find(|x| x.0 == r.cluster) else {
+            return;
+        };
+        let saturou = f64::from(r.kbps) < FATOR_SATURADO * f64::from(total);
+        self.medida = Some((now, r.kbps, saturou));
+        if r.cluster == self.cluster {
+            self.medida_da_rajada = true;
+        }
+    }
+    /// Última medida válida (até 60 s): (kbps, saturou).
+    pub fn last_measure(&self, now: Us) -> Option<(u32, bool)> {
+        self.medida
+            .filter(|m| now.saturating_sub(m.0) <= VALIDADE_MEDIDA_US)
+            .map(|m| (m.1, m.2))
     }
 }
 
@@ -259,5 +317,37 @@ mod tests {
         assert!(r.len() >= 2);
         assert_eq!(r[0].1.cluster, 1);
         assert_eq!(r[1].1.cluster, 2);
+    }
+
+    fn resultado(cluster: u16, kbps: u32) -> ProbeResult {
+        ProbeResult {
+            cluster,
+            kbps,
+            probes: 10,
+            span_us: 100_000,
+        }
+    }
+
+    #[test]
+    fn on_result_cluster_desconhecido_ignorado() {
+        let mut p = ProbePlanner::new();
+        p.on_result(1_000_000, &resultado(7, 3000));
+        assert_eq!(p.last_measure(1_000_000), None);
+        simula(&mut p, 0, 1500, Some(NEED), &|_| 1000);
+        p.on_result(1_500_000, &resultado(9, 3000));
+        assert_eq!(p.last_measure(1_500_000), None);
+    }
+
+    #[test]
+    fn on_result_guarda_medida_e_saturou() {
+        let mut p = ProbePlanner::new();
+        let r = simula(&mut p, 0, 1500, Some(NEED), &|_| 1000);
+        assert_eq!(r[0].1.total_kbps, 3750);
+        p.on_result(2_000_000, &resultado(1, 3000));
+        assert_eq!(p.last_measure(2_000_000), Some((3000, true)));
+        p.on_result(2_000_000, &resultado(1, 3700));
+        assert_eq!(p.last_measure(2_000_000), Some((3700, false)));
+        assert!(p.last_measure(62_000_000).is_some());
+        assert_eq!(p.last_measure(62_000_001), None);
     }
 }

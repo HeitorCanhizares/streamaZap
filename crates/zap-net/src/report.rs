@@ -28,6 +28,9 @@ pub struct ReportBuilder {
     /// Mede os grupos de sondas (usado só quando `bwe` é `Some`).
     pub(crate) probe_meter: ProbeMeter,
     pub(crate) buffer_ms: Option<u32>,
+    /// Quantos avisos de cabeçalho de keyframe chegaram (só para testes).
+    #[cfg(test)]
+    pub(crate) keyframe_starts: u32,
     /// Um único desembrulhador de tempo para vídeo, áudio e sonda (mesmo relógio do emissor).
     unwrap: TimeUnwrapper,
     /// Última chegada vista; serve de "agora" ao registrar perdas.
@@ -58,6 +61,8 @@ impl ReportBuilder {
             loss: LossMeter::new(2_000_000),
             probe_meter: ProbeMeter::new(),
             buffer_ms: None,
+            #[cfg(test)]
+            keyframe_starts: 0,
             unwrap: TimeUnwrapper::new(),
             last_arrival_us: 0,
             audio_seq: std::collections::HashMap::new(),
@@ -65,11 +70,16 @@ impl ReportBuilder {
     }
 
     /// Alimenta o estimador de banda com um pacote de mídia (vídeo ou áudio) e o medidor de sondas.
-    fn feed_bwe(&mut self, send_us: u32, arrival_us: u64, bytes: u32) {
+    /// `keyframe`: pacote de keyframe de vídeo (o estimador abre/estende a carência de rajada).
+    fn feed_bwe(&mut self, send_us: u32, arrival_us: u64, bytes: u32, keyframe: bool) {
         let send = self.unwrap.unwrap(send_us);
         self.last_arrival_us = arrival_us;
         if let Some(bwe) = self.bwe.as_mut() {
-            bwe.on_packet(send, arrival_us, bytes);
+            if keyframe {
+                bwe.on_keyframe_packet(send, arrival_us, bytes);
+            } else {
+                bwe.on_packet(send, arrival_us, bytes);
+            }
             self.probe_meter.on_media(arrival_us, bytes);
         }
     }
@@ -77,7 +87,7 @@ impl ReportBuilder {
     pub fn on_video(&mut self, h: &VideoHeader, arrival_us: u64, bytes: u32) {
         self.arrivals
             .push((h.track, h.layer, h.seq, h.send_us, arrival_us, bytes));
-        self.feed_bwe(h.send_us, arrival_us, bytes);
+        self.feed_bwe(h.send_us, arrival_us, bytes, h.flags.is_keyframe());
     }
     /// `perda` mede só perda **de rede**: buracos de `seq` nos datagramas de áudio. Quadros de
     /// vídeo vão em streams confiáveis (não se perdem na rede, só atrasam), e os que o emissor
@@ -99,7 +109,7 @@ impl ReportBuilder {
             *ultimo = h.seq;
         }
         self.loss.record(arrival_us, true);
-        self.feed_bwe(h.send_us, arrival_us, bytes);
+        self.feed_bwe(h.send_us, arrival_us, bytes, false);
     }
     pub fn on_probe(&mut self, h: &ProbeHeader, arrival_us: u64, bytes: u32) {
         self.probes.push((h.cluster, h.seq, h.send_us, arrival_us, bytes));
@@ -117,10 +127,22 @@ impl ReportBuilder {
     /// Quadro de vídeo que não chegou (descartado pelo emissor por prazo): vai em `perdidos`, não
     /// na `perda`.
     /// Também avisa o estimador: descarte do emissor é sinal de que a rota não aguenta a taxa.
-    pub fn on_lost(&mut self, track: u16, layer: u8, seq: u32) {
+    /// `seen_us` = instante (relógio do receptor) em que o buraco de `seq` foi visto, não quando
+    /// venceu: o estimador avalia a carência de rajada nesse instante.
+    pub fn on_lost(&mut self, track: u16, layer: u8, seq: u32, seen_us: u64) {
         self.lost.push((track, layer, seq));
         if let Some(bwe) = self.bwe.as_mut() {
-            bwe.on_frame_dropped(self.last_arrival_us);
+            bwe.on_frame_dropped(seen_us);
+        }
+    }
+    /// Cabeçalho de um keyframe chegou (o quadro ainda vai chegar): avisa o estimador (carência).
+    pub fn on_keyframe_start(&mut self, arrival_us: u64) {
+        #[cfg(test)]
+        {
+            self.keyframe_starts += 1;
+        }
+        if let Some(bwe) = self.bwe.as_mut() {
+            bwe.on_keyframe_start(arrival_us);
         }
     }
     pub fn set_buffer_ms(&mut self, ms: u32) {
@@ -192,7 +214,7 @@ mod tests {
         r.on_video(&vh(1, 1000), 2000, 1200);
         r.on_audio(&ah(1, 1500), 2500, 100);
         r.on_probe(&ph(1, 1600), 2600, 800);
-        r.on_lost(3, 1, 9);
+        r.on_lost(3, 1, 9, 15_000);
         let rep = r.take(3000);
         assert_eq!(rep.arrivals.len(), 2);
         assert_eq!(rep.probes.len(), 1);
@@ -244,7 +266,7 @@ mod tests {
         for i in 0..9u32 {
             r.on_video(&vh(i, i * 1000), 10_000 + i as u64 * 1000, 1200);
         }
-        r.on_lost(3, 1, 9);
+        r.on_lost(3, 1, 9, 15_000);
         let rep = r.take(20_000);
         assert_eq!(rep.loss, 0.0);
         assert_eq!(rep.lost, vec![(3, 1, 9)]);
@@ -335,5 +357,108 @@ mod tests {
         assert_eq!(rep.bandwidth_kbps, None);
         assert_eq!(rep.probes.len(), 70);
         assert_eq!(rep.loss, 0.0);
+    }
+
+    fn vh_key(seq: u32, send_us: u32) -> VideoHeader {
+        let mut h = vh(seq, send_us);
+        h.flags = VideoFlags(VideoFlags::KEYFRAME);
+        h
+    }
+
+    /// Vídeo comum ~2500 kbps (1200 B a cada ~3,84 ms) por 2 s, atraso constante de 10 ms.
+    fn video_estavel(r: &mut ReportBuilder) -> (u64, u32) {
+        let mut t = 0u64;
+        let mut seq = 0u32;
+        while t < 2_000_000 {
+            r.on_video(&vh(seq, t as u32), t + 10_000, 1200);
+            seq += 1;
+            t += 3_840;
+        }
+        (t, seq)
+    }
+
+    /// `ms` de pacotes (1 a cada 250 us) com atraso crescente (+400 us por pacote); `take` a cada 100 ms.
+    /// Devolve se algum `take` deu `Overuse`.
+    fn rajada_atrasada(r: &mut ReportBuilder, t: u64, seq0: u32, keyframe: bool, ms: u64) -> bool {
+        let mut overuse = false;
+        let mut proximo_take = t + 100_000;
+        for i in 0..(ms * 4) as u32 {
+            let s = t + u64::from(i) * 250;
+            let chegada = s + 10_000 + u64::from(i) * 400;
+            let h = if keyframe {
+                vh_key(seq0 + i, s as u32)
+            } else {
+                vh(seq0 + i, s as u32)
+            };
+            r.on_video(&h, chegada, 1200);
+            while proximo_take <= chegada {
+                if r.take(proximo_take).state == Some(DelayState::Overuse) {
+                    overuse = true;
+                }
+                proximo_take += 100_000;
+            }
+        }
+        overuse
+    }
+
+    #[test]
+    fn keyframe_abre_carencia() {
+        let mut r = ReportBuilder::new(true);
+        let (t, seq) = video_estavel(&mut r);
+        r.take(t + 10_000);
+        r.on_keyframe_start(t);
+        assert!(!rajada_atrasada(&mut r, t, seq, true, 400));
+    }
+
+    #[test]
+    fn video_sem_keyframe_com_atraso_crescente_vira_overuse() {
+        let mut r = ReportBuilder::new(true);
+        let (t, seq) = video_estavel(&mut r);
+        r.take(t + 10_000);
+        assert!(rajada_atrasada(&mut r, t, seq, false, 1000));
+    }
+
+    /// Rajada de keyframe com fila crescente, depois pacotes comuns com atraso estável (estado
+    /// volta a `Normal`, fila continua alta). Devolve (builder, fim da rajada, fim do estável).
+    fn cenario_descarte() -> (ReportBuilder, u64, u64) {
+        let mut r = ReportBuilder::new(true);
+        let (t, seq) = video_estavel(&mut r);
+        r.take(t + 10_000);
+        r.on_keyframe_start(t);
+        rajada_atrasada(&mut r, t, seq, true, 200);
+        let atraso = 10_000 + 799 * 400;
+        let fim_rajada = t + 799 * 250 + atraso;
+        let mut s = t + 200_000;
+        let mut q = seq + 800;
+        while s < t + 1_200_000 {
+            r.on_video(&vh(q, s as u32), s + atraso, 1200);
+            q += 1;
+            s += 1_000;
+        }
+        (r, fim_rajada, s + atraso)
+    }
+
+    #[test]
+    fn perda_usa_instante_visto() {
+        // O último evento de keyframe é a chegada do último pacote da rajada. Dentro da
+        // carência (<= 1 s dele, com fila) os descartes não contam; fora, o estimador
+        // ajusta a estimativa à vazão que chega (aqui sobe; dentro, fica no alvo anterior).
+        let (mut a, fim, _) = cenario_descarte();
+        let (mut b, _, _) = cenario_descarte();
+        let agora = fim + 1_050_000;
+        for _ in 0..3 {
+            a.on_lost(3, 1, 9, fim + 900_000);
+            b.on_lost(3, 1, 9, fim + 1_020_000);
+        }
+        let dentro = a.take(agora).bandwidth_kbps.unwrap();
+        let fora = b.take(agora).bandwidth_kbps.unwrap();
+        assert!(fora > dentro, "fora = {fora}, dentro = {dentro}");
+    }
+
+    #[test]
+    fn on_keyframe_start_conta() {
+        let mut r = ReportBuilder::new(true);
+        r.on_keyframe_start(1000);
+        assert_eq!(r.keyframe_starts, 1);
     }
 }

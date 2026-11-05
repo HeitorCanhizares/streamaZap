@@ -78,6 +78,8 @@ struct Camada {
     bytes_janela: u64,
     convert: Samples,
     encode: Samples,
+    convert_gpu: Samples,
+    lock_wait: Samples,
 }
 
 impl Camada {
@@ -96,6 +98,8 @@ impl Camada {
             bytes_janela: 0,
             convert: Samples::new(JANELA_AMOSTRAS),
             encode: Samples::new(JANELA_AMOSTRAS),
+            convert_gpu: Samples::new(JANELA_AMOSTRAS),
+            lock_wait: Samples::new(JANELA_AMOSTRAS),
         }
     }
     /// Desliga a camada, guardando os descartes do codificador para as estatísticas.
@@ -134,7 +138,11 @@ fn criar_pipe(
     in_fmt: PixelFormat,
 ) -> Result<Pipe, MediaError> {
     let (w, h) = (u32::from(spec.width), u32::from(spec.height));
-    let conv = Converter::new(dev, in_w, in_h, in_fmt, w, h)?;
+    let mut conv = Converter::new(dev, in_w, in_h, in_fmt, w, h)?;
+    // Medição de GPU é opcional: sem ela a camada funciona igual.
+    if let Err(e) = conv.enable_gpu_timing(dev) {
+        tracing::warn!("sem medição de GPU na conversão: {e}");
+    }
     let ring = TextureRing::new(dev, w, h, PixelFormat::Nv12, 4, false)?;
     let (tx, rx) = crossbeam_channel::bounded(8);
     let fps = u32::from(spec.fps);
@@ -258,6 +266,7 @@ fn executar(
     let mut ultimo_chegada_us = now_us();
     let mut ultima_stats = now_us();
     let mut capture_s = Samples::new(JANELA_AMOSTRAS);
+    let mut novos_janela: u64 = 0;
     let mut encoder_name = String::new();
 
     'principal: while !shared.stop.load(Ordering::Relaxed) {
@@ -308,6 +317,9 @@ fn executar(
             ultimo = Some(f);
             ultimo_chegada_us = agora;
             origem_nova = true;
+            if ultimo.as_ref().is_some_and(|f| f.new_content) {
+                novos_janela += 1;
+            }
         } else if agora.saturating_sub(ultimo_chegada_us) >= SEM_QUADRO_US {
             // Sem imagem nova há 1 s: reentrega o último quadro.
             ultimo_chegada_us = agora;
@@ -366,6 +378,8 @@ fn executar(
                     frames: c.frames,
                     convert: c.convert.stage(),
                     encode: c.encode.stage(),
+                    convert_gpu: c.convert_gpu.stage(),
+                    lock_wait: c.lock_wait.stage(),
                 });
                 c.frames_janela = 0;
                 c.bytes_janela = 0;
@@ -373,9 +387,11 @@ fn executar(
             let mut s = shared.stats.lock();
             s.layers = layers;
             s.capture = capture_s.stage();
+            s.capture_new_fps = novos_janela as f32 / secs;
             s.dropped_encode = dropped_encode;
             s.encoder_name = encoder_name.clone();
             ultima_stats = agora;
+            novos_janela = 0;
         }
     }
 
@@ -470,6 +486,10 @@ fn processar(
         }
         let tex = clonar(dst);
         cam.convert.push(t0.elapsed().as_micros() as f64);
+        cam.lock_wait.push(p.conv.last_timing().lock_wait_us);
+        for us in p.conv.take_gpu_us(dev) {
+            cam.convert_gpu.push(us);
+        }
         let force = shared.take_keyframe(layer) || cam.primeiro;
         if p.enc.submit(tex, cap_us, force) {
             cam.primeiro = false;
@@ -487,6 +507,7 @@ fn processar(
 mod tests {
     use super::*;
     use crate::VideoPipeline;
+    use zap_capture::movimento::JanelaAnimada;
     use zap_rate::allocator::LayerRequest;
 
     fn camada(layer: u8, w: u16, h: u16) -> LayerSpec {
@@ -500,18 +521,26 @@ mod tests {
     }
 
     /// `None` (com aviso) quando o ambiente não tem GPU ou monitor.
-    fn iniciar(ladder: Vec<LayerSpec>) -> Option<(VideoPipeline, Receiver<EncodedFrame>)> {
+    fn iniciar(ladder: Vec<LayerSpec>) -> Option<(JanelaAnimada, VideoPipeline, Receiver<EncodedFrame>)> {
         if !GpuDevice::create_default().is_ok_and(|d| d.has_video()) {
             eprintln!("sem GPU com Video Processor: teste ignorado");
             return None;
         }
-        match zap_capture::list_monitors() {
-            Ok(m) if !m.is_empty() => {}
-            _ => {
-                eprintln!("sem monitor: teste ignorado");
+        let monitor1 = match zap_capture::list_monitors() {
+            Ok(m) => m.into_iter().find(|m| m.index == 1),
+            Err(_) => None,
+        };
+        let Some(monitor1) = monitor1 else {
+            eprintln!("sem monitor: teste ignorado");
+            return None;
+        };
+        let janela = match JanelaAnimada::abrir(&monitor1) {
+            Ok(j) => j,
+            Err(e) => {
+                eprintln!("sem janela animada ({e}): teste ignorado");
                 return None;
             }
-        }
+        };
         let (tx, rx) = crossbeam_channel::bounded(256);
         let cfg = VideoPipelineConfig {
             track: 1,
@@ -520,7 +549,7 @@ mod tests {
             encoder: EncoderChoiceSpec::Auto,
         };
         match VideoPipeline::start(cfg, tx) {
-            Ok(p) => Some((p, rx)),
+            Ok(p) => Some((janela, p, rx)),
             Err(e) => {
                 eprintln!("não iniciou ({e}): teste ignorado");
                 None
@@ -545,7 +574,7 @@ mod tests {
 
     #[test]
     fn monitor_1_gera_quadros_na_camada_0() {
-        let Some((p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
+        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
             return;
         };
         p.set_requests(&[req(0)]);
@@ -557,7 +586,7 @@ mod tests {
 
     #[test]
     fn desligar_camada_para_de_emitir() {
-        let Some((p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
+        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
             return;
         };
         p.set_requests(&[req(0)]);
@@ -570,7 +599,7 @@ mod tests {
 
     #[test]
     fn keyframe_pedido_chega() {
-        let Some((p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
+        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
             return;
         };
         p.set_requests(&[req(0)]);
@@ -582,7 +611,7 @@ mod tests {
 
     #[test]
     fn set_ladder_troca_resolucao() {
-        let Some((p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
+        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
             return;
         };
         p.set_requests(&[req(0)]);
@@ -594,5 +623,19 @@ mod tests {
             v.iter().any(|f| f.width == 640 && f.height == 360),
             "nenhum quadro na nova resolução"
         );
+    }
+
+    #[test]
+    fn stats_trazem_gpu_e_captura_nova() {
+        let Some((_janela, p, rx)) = iniciar(vec![camada(0, 1280, 720)]) else {
+            return;
+        };
+        p.set_requests(&[req(0)]);
+        let _ = coletar(&rx, Duration::from_secs(2));
+        let s = p.stats();
+        assert!(s.capture_new_fps > 5.0, "capture_new_fps = {}", s.capture_new_fps);
+        let l = &s.layers[0];
+        assert!(l.lock_wait.p95_us.is_finite() && l.lock_wait.p95_us >= 0.0);
+        assert!(l.convert_gpu.p95_us.is_finite() && l.convert_gpu.p95_us >= 0.0);
     }
 }
