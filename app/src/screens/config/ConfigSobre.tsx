@@ -9,7 +9,7 @@ import type { UpdateInfo } from '../../bridge/types'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 
 // Versão exibida na seção. Constante local até o app ler a versão do pacote.
-const VERSAO = 'v3.0.0-alpha.0'
+const VERSAO = 'v3.0.0'
 
 const CANAIS = [
   { value: 'estavel', label: 'Estável' },

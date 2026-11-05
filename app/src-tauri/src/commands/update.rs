@@ -275,10 +275,10 @@ mod tests {
     }
 
     #[test]
-    fn pubkey_placeholder_do_conf() {
+    fn pubkey_real_do_conf() {
         let conf: serde_json::Value = serde_json::from_str(include_str!("../../tauri.conf.json")).unwrap();
-        let pk = pubkey_do_conf(&conf);
-        assert_eq!(pk, Some(updater::PUBKEY_PLACEHOLDER));
-        assert!(!updater::pubkey_configurada(pk.unwrap()));
+        let pk = pubkey_do_conf(&conf).expect("conf tem plugins.updater.pubkey");
+        assert_ne!(pk, updater::PUBKEY_PLACEHOLDER);
+        assert!(updater::pubkey_configurada(pk));
     }
 }

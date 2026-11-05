@@ -6,9 +6,12 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 
 ## Antes de qualquer push no `master`
 
-- **Todo push no `master` publica uma Release do app Python.** O `build.yml` gera o instalador e
-  marca como a última Release. Até o M6, ponha `[skip release]` na mensagem do commit do topo do
-  push (é a do `head_commit` que conta).
+- **O app publicado agora é a v3** (primeira release: `v3.0.0`, 2026-11-05, pelo `release-v3.yml`
+  ao enviar a tag). O `build.yml` do app Python foi desligado (só roda à mão): antes, todo push no
+  `master` publicava uma Release do Python marcada como a última, e a tag `v3.*` também o disparava.
+  Para lançar uma versão: ajuste `version` em `Cargo.toml` (workspace), `app/src-tauri/tauri.conf.json`,
+  `app/package.json` e o `VERSAO` de `App.tsx`/`ConfigSobre.tsx`, e envie a tag `v3.X.Y`
+  (`v3.X.Y-beta.N` sai no canal beta). Quem ainda usa o app Python reinstala à mão.
 - **O CI da v3 (`rust.yml`) passa com o M4 pronto** (Linux, Windows e front-end; ver "CI da v3"
   abaixo). Rode-o antes de mexer no `master` se a mudança for grande: aba Actions, "Run workflow".
 
@@ -20,9 +23,9 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 | M1 | ✅ | `zap-proto` (protocolo 4), `zap-rate` (estimador de banda, balanceamento por espectador, suavização, simulador), `zap-net` (QUIC com prazo por quadro, relatórios, descoberta) |
 | M2 / M2b | ✅ na GTX 1060 (bancada release: camada 0 a 60 fps, p95 somado 6,5 ms na mediana de 5; meta de 8 ms atingida). M2b: conversão NV12 pela CPU de reserva, 60 fps também por ela (p95 somado 11,9 ms; a leitura lenta era a espera pelo quadro capturado, que o caminho da GPU também tem; a cópia em si fica em ~1 ms) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
 | M3 / M3b | ✅ | `zap-core` (sala Local, publicação, assinatura, playout), app Tauri (`app/src-tauri`), interface React fiel ao design (`app/src`) ligada ao núcleo |
-| M5 | ✅ (falta testar uma release de verdade) | Atualização assinada (instala ao fechar, nunca reinicia numa sala, canais estável/beta), firewall por COM, diagnóstico real, `release-v3.yml`, instalador NSIS que remove o app Python |
+| M5 | ✅ (primeira release `v3.0.0`; falta ver uma atualização de verdade, que só vem com a próxima versão) | Atualização assinada (instala ao fechar, nunca reinicia numa sala, canais estável/beta), firewall por COM, diagnóstico real, `release-v3.yml`, instalador NSIS que remove o app Python |
 | **M4** | 🟡 **pronto no app** | Modo Online (núcleo, Tauri, telas, modo só direta, sondagem em degraus) com todos os aceites passando (aceite 2: 5 de 5, e 2 de 2 com carga); falta o servidor de produção seguir o contrato novo e um teste entre dois PCs |
-| M6 | ⏳ | Paridade e remoção do app Python |
+| M6 | 🟡 | A v3 já é o app publicado (o `build.yml` do Python foi desligado); falta remover `streamazap/` |
 
 O app Python (`streamazap/`) continua intacto e é o que as Releases atuais publicam.
 
@@ -55,7 +58,8 @@ durante `AcquireNextFrame(100 ms)`, travando conversor e codificadores; agora el
 `AcquireNextFrame(0)` e espera o `WaitForVBlank`. A bancada gera movimento sozinha (`--animar`,
 ligado por padrão) e avisa quando a tela fica parada. Números em
 `docs/planos/m4c-estabilizacao.md` (seção 10). Ainda falta:
-- testar a transmissão entre dois PCs (`cd app && npm install && npm run tauri dev`);
+- testar a transmissão entre dois PCs: roteiro em `docs/planos/teste-dois-pcs.md`, com o
+  executável de `cd app && npx tauri build --no-bundle` (`target/release/streamazap.exe`);
 - a **conversão para NV12 pela CPU** (M2b, rodada 4) está feita e medida: o `Auto` cai para a CPU sem
   Video Processor, e a janela de tamanho ímpar passou a transmitir. A leitura lenta foi
   investigada (espera pelo quadro capturado, não a cópia; ver "Investigação da leitura" abaixo).
@@ -65,16 +69,41 @@ ligado por padrão) e avisa quando a tela fica parada. Números em
 
 ### 3. Chaves do updater e uma release de teste (M5)
 
-`cd app && npx tauri signer generate`, colar a chave pública em `app/src-tauri/tauri.conf.json`
-(`plugins.updater.pubkey`, hoje `COLE_AQUI_A_CHAVE_PUBLICA`) e criar os segredos
-`TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` no GitHub (detalhes no README,
-seção da v3). Depois, testar uma release de verdade pelo `release-v3.yml` (tag `v3.*`).
+**Chaves prontas (2026-11-05).** O dono gerou a chave (`~/.tauri/streamazap.key`, só na máquina
+dele), a pública está em `app/src-tauri/tauri.conf.json` (`plugins.updater.pubkey`) e os segredos
+`TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` existem no GitHub. Falta testar
+uma release de verdade pelo `release-v3.yml` (tag `v3.*`), mas só depois do passo 4 abaixo
+(o `build.yml` parar de publicar o Python), senão a "última release" volta a ser a do Python.
 
 ### 4. Troca do app publicado (M6)
 
-Paridade com o app Python, remoção de `streamazap/` e, **antes da primeira release da v3**, parar o
-`build.yml` de publicar o Python no `master`; senão a "última release" volta a ser a do Python e o
-updater da v3 não acha o `latest.json`.
+Feito em 2026-11-05: o `build.yml` não publica mais o Python e a `v3.0.0` é a última release. O dono
+decidiu não migrar quem usa o Python (eles reinstalam à mão). Falta remover `streamazap/`, o
+`build.yml` e o `ci.yml` do Python.
+
+## Correções de uso (2026-11-05, depois do primeiro uso do app)
+
+Problemas que o dono achou usando o app, corrigidos direto (sem a hierarquia):
+- **Prévia das fontes** (Nova sala e painel da sala): a miniatura era um degradê falso
+  (`sources::thumbnail`) e a tela chamava `source_thumbnail` com o parâmetro errado. Agora é uma
+  foto de verdade (`zap_media::snapshot`: captura um quadro, lê na CPU e reduz para RGBA com
+  tarjas), uma por vez, com a fonte selecionada refotografada a cada 2 s. O monitor que já estou
+  transmitindo não tira foto (o Windows deixa uma duplicação por processo): fica a cena de exemplo.
+- **Prévia ao vivo do que transmito**: `watch` da própria trilha virou prévia local
+  (`VideoPublisher::set_local_preview`): a camada mais leve vai direto do publicador para a
+  `PlayoutHub`, sem rede, começando num keyframe. O cartão Você mostra a tela e a câmera no canto,
+  e dá para esconder a prévia. `RoomView.me_id` traz o id de participante (no Online não é o
+  `install_id`).
+- **Trocar dentro da sala**: painel "Transmissão" (`SalaTransmissao`) com fonte, som, qualidade e
+  câmera; usa `share_update`. `ShareView.request` traz o pedido em vigor.
+- **Só o som**: `ShareRequest.source = "none"` publica só a trilha de áudio (exige um som).
+- **Câmera**: `set_camera` aceita o id da lista (`camera:<id>`, antes falhava) e, sem câmera
+  escolhida, usa a primeira; o painel e a Nova sala escolhem o dispositivo; "webcam no canto" liga a
+  câmera de verdade.
+- **Sala aberta depois de sair** (Online): o dono que sai agora encerra a sala
+  (`DELETE /v1/salas/{codigo}`); antes só saía e o servidor a listava por até 2 min.
+- **Textos**: lista de salas, abas de fonte, barra de controles e cartões da sala na janela mínima
+  (1100×700) sem quebrar nem vazar.
 
 ## Atualização da rodada 4 (M2b, 2026-11-05, fechamento)
 

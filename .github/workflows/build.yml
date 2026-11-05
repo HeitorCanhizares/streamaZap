@@ -13,14 +13,13 @@ name: Build & Release
 #
 # Para não publicar um push específico, coloque [skip release] na mensagem do commit.
 # Para subir MAJOR/MINOR, edite __version__ em streamazap/__init__.py.
+#
+# DESLIGADO desde a primeira release da v3 (2026-11-05): o app publicado agora é a v3
+# (`release-v3.yml`, tags v3.*). Push e tag não disparam mais este workflow; sem isso, cada push
+# no master publicaria uma Release do Python marcada como a última, e o atualizador da v3 não
+# acharia o `latest.json`. Só roda à mão ("Run workflow"), se um dia precisar de um instalador
+# do app Python.
 on:
-  push:
-    branches: ["**"]
-    tags: ["v*"]
-    paths-ignore:
-      - "**.md"
-      - "LICENSE"
-      - ".gitignore"
   workflow_dispatch:
     inputs:
       version:
