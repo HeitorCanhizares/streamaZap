@@ -9,3 +9,6 @@ installer/
 .pytest_cache/
 .ruff_cache/
 target/
+
+# Configuração do Claude Code só desta máquina
+.claude/settings.local.json

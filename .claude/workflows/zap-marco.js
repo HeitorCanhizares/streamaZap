@@ -1,12 +1,12 @@
 export const meta = {
   name: 'zap-marco',
-  description: 'Executa um marco do StreamaZap: arquiteto (Opus) planeja, decompositor (Sonnet) quebra, implementador (Haiku) faz, revisor (Sonnet) confere',
+  description: 'Executa um marco do StreamaZap: arquiteto (Opus) planeja, decompositor (Sonnet) quebra, implementador (Sonnet; Haiku no mecânico) faz, revisor um nível acima confere sem editar',
   whenToUse: 'Implementar um marco ou funcionalidade grande do StreamaZap. args: {marco, objetivo?, plano?, frentes?, so_frentes?, max_paralelo?}',
   phases: [
     { title: 'Planejar', detail: 'zap-arquiteto escreve ou atualiza o plano do marco', model: 'opus' },
     { title: 'Decompor', detail: 'zap-decompositor cria o esqueleto e as tarefas de cada frente', model: 'sonnet' },
-    { title: 'Implementar', detail: 'zap-implementador faz cada tarefa e zap-revisor confere', model: 'haiku' },
-    { title: 'Integrar', detail: 'zap-revisor roda tudo e fecha o marco', model: 'sonnet' },
+    { title: 'Implementar', detail: 'zap-implementador faz cada tarefa; zap-revisor, um nível acima, confere sem editar', model: 'sonnet' },
+    { title: 'Integrar', detail: 'zap-implementador roda a verificação inteira e corrige a integração; zap-revisor confere', model: 'sonnet' },
   ],
 }
 
@@ -16,7 +16,9 @@ export const meta = {
 //   plano         caminho do plano em docs/planos/ (pula ou revisa o planejamento)
 //   frentes       [{id, crate, resumo, depende_de}] — com `plano`, pula o arquiteto
 //   so_frentes    ["rate", ...] — executa só essas frentes
-//   max_paralelo  tarefas simultâneas (padrão 4; nunca duas no mesmo crate)
+//   max_paralelo  tarefas simultâneas (padrão 4; nunca duas no mesmo crate). O cargo compila uma
+//                 de cada vez no mesmo target/ (fila pelo lock), e CARGO_BUILD_JOBS limita a
+//                 memória de cada compilação (.claude/settings.local.json neste PC)
 //   fechamento    instruções do fechamento no lugar do padrão (ex.: só verificações do front-end)
 //   tarefas       {frente_id: [tarefa]} já decompostas (continuar um marco sem decompor de novo)
 
@@ -75,24 +77,38 @@ const IMPL_SCHEMA = {
   },
   required: ['status', 'verificacao'],
 }
+// O revisor não edita: devolve achados e o conserto volta para quem implementou.
+const ACHADO = {
+  type: 'object',
+  properties: {
+    onde: { type: 'string' },
+    problema: { type: 'string' },
+    regra: { type: 'string' },
+  },
+  required: ['onde', 'problema', 'regra'],
+}
 const REV_SCHEMA = {
   type: 'object',
   properties: {
-    veredito: { type: 'string', enum: ['aprovado', 'corrigido', 'refazer'] },
-    feedback: { type: 'string' },
+    veredito: { type: 'string', enum: ['aprovado', 'refazer'] },
+    achados: { type: 'array', items: ACHADO },
     verificacao: { type: 'string' },
   },
-  required: ['veredito', 'feedback'],
+  required: ['veredito', 'achados', 'verificacao'],
 }
 const FECHAMENTO_SCHEMA = {
   type: 'object',
   properties: {
     ok: { type: 'boolean' },
     resumo: { type: 'string' },
+    arquivos_alterados: { type: 'array', items: { type: 'string' } },
     pendencias: { type: 'array', items: { type: 'string' } },
   },
   required: ['ok', 'resumo'],
 }
+const achadosEmTexto = (rev) =>
+  (rev.achados || []).map((a) => `- ${a.onde}: ${a.problema} (regra: ${a.regra})`).join('\n') +
+  (rev.verificacao ? `\n\nVerificação do revisor:\n${rev.verificacao}` : '')
 
 // ── 1. Planejar (Opus) ────────────────────────────────────────────────
 phase('Planejar')
@@ -114,7 +130,7 @@ if (A.plano && A.frentes) {
 const frentes = A.so_frentes ? plano.frentes.filter((f) => A.so_frentes.includes(f.id)) : plano.frentes
 log(`Frentes: ${frentes.map((f) => f.id).join(', ')}`)
 
-// ── 2+3. Decompor (Sonnet) e Implementar (Haiku → revisão Sonnet) em esteira ──
+// ── 2+3. Decompor (Sonnet) e Implementar (Sonnet ou Haiku → revisão um nível acima) em esteira ──
 // Uma frente só é decomposta depois das frentes de que depende (o esqueleto dela usa os tipos
 // delas e as tarefas podem depender das tarefas delas). As tarefas de uma frente entram na agenda
 // assim que ela é decomposta: a implementação de `proto` não espera a decomposição de `net`.
@@ -142,43 +158,55 @@ function decompor(f) {
   return decomp[f.id]
 }
 
-async function executar(t) {
-  const modelo = t.nivel === 'sonnet' ? 'sonnet' : 'haiku'
-  const acima = modelo === 'sonnet' ? 'opus' : 'sonnet'
-  let feedback = ''
-  for (let tentativa = 1; tentativa <= 2; tentativa++) {
-    const impl = await agent(
-      `${papel('zap-implementador')}\n\nTarefa:\n${json(t)}` +
-        (feedback ? `\n\nA tentativa anterior foi recusada. Corrija isto:\n${feedback}` : ''),
-      { label: `${t.id} ${modelo}${tentativa > 1 ? ' #2' : ''}`, phase: 'Implementar', model: modelo, schema: IMPL_SCHEMA },
-    )
-    if (!impl) {
-      feedback = 'O implementador anterior morreu sem resposta.'
-      continue
-    }
-    if (impl.status === 'bloqueado') {
-      feedback = `Implementador bloqueado: ${impl.notas || ''}\n${impl.verificacao}`
-      break
-    }
-    const rev = await agent(
-      `${papel('zap-revisor')}\n\nRevise a tarefa abaixo (feita pelo nível ${modelo}).\n\nTarefa:\n${json(t)}\n\nRelato do implementador:\n${json(impl)}`,
-      { label: `${t.id} revisão`, phase: 'Implementar', model: 'sonnet', schema: REV_SCHEMA },
-    )
-    if (rev && rev.veredito !== 'refazer') return { id: t.id, ok: true, por: modelo, veredito: rev.veredito }
-    feedback = rev ? rev.feedback : 'O revisor morreu sem resposta.'
+// Quem implementa num nível é revisado no nível acima (Haiku → Sonnet, Sonnet → Opus; o Opus é
+// revisado pelo Opus, em outro contexto). Implementação padrão no Sonnet; Haiku só no mecânico.
+const NIVEIS = ['haiku', 'sonnet', 'opus']
+const acimaDe = (m) => NIVEIS[Math.min(NIVEIS.indexOf(m) + 1, NIVEIS.length - 1)]
+
+// Uma rodada: implementa (ou conserta, com `feedback`) e revisa. O revisor não edita.
+async function tentar(t, modelo, feedback, rotulo) {
+  const impl = await agent(
+    `${papel('zap-implementador')}\n\nTarefa:\n${json(t)}` +
+      (feedback ? `\n\nA tentativa anterior não passou. O que consertar:\n${feedback}` : ''),
+    { label: `${t.id} ${rotulo}`, phase: 'Implementar', model: modelo, schema: IMPL_SCHEMA },
+  )
+  if (!impl) return { ok: false, feedback: 'O implementador anterior morreu sem resposta.' }
+  if (impl.status === 'bloqueado') {
+    return { ok: false, bloqueado: true, feedback: `Implementador bloqueado: ${impl.notas || ''}\n${impl.verificacao}` }
   }
+  const revisor = acimaDe(modelo)
+  const rev = await agent(
+    `${papel('zap-revisor')}\n\nRevise a tarefa abaixo (feita pelo nível ${modelo}).\n\nTarefa:\n${json(t)}\n\nRelato do implementador:\n${json(impl)}`,
+    { label: `${t.id} revisão ${revisor}`, phase: 'Implementar', model: revisor, schema: REV_SCHEMA },
+  )
+  if (!rev) return { ok: false, feedback: 'O revisor morreu sem resposta; a implementação não foi conferida.' }
+  if (rev.veredito === 'aprovado') return { ok: true }
+  return { ok: false, feedback: achadosEmTexto(rev) }
+}
+
+async function executar(t) {
+  const modelo = t.nivel === 'haiku' ? 'haiku' : 'sonnet'
+  let r = { ok: false, feedback: '' }
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    r = await tentar(t, modelo, r.feedback, `${modelo}${tentativa > 1 ? ' #2' : ''}`)
+    if (r.ok) return { id: t.id, ok: true, por: modelo, veredito: 'aprovado' }
+    if (r.bloqueado) break
+  }
+  // Duas recusas (ou um bloqueio) sobem a implementação um nível; a revisão sobe junto.
+  const acima = acimaDe(modelo)
   log(`${t.id}: escalada para ${acima}`)
-  const esc = await agent(
-    `${papel('zap-revisor')}\n\nTarefa ESCALADA: o nível ${modelo} não conseguiu. Implemente você mesmo, ` +
-      `seguindo as regras de .claude/agents/zap-implementador.md, e verifique.\n\nTarefa:\n${json(t)}\n\nO que deu errado até agora:\n${feedback}`,
-    { label: `${t.id} escalada ${acima}`, phase: 'Implementar', model: acima, schema: REV_SCHEMA },
+  const esc = await tentar(
+    t,
+    acima,
+    `O nível ${modelo} não conseguiu. O que deu errado até agora:\n${r.feedback}`,
+    `escalada ${acima}`,
   )
   return {
     id: t.id,
-    ok: !!esc && esc.veredito !== 'refazer',
+    ok: esc.ok,
     por: `${acima} (escalada)`,
-    veredito: esc ? esc.veredito : 'sem resposta',
-    feedback: esc ? esc.feedback : feedback,
+    veredito: esc.ok ? 'aprovado' : 'refazer',
+    feedback: esc.ok ? '' : esc.feedback,
   }
 }
 
@@ -208,8 +236,8 @@ function acolher(f, r) {
     t.depende_de = t.depende_de.filter((d) => !desconhecidas.includes(d))
     tarefas.set(t.id, t)
   }
-  const sonnet = r.tarefas.filter((t) => t.nivel === 'sonnet').length
-  log(`frente ${f.id}: ${r.tarefas.length} tarefas (${sonnet} de nível sonnet)`)
+  const haiku = r.tarefas.filter((t) => t.nivel === 'haiku').length
+  log(`frente ${f.id}: ${r.tarefas.length} tarefas (${haiku} mecânicas, no haiku)`)
 }
 const pendentes = () => [...tarefas.values()].filter((t) => !feitas.has(t.id) && !falhas.has(t.id))
 for (const f of frentes.filter((f) => prontas[f.id])) {
@@ -276,12 +304,35 @@ while (emDecomposicao.size || pendentes().length) {
 }
 
 
-// ── 4. Integrar (Sonnet) ──────────────────────────────────────────────
+// ── 4. Integrar (Sonnet implementa, Opus revisa) ──────────────────────
+// A verificação do workspace inteiro roda aqui, uma vez, num agente só (as tarefas só verificam o
+// próprio crate). Quem integra edita; o revisor confere sem editar e sem rodar o workspace de novo.
 phase('Integrar')
-const fechamento = await agent(
-  `${papel('zap-revisor')}\n\nFechamento do marco ${A.marco} (plano ${plano.plano}). ` +
-    (A.fechamento || 'Faça a parte "Fechamento de marco" do seu papel.') +
-    `\n\nResultado das tarefas:\n${json(resultados)}`,
-  { label: 'integração', phase: 'Integrar', model: 'sonnet', schema: FECHAMENTO_SCHEMA },
-)
-return { plano: plano.plano, tarefas: resultados, fechamento }
+const pedidoFechamento =
+  `Fechamento do marco ${A.marco} (plano ${plano.plano}). ` +
+  (A.fechamento || 'Faça a parte "Integração (fechamento de marco)" do seu papel.') +
+  `\n\nResultado das tarefas:\n${json(resultados)}`
+let fechamento = await agent(`${papel('zap-implementador')}\n\n${pedidoFechamento}`, {
+  label: 'integração',
+  phase: 'Integrar',
+  model: 'sonnet',
+  schema: FECHAMENTO_SCHEMA,
+})
+let revisao = null
+if (fechamento) {
+  revisao = await agent(
+    `${papel('zap-revisor')}\n\nFaça a "Revisão da integração (fechamento de marco)" do seu papel.\n\n` +
+      `${pedidoFechamento}\n\nRelato da integração:\n${json(fechamento)}`,
+    { label: 'revisão da integração', phase: 'Integrar', model: 'opus', schema: REV_SCHEMA },
+  )
+  if (revisao && revisao.veredito === 'refazer') {
+    const segunda = await agent(
+      `${papel('zap-implementador')}\n\n${pedidoFechamento}\n\nVocê já fez a integração uma vez e a revisão ` +
+        `pediu para refazer. Conserte isto e rode de novo só a verificação dos crates que mudaram:\n` +
+        achadosEmTexto(revisao),
+      { label: 'integração #2', phase: 'Integrar', model: 'sonnet', schema: FECHAMENTO_SCHEMA },
+    )
+    if (segunda) fechamento = segunda
+  }
+}
+return { plano: plano.plano, tarefas: resultados, fechamento, revisao }

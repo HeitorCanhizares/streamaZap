@@ -15,8 +15,8 @@ online). Estamos migrando do app Python (`streamazap/`) para a **v3 em Rust + Ta
 |---|---|---|---|
 | Arquiteto | Opus | `.claude/agents/zap-arquiteto.md` | Plano de marco: frentes, interfaces, números, testes de aceite |
 | Decompositor | Sonnet | `.claude/agents/zap-decompositor.md` | Esqueleto compilável + tarefas pequenas com dono de arquivo |
-| Implementador | Haiku | `.claude/agents/zap-implementador.md` | Uma tarefa: código + testes + verificação |
-| Revisor | Sonnet | `.claude/agents/zap-revisor.md` | Confere cada tarefa, assume as escaladas, fecha o marco |
+| Implementador | Sonnet (Haiku só no mecânico) | `.claude/agents/zap-implementador.md` | Uma tarefa: código + testes + verificação do crate; conserta o que a revisão apontar; faz a integração do fechamento |
+| Revisor | um nível acima de quem fez (Opus para o Sonnet) | `.claude/agents/zap-revisor.md` | Confere cada tarefa e a integração **sem editar**: devolve aprovado ou refazer com os achados |
 
 O ciclo completo roda pelo workflow salvo `.claude/workflows/zap-marco.js` (skill `zap-marco`).
 Trabalho pequeno (um bug, um ajuste) não precisa da hierarquia: faça direto.

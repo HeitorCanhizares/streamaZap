@@ -377,6 +377,8 @@ Ponte com o núcleo:
 
 Ver `CLAUDE.md` e `.claude/agents/`. Resumo: **arquiteto (Opus)** escreve ou atualiza o plano de um
 marco → **decompositor (Sonnet)** quebra em tarefas pequenas com dono de arquivo e critérios →
-**implementador (Haiku)** faz cada tarefa e roda os testes → **revisor (Sonnet)** confere contra a
-especificação e assume o que o Haiku não resolver em 2 tentativas. O workflow salvo
-`.claude/workflows/zap-marco.js` executa esse ciclo.
+**implementador (Sonnet; Haiku só no mecânico)** faz cada tarefa e roda os testes do crate →
+**revisor (um nível acima, Opus para o Sonnet)** confere contra a especificação sem editar e
+devolve os achados; duas recusas sobem a implementação um nível. O workspace inteiro é verificado
+uma vez, na integração. O workflow salvo `.claude/workflows/zap-marco.js` executa esse ciclo; a
+pesquisa que levou a esse desenho está em `docs/planos/workflow-agentes-anthropic.md`.

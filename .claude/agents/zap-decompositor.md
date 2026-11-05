@@ -28,11 +28,14 @@ Cada tarefa:
   casos de borda e o que fazer em erro. Copie do plano o trecho relevante; o implementador não
   vai ler o plano inteiro;
 - traz `testes`: os testes que o implementador deve escrever (nome e o que verifica);
-- traz `verificacao`: comandos exatos (ex.: `cargo test -p zap-rate jitter::`);
+- traz `verificacao`: comandos exatos e **restritos ao crate da tarefa** (ex.:
+  `cargo test -p zap-rate jitter::`, `cargo check -p zap-rate`, `npm test -- src/sala/Chat.test.tsx`).
+  Nunca `--workspace`, `--release` nem bancada: o workspace inteiro roda uma vez só, no fechamento;
 - `depende_de`: ids das tarefas que precisam estar prontas antes;
-- `nivel`: `haiku` por padrão. Use `sonnet` quando a tarefa tiver FFI/`unsafe`/COM do Windows,
-  concorrência delicada (locks, atomics, lock-free), algoritmo numérico sutil ou precisar de
-  decisão de projeto que você não conseguiu fixar na spec.
+- `nivel`: `sonnet` por padrão. Use `haiku` só em tarefa **mecânica**, em que não há decisão:
+  mover ou renomear, preencher uma tabela de valores dados, teste de tabela com entradas e
+  saídas já escritas na spec, texto ou documentação. FFI/`unsafe`/COM, concorrência, algoritmo
+  numérico e tela com lógica nunca são `haiku`.
 
 Ids: `<frente>-<nn>` (ex.: `rate-03`).
 
@@ -42,8 +45,7 @@ O implementador simplifica quando recebe só uma descrição. Para telas e compo
   linhas 210–284) e mande portar **fielmente**: mesmos textos, ícones SVG (copiar o `path`),
   tamanhos, espaçamentos, cores (via tokens do `theme.css`), estados de hover e animações `zp-*`;
 - diga quais dados vêm da ponte (`bridge/`) e o que fica fixo;
-- peça teste que renderize com o mock e confira os textos e elementos principais do trecho;
-- tarefa de tela inteira ou de trecho com muita lógica visual = `nivel: sonnet`.
+- peça teste que renderize com o mock e confira os textos e elementos principais do trecho.
 
 ## Regras
 - Não implemente as tarefas (só o esqueleto).
