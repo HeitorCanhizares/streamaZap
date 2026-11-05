@@ -65,7 +65,11 @@ mod tests {
         let c = Clock::new();
         let s = c.send_us();
         assert!(u64::from(s) <= u64::from(u32::MAX));
-        let diff = (c.now_us() as u32).wrapping_sub(c.send_us());
+        // Lê o `send_us` antes do `now_us`: na ordem inversa, um tique entre as duas leituras dá
+        // -1 us, que no `wrapping_sub` vira 4294967295 (visto no CI Windows).
+        let envio = c.send_us();
+        let agora = c.now_us() as u32;
+        let diff = agora.wrapping_sub(envio);
         assert!(diff < 1000, "diferença {} us", diff);
     }
 }

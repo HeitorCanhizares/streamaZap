@@ -52,6 +52,42 @@ fn achar_adaptador(
     }
 }
 
+/// Adaptador de software (`DXGI_ADAPTER_FLAG_SOFTWARE`: "Microsoft Basic Render Driver", WARP).
+fn eh_software(desc: &windows::Win32::Graphics::Dxgi::DXGI_ADAPTER_DESC1) -> bool {
+    (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0
+}
+
+/// Ordem da cadeia do [`GpuDevice::create_default`], separada da criação para ser testável.
+/// Primeiro a GPU de verdade com vídeo, depois a mesma sem vídeo e, por fim, o adaptador de
+/// software sem vídeo (máquina virtual, runner do CI, driver quebrado). Se tudo falha, devolve o
+/// erro da GPU de verdade, que explica mais que o do adaptador básico.
+fn em_cadeia<A: Clone, T>(
+    real: Result<A, GpuError>,
+    software: impl FnOnce() -> Result<A, GpuError>,
+    criar: impl Fn(A, bool) -> Result<T, GpuError>,
+) -> Result<T, GpuError> {
+    let mut ultimo = None;
+    if let Ok(adapter) = real {
+        match criar(adapter.clone(), true) {
+            Ok(dev) => return Ok(dev),
+            Err(e) => {
+                tracing::warn!("GPU sem suporte a vídeo do D3D11 ({e}); tentando sem vídeo");
+                match criar(adapter, false) {
+                    Ok(dev) => return Ok(dev),
+                    Err(e) => {
+                        tracing::warn!("a GPU não abriu nem sem vídeo ({e}); tentando o adaptador básico");
+                        ultimo = Some(e);
+                    }
+                }
+            }
+        }
+    }
+    match software() {
+        Ok(adapter) => criar(adapter, false).map_err(|e| ultimo.unwrap_or(e)),
+        Err(e) => Err(ultimo.unwrap_or(e)),
+    }
+}
+
 /// Chama `D3D11CreateDevice` com a lista de níveis de recurso dada.
 fn criar_d3d(
     adapter: &IDXGIAdapter,
@@ -123,28 +159,14 @@ unsafe impl Send for GpuDevice {}
 unsafe impl Sync for GpuDevice {}
 
 impl GpuDevice {
-    /// Adaptador padrão (primeiro de `IDXGIFactory1::EnumAdapters1`), driver HARDWARE.
+    /// Adaptador padrão: a primeira GPU de verdade de `IDXGIFactory1::EnumAdapters1` (com vídeo
+    /// e, se não der, sem vídeo); se ela não abrir, o adaptador de software, sem vídeo.
     pub fn create_default() -> Result<Self, GpuError> {
-        // 1) GPU de verdade com vídeo; 2) a mesma sem vídeo; 3) qualquer adaptador (inclusive o
-        // "Microsoft Basic Render Driver" de máquinas virtuais e do CI), sem vídeo.
-        let real = achar_adaptador(|d| (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) == 0);
-        let mut ultimo = None;
-        if let Ok(adapter) = real {
-            match Self::create(adapter.clone(), true) {
-                Ok(dev) => return Ok(dev),
-                Err(e) => {
-                    tracing::warn!("GPU sem suporte a vídeo do D3D11 ({e}); tentando sem vídeo");
-                    match Self::create(adapter, false) {
-                        Ok(dev) => return Ok(dev),
-                        Err(e) => ultimo = Some(e),
-                    }
-                }
-            }
-        }
-        match achar_adaptador(|_| true) {
-            Ok(adapter) => Self::create(adapter, false).map_err(|e| ultimo.unwrap_or(e)),
-            Err(e) => Err(ultimo.unwrap_or(e)),
-        }
+        em_cadeia(
+            achar_adaptador(|d| !eh_software(d)),
+            || achar_adaptador(eh_software),
+            Self::create,
+        )
     }
     /// Adaptador com o LUID dado (`AdapterInfo::luid`, = HighPart<<32 | LowPart).
     /// LUID desconhecido: `GpuError::AdapterNotFound`.
@@ -157,7 +179,7 @@ impl GpuDevice {
     /// criado sem vídeo. Existe em todo Windows 10/11; serve para testar o caminho sem Video
     /// Processor num PC que tem um.
     pub fn create_basic() -> Result<Self, GpuError> {
-        let adapter = achar_adaptador(|d| (d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0)?;
+        let adapter = achar_adaptador(eh_software)?;
         // Nunca com vídeo: o objetivo é exercitar o caminho sem Video Processor.
         Self::create(adapter, false)
     }
@@ -278,6 +300,90 @@ mod tests {
         };
         assert!(!dev.adapter().name.is_empty());
         assert_send_sync::<GpuDevice>();
+    }
+
+    /// Criação de mentira para a cadeia: abre só os pares (adaptador, vídeo) listados.
+    fn criar_so(
+        abre: &'static [(&'static str, bool)],
+    ) -> impl Fn(&'static str, bool) -> Result<(&'static str, bool), GpuError> {
+        move |a, video| {
+            if abre.contains(&(a, video)) {
+                Ok((a, video))
+            } else {
+                Err(GpuError::Os {
+                    context: "teste",
+                    message: format!("{a} não abre (vídeo: {video})"),
+                })
+            }
+        }
+    }
+
+    #[test]
+    fn cadeia_prefere_gpu_com_video() {
+        let r = em_cadeia(
+            Ok("gpu"),
+            || Ok("basico"),
+            criar_so(&[("gpu", true), ("basico", false)]),
+        );
+        assert_eq!(r.ok(), Some(("gpu", true)));
+    }
+
+    #[test]
+    fn cadeia_gpu_sem_video() {
+        let r = em_cadeia(
+            Ok("gpu"),
+            || Ok("basico"),
+            criar_so(&[("gpu", false), ("basico", false)]),
+        );
+        assert_eq!(r.ok(), Some(("gpu", false)));
+    }
+
+    #[test]
+    fn cadeia_gpu_que_nao_abre_cai_no_basico() {
+        // Antes o último passo pegava o primeiro adaptador de qualquer tipo: a mesma GPU que
+        // acabara de falhar.
+        let r = em_cadeia(Ok("gpu"), || Ok("basico"), criar_so(&[("basico", false)]));
+        assert_eq!(r.ok(), Some(("basico", false)));
+    }
+
+    #[test]
+    fn cadeia_sem_gpu_usa_o_basico_sem_video() {
+        let r = em_cadeia(
+            Err(GpuError::AdapterNotFound),
+            || Ok("basico"),
+            criar_so(&[("basico", true), ("basico", false)]),
+        );
+        assert_eq!(r.ok(), Some(("basico", false)));
+    }
+
+    #[test]
+    fn cadeia_tudo_falha_devolve_o_erro_da_gpu() {
+        let r = em_cadeia(Ok("gpu"), || Err(GpuError::AdapterNotFound), criar_so(&[]));
+        match r {
+            Err(GpuError::Os { message, .. }) => assert!(message.starts_with("gpu"), "{message}"),
+            outro => panic!("esperava o erro da GPU, veio {outro:?}"),
+        }
+        let r = em_cadeia::<&str, (&str, bool)>(
+            Err(GpuError::AdapterNotFound),
+            || Err(GpuError::AdapterNotFound),
+            criar_so(&[]),
+        );
+        assert!(matches!(r, Err(GpuError::AdapterNotFound)));
+    }
+
+    /// No Windows de verdade (este PC ou o runner do CI): se o adaptador básico abre, o padrão
+    /// também tem de abrir. Mostra qual placa a cadeia escolheu (o CI resume esta linha).
+    #[test]
+    fn cadeia_real_nunca_falha_com_adaptador_basico() {
+        let basico = GpuDevice::create_basic();
+        match GpuDevice::create_default() {
+            Ok(d) => eprintln!(
+                "cadeia de dispositivos: {} (vídeo: {})",
+                d.adapter().name,
+                if d.has_video() { "sim" } else { "não" }
+            ),
+            Err(e) => assert!(basico.is_err(), "o padrão falhou ({e}), mas o adaptador básico abre"),
+        }
     }
 
     #[test]

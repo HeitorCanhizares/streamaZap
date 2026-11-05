@@ -19,6 +19,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - ".github/workflows/rust.yml"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,7 +29,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -36,7 +37,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Compilador cruzado (MinGW) e libs do WebKitGTK (Tauri)
         run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64 libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -56,15 +57,31 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # O runner não tem GPU de vídeo: a cadeia do zap-gpu cai no "Microsoft Basic Render Driver"
+      # (sem Video Processor), e a conversão NV12 vai pela CPU. O log fica para o resumo abaixo.
       - name: Testes (inclui captura, codificação e áudio reais)
-        run: cargo test --workspace --no-fail-fast -- --nocapture
+        shell: bash
+        run: cargo test --workspace --no-fail-fast -- --nocapture 2>&1 | tee testes.log
+      - name: Resumo (dispositivo escolhido e testes que pularam)
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Cadeia de dispositivos do zap-gpu"
+            grep -h "cadeia de dispositivos:" testes.log | head -1 || echo "(a linha não apareceu: o teste não rodou?)"
+            echo
+            echo "### Testes que pularam (motivo e quantas vezes)"
+            echo '```'
+            grep -iE "pulando|pulado" testes.log | sed -E 's/^ +//' | sort | uniq -c | sort -rn | head -80 || echo "nenhum"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontend:
     runs-on: ubuntu-latest
@@ -72,8 +89,8 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
