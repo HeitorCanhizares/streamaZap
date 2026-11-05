@@ -43,6 +43,9 @@ export function mockDiagReport(): DiagReport {
       has_password: false,
     })),
     other_versions: [],
+    video: {
+      adapters: [{ name: 'NVIDIA GeForce GTX 1060 6GB', video_processor: true }],
+    },
     problems: [
       {
         severity: 'warn',
@@ -64,6 +67,10 @@ export function mockDiagText(): string {
     'Amigos:',
     ...r.friends.map(
       (f) => `  ${f.name} · ${f.ip} · recebe você: ${f.hears_you ? 'sim' : 'não'}`,
+    ),
+    'Vídeo:',
+    ...r.video.adapters.map(
+      (a) => `  ${a.name}: conversão ${a.video_processor ? 'na GPU (Video Processor)' : 'pela CPU (sem Video Processor)'}`,
     ),
     'Problemas:',
     ...r.problems.map((p) => `  [${p.severity}] ${p.message}`),

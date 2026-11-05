@@ -35,6 +35,8 @@ pub struct PublisherStats {
     pub viewers_per_layer: Vec<u32>,
     pub encode_ms: f32,
     pub encoder_name: String,
+    /// Conversor de cada camada ligada, em ordem de camada (camadas ainda sem pipe ficam de fora).
+    pub converters: Vec<(u8, zap_media::ConverterKind)>,
 }
 
 pub struct VideoPublisher {
@@ -126,6 +128,12 @@ impl VideoPublisher {
             viewers_per_layer,
             encode_ms: st.layers.first().map_or(0.0, |l| (l.encode.avg_us / 1000.0) as f32),
             encoder_name: st.encoder_name,
+            converters: st
+                .layers
+                .iter()
+                .filter(|l| l.enabled)
+                .filter_map(|l| l.converter.map(|c| (l.layer, c)))
+                .collect(),
         }
     }
     /// Para tudo e espera as threads. Idempotente.

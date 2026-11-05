@@ -22,7 +22,10 @@ export interface ChatLine { id: string; author_id: string; author: string; color
 // code: codigo para convite (ex.: 'ZAP-7K2Q'); ausente na sala Local sem codigo.
 export interface RoomView { id: string; name: string; mode: RoomMode; code?: string; participants: Participant[]; tracks: TrackView[]; chat: ChatLine[]; unread: number }
 export interface TileView { tile: TileId; track_id: string; layer: number; width: number; height: number; fps: number; kbps: number; ping_ms: number; smoothing_ms: number; reason: string }
-export interface ShareView { source: string; audio: string; preset: Preset; encoder: string; layers: number[]; viewers_per_layer: number[]; encode_ms: number }
+/** Onde a cor é convertida para NV12: Video Processor da GPU ou reserva na CPU. */
+export type ConverterView = 'gpu' | 'cpu'
+export interface LayerConversion { layer: number; converter: ConverterView }
+export interface ShareView { source: string; audio: string; preset: Preset; encoder: string; layers: number[]; viewers_per_layer: number[]; encode_ms: number; conversion: LayerConversion[] }
 export interface NetworkStatus { radmin_ip: string | null; interfaces: string[] }
 export interface Snapshot {
   version: number
@@ -84,6 +87,11 @@ export interface FirewallStatus {
   erro: string | null
 }
 export interface FirewallResult { ok: boolean; mensagem: string; removidas: number; perfis_liberados: string[] }
+/** Placa de vídeo; sem Video Processor a conversão de cor vai pela CPU. */
+export interface DiagVideoAdapter { name: string; video_processor: boolean }
+export interface DiagVideoShare { encoder: string; conversion: LayerConversion[] }
+/** Placas relevantes (vazio fora do Windows) e, transmitindo, o codificador e o conversor por camada. */
+export interface DiagVideo { adapters: DiagVideoAdapter[]; sharing?: DiagVideoShare }
 export interface DiagReport {
   app_version: string; protocol: number
   network: { interfaces: DiagInterface[]; radmin_ip?: string }
@@ -93,5 +101,6 @@ export interface DiagReport {
   current_room?: DiagCurrentRoom
   other_versions: DiagOtherVersion[]
   newer_protocol?: number
+  video: DiagVideo
   problems: DiagProblem[]
 }

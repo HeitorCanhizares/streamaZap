@@ -8,7 +8,7 @@ use zap_proto::{AudioSpec, LayerSpec, Track, TrackKind};
 use crate::engine::Shared;
 use crate::publish::{AudioPublisher, AudioSource, PublishedTrack, VideoPublisher};
 use crate::room::TrackSpec;
-use crate::snapshot::ShareView;
+use crate::snapshot::{LayerConversion, ShareView};
 use crate::sources::{parse_audio, parse_source, to_video_spec};
 use crate::types::{AudioChoice, EncoderPref, Preset, ShareRequest, SourceRef};
 use crate::util::new_id;
@@ -378,6 +378,14 @@ impl ShareSession {
             layers: st.layers,
             viewers_per_layer: st.viewers_per_layer,
             encode_ms: st.encode_ms,
+            conversion: st
+                .converters
+                .into_iter()
+                .map(|(layer, c)| LayerConversion {
+                    layer,
+                    converter: c.into(),
+                })
+                .collect(),
         })
     }
 }

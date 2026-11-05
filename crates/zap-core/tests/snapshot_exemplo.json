@@ -182,7 +182,13 @@
       1,
       3
     ],
-    "encode_ms": 6.5
+    "encode_ms": 6.5,
+    "conversion": [
+      {
+        "layer": 0,
+        "converter": "gpu"
+      }
+    ]
   },
   "errors": []
 }

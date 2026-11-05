@@ -48,10 +48,12 @@ describe('DiagScreen', () => {
     expect(screen.getByText('Servidor não configurado')).toBeTruthy()
   })
 
-  it('cinco_cards', async () => {
+  it('seis_cards_com_video', async () => {
     const { container } = render(<DiagScreen />)
     await screen.findByText('Radmin VPN · 26.100.5.20')
-    expect(container.querySelectorAll('section[data-estado]').length).toBe(5)
+    expect(container.querySelectorAll('section[data-estado]').length).toBe(6)
+    expect(screen.getAllByText('Placa de vídeo').length).toBeGreaterThan(0)
+    expect(screen.getByText('NVIDIA GeForce GTX 1060 6GB')).toBeTruthy()
   })
 
   it('sem_rede', async () => {

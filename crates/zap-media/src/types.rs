@@ -80,6 +80,15 @@ pub enum ConverterKind {
     Cpu,
 }
 
+/// Placa de vídeo vista pela sonda do Diagnóstico (`probe_video_adapters`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VideoAdapter {
+    pub name: String,
+    /// O Video Processor do D3D11 converte BGRA para NV12 nesta placa. Sem ele, a conversão
+    /// vai pela CPU (`ConversionSpec::Auto`).
+    pub video_processor: bool,
+}
+
 /// Opções do pipeline que o núcleo não precisa conhecer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VideoPipelineOptions {

@@ -6,9 +6,9 @@ use zap_sys::Interface;
 
 use crate::diag::{
     DiagCurrentRoom, DiagFriend, DiagInput, DiagInterface, DiagNetwork, DiagOtherVersion, DiagProblem, DiagReport,
-    DiagRoom, Severity,
+    DiagRoom, DiagVideo, DiagVideoAdapter, DiagVideoShare, Severity,
 };
-use crate::snapshot::{PeerListing, RoomListing, RoomView};
+use crate::snapshot::{ConverterView, PeerListing, RoomListing, RoomView, ShareView};
 
 pub fn rede_do(interfaces: &[Interface]) -> DiagNetwork {
     DiagNetwork {
@@ -77,6 +77,23 @@ pub fn outras_versoes_do(vistas: &[(IpAddr, u32)], meu_protocolo: u32) -> Vec<Di
             newer: v > meu_protocolo,
         })
         .collect()
+}
+
+/// Placas de vídeo da sonda e, se houver transmissão, o codificador e o conversor por camada.
+pub fn video_do(adapters: &[zap_media::VideoAdapter], share: Option<&ShareView>) -> DiagVideo {
+    DiagVideo {
+        adapters: adapters
+            .iter()
+            .map(|a| DiagVideoAdapter {
+                name: a.name.clone(),
+                video_processor: a.video_processor,
+            })
+            .collect(),
+        sharing: share.map(|s| DiagVideoShare {
+            encoder: s.encoder.clone(),
+            conversion: s.conversion.clone(),
+        }),
+    }
 }
 
 /// Maior protocolo visto que seja maior que `meu_protocolo`.
@@ -157,6 +174,39 @@ pub fn encontrar_problemas(r: &DiagReport) -> Vec<DiagProblem> {
         ));
     }
 
+    // Placa sem Video Processor: transmite, mas converte a cor pela CPU.
+    let mut sem_vp = false;
+    for placa in r.video.adapters.iter().filter(|a| !a.video_processor) {
+        sem_vp = true;
+        let mut msg = format!(
+            "{}: sem Video Processor, a conversão de cor vai pela CPU (funciona, mas usa mais processador).",
+            placa.name
+        );
+        if placa.name.contains("Basic Render") || placa.name.contains("Basic Display") {
+            msg.push_str(" Instale o driver da placa de vídeo.");
+        }
+        out.push(problema(Severity::Warn, "video_cpu_conversion", msg));
+    }
+    // Placa com Video Processor, mas a transmissão caiu para a CPU (o VP falhou no meio).
+    if let Some(s) = &r.video.sharing {
+        let camadas: Vec<String> = s
+            .conversion
+            .iter()
+            .filter(|c| c.converter == ConverterView::Cpu)
+            .map(|c| c.layer.to_string())
+            .collect();
+        if !sem_vp && !camadas.is_empty() {
+            out.push(problema(
+                Severity::Warn,
+                "share_cpu_conversion",
+                format!(
+                    "A transmissão atual converte a cor pela CPU (camada {}): usa mais processador.",
+                    camadas.join(", ")
+                ),
+            ));
+        }
+    }
+
     if r.friends.is_empty() {
         out.push(problema(
             Severity::Info,
@@ -226,6 +276,7 @@ pub fn montar_relatorio(input: &DiagInput) -> DiagReport {
         current_room: sala_atual_do(input.room.as_ref()),
         other_versions: outras_versoes_do(&input.other_versions, input.protocol),
         newer_protocol: protocolo_maior(&input.other_versions, input.protocol),
+        video: video_do(&input.video_adapters, input.share.as_ref()),
         problems: Vec::new(),
     };
     r.problems = encontrar_problemas(&r);
@@ -391,6 +442,7 @@ mod tests_problemas {
             current_room: None,
             other_versions: vec![],
             newer_protocol: None,
+            video: DiagVideo::default(),
             problems: vec![],
         }
     }
@@ -402,6 +454,71 @@ mod tests_problemas {
     #[test]
     fn relatorio_saudavel_sem_problemas_graves() {
         assert!(encontrar_problemas(&relatorio_ok()).is_empty());
+    }
+
+    fn placa(nome: &str, vp: bool) -> DiagVideoAdapter {
+        DiagVideoAdapter {
+            name: nome.into(),
+            video_processor: vp,
+        }
+    }
+
+    fn transmitindo(conv: &[(u8, ConverterView)]) -> Option<DiagVideoShare> {
+        Some(DiagVideoShare {
+            encoder: "NVIDIA H.264 Encoder MFT".into(),
+            conversion: conv
+                .iter()
+                .map(|&(layer, converter)| crate::snapshot::LayerConversion { layer, converter })
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn placa_com_video_processor_nao_gera_aviso() {
+        let mut r = relatorio_ok();
+        r.video.adapters = vec![placa("NVIDIA GeForce GTX 1060 6GB", true)];
+        r.video.sharing = transmitindo(&[(0, ConverterView::Gpu), (1, ConverterView::Gpu)]);
+        assert!(encontrar_problemas(&r).is_empty());
+    }
+
+    #[test]
+    fn placa_sem_video_processor_avisa_conversao_pela_cpu() {
+        let mut r = relatorio_ok();
+        r.video.adapters = vec![placa("Placa X", false)];
+        // A transmissão na CPU é consequência da placa: um aviso só.
+        r.video.sharing = transmitindo(&[(0, ConverterView::Cpu)]);
+        let problemas = encontrar_problemas(&r);
+        assert_eq!(codigos(&problemas), vec!["video_cpu_conversion"]);
+        assert_eq!(problemas[0].severity, Severity::Warn);
+        assert!(problemas[0].message.starts_with("Placa X: sem Video Processor"));
+        assert!(!problemas[0].message.contains("driver"));
+    }
+
+    #[test]
+    fn driver_basico_sugere_instalar_o_driver() {
+        let mut r = relatorio_ok();
+        r.video.adapters = vec![placa("Microsoft Basic Render Driver", false)];
+        let problemas = encontrar_problemas(&r);
+        assert_eq!(codigos(&problemas), vec!["video_cpu_conversion"]);
+        assert!(problemas[0].message.ends_with("Instale o driver da placa de vídeo."));
+    }
+
+    #[test]
+    fn transmissao_na_cpu_com_video_processor_avisa_as_camadas() {
+        let mut r = relatorio_ok();
+        r.video.adapters = vec![placa("NVIDIA GeForce GTX 1060 6GB", true)];
+        r.video.sharing = transmitindo(&[
+            (0, ConverterView::Gpu),
+            (1, ConverterView::Cpu),
+            (2, ConverterView::Cpu),
+        ]);
+        let problemas = encontrar_problemas(&r);
+        assert_eq!(codigos(&problemas), vec!["share_cpu_conversion"]);
+        assert!(
+            problemas[0].message.contains("(camada 1, 2)"),
+            "{}",
+            problemas[0].message
+        );
     }
 
     #[test]
@@ -653,7 +770,43 @@ mod tests_montar {
                 unread: 0,
             }),
             other_versions: vec![(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 5)],
+            video_adapters: vec![zap_media::VideoAdapter {
+                name: "NVIDIA GeForce GTX 1060 6GB".into(),
+                video_processor: true,
+            }],
+            share: None,
         }
+    }
+
+    #[test]
+    fn montar_leva_placas_e_transmissao() {
+        use crate::snapshot::{ConverterView, LayerConversion, ShareView};
+        let mut e = entrada();
+        let r = montar_relatorio(&e);
+        assert_eq!(r.video.adapters.len(), 1);
+        assert!(r.video.adapters[0].video_processor);
+        assert!(r.video.sharing.is_none());
+
+        e.share = Some(ShareView {
+            source: "screen:1".into(),
+            audio: "Sem som".into(),
+            preset: crate::types::Preset::P1080p60,
+            encoder: "NVIDIA H.264 Encoder MFT".into(),
+            layers: vec![0],
+            viewers_per_layer: vec![1, 0, 0],
+            encode_ms: 2.0,
+            conversion: vec![LayerConversion {
+                layer: 0,
+                converter: ConverterView::Gpu,
+            }],
+        });
+        let r = montar_relatorio(&e);
+        let t = r.video.sharing.clone().expect("transmissão");
+        assert_eq!(t.encoder, "NVIDIA H.264 Encoder MFT");
+        assert_eq!(t.conversion.len(), 1);
+        let json = serde_json::to_value(&r.video).expect("json");
+        assert_eq!(json["adapters"][0]["video_processor"], true);
+        assert_eq!(json["sharing"]["conversion"][0]["converter"], "gpu");
     }
 
     #[test]

@@ -8,7 +8,7 @@ export type StatusCheck = 'ok' | 'warn' | 'soon'
 
 export interface LinhaCheck { tom: Tom; text: string; sub?: string; badge?: string }
 export interface Check {
-  id: 'srv' | 'net' | 'fw' | 'peers' | 'rooms'
+  id: 'srv' | 'net' | 'fw' | 'peers' | 'rooms' | 'video'
   title: string
   short: string
   status: StatusCheck
@@ -121,9 +121,13 @@ export function calcularVeredito(checks: Check[], verificando: boolean, semRede:
       avisos,
     }
   }
+  // Só o vídeo em amarelo: a conexão está boa, o aviso é de uso de processador.
+  const soVideo = checks.every((c) => c.status !== 'warn' || c.id === 'video')
   return {
     titulo: 'Quase lá · ' + avisos + (avisos === 1 ? ' aviso' : ' avisos'),
-    sub: 'Dá pra entrar nas salas, mas alguns amigos podem não te ver. Veja os itens em amarelo.',
+    sub: soVideo
+      ? 'Dá pra transmitir, mas a conversão de cor vai pela CPU e usa mais processador. Veja o item em amarelo.'
+      : 'Dá pra entrar nas salas, mas alguns amigos podem não te ver. Veja os itens em amarelo.',
     cor: '#FFB547',
     avisos,
   }

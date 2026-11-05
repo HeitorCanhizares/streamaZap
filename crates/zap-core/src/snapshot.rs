@@ -195,6 +195,32 @@ pub struct TileView {
     pub reason: String,
 }
 
+/// Onde a cor é convertida para NV12 numa camada que está codificando.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ConverterView {
+    /// Video Processor do D3D11.
+    Gpu,
+    /// Reserva na CPU (placa sem Video Processor, ou ele falhou).
+    Cpu,
+}
+
+impl From<zap_media::ConverterKind> for ConverterView {
+    fn from(k: zap_media::ConverterKind) -> Self {
+        match k {
+            zap_media::ConverterKind::Gpu => ConverterView::Gpu,
+            zap_media::ConverterKind::Cpu => ConverterView::Cpu,
+        }
+    }
+}
+
+/// Conversor de uma camada que está codificando.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LayerConversion {
+    pub layer: u8,
+    pub converter: ConverterView,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ShareView {
     pub source: String,
@@ -204,6 +230,9 @@ pub struct ShareView {
     pub layers: Vec<u8>,
     pub viewers_per_layer: Vec<u32>,
     pub encode_ms: f32,
+    /// Conversor de cada camada codificando agora, em ordem de camada.
+    #[serde(default)]
+    pub conversion: Vec<LayerConversion>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -407,6 +436,10 @@ impl Snapshot {
                 layers: vec![0, 1, 2],
                 viewers_per_layer: vec![0, 1, 3],
                 encode_ms: 6.5,
+                conversion: vec![LayerConversion {
+                    layer: 0,
+                    converter: ConverterView::Gpu,
+                }],
             }),
             errors: Vec::new(),
             newer_protocol: None,

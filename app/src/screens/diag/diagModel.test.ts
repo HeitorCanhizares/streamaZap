@@ -100,6 +100,13 @@ describe('calcularVeredito', () => {
     expect(v.avisos).toBe(1)
   })
 
+  it('quase_la_so_video: fala de processador, não de amigos', () => {
+    const video = { id: 'video' as const, title: 'Placa de vídeo', short: 'Vídeo', status: 'warn' as const, lines: [] }
+    const v = calcularVeredito([...okChecks(), video], false, false)
+    expect(v.titulo).toBe('Quase lá · 1 aviso')
+    expect(v.sub).toBe('Dá pra transmitir, mas a conversão de cor vai pela CPU e usa mais processador. Veja o item em amarelo.')
+  })
+
   it('quase_la_plural', () => {
     const v = calcularVeredito(montarChecks(mockSnapshot()).map((c) => (c.id === 'rooms' ? { ...c, status: 'warn' as const } : c)), false, false)
     expect(v.titulo).toBe('Quase lá · 2 avisos')

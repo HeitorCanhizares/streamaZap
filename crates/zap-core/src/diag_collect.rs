@@ -6,7 +6,8 @@ use std::path::Path;
 use crate::diag::{DiagInput, DiagReport};
 use crate::engine::Core;
 
-/// Lê rede, VPNs, antivírus e firewall (zap-sys) e a descoberta/estado do núcleo.
+/// Lê rede, VPNs, antivírus e firewall (zap-sys), as placas de vídeo (zap-media) e a
+/// descoberta/estado do núcleo.
 ///
 /// **Bloqueante**: as consultas COM/WMI do zap-sys são lentas; chame de `spawn_blocking`.
 /// Nenhum lock é segurado durante essas chamadas (usa o snapshot atual e um clone do `Arc`
@@ -30,6 +31,8 @@ pub fn coletar(core: &Core, exe: &Path) -> DiagInput {
         rooms: snap.rooms.clone(),
         room: snap.room.clone(),
         other_versions,
+        video_adapters: zap_media::probe_video_adapters(),
+        share: snap.share.clone(),
     }
 }
 
@@ -77,6 +80,11 @@ mod tests {
         assert!(serde_json::to_string(&report).is_ok());
         #[cfg(not(windows))]
         assert!(!report.firewall.suportado);
+        // A sonda de vídeo roda de verdade; sem transmissão, não há bloco `sharing`.
+        eprintln!("placas: {:?}", report.video.adapters);
+        assert!(report.video.sharing.is_none());
+        #[cfg(not(windows))]
+        assert!(report.video.adapters.is_empty());
         drop(core);
         let _ = std::fs::remove_dir_all(d);
     }

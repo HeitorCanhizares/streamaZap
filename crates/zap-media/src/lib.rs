@@ -30,6 +30,7 @@
 mod audio;
 mod error;
 mod logic;
+mod sonda;
 mod synth_audio;
 mod synth_video;
 mod types;
@@ -40,8 +41,9 @@ mod win_video;
 pub use audio::AudioPipeline;
 pub use error::MediaError;
 pub use logic::{synthetic_frame_size, LayerGate, Samples, SeqCounter};
+pub use sonda::probe_video_adapters;
 pub use types::{
     ConversionSpec, ConverterKind, EncodedAudio, EncodedFrame, EncoderChoiceSpec, LayerStats, MonitorRef,
-    PipelineStats, StageStats, VideoPipelineConfig, VideoPipelineOptions, VideoSourceSpec,
+    PipelineStats, StageStats, VideoAdapter, VideoPipelineConfig, VideoPipelineOptions, VideoSourceSpec,
 };
 pub use video::VideoPipeline;

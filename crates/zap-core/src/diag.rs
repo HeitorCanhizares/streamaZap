@@ -10,7 +10,7 @@ use std::net::IpAddr;
 use serde::{Deserialize, Serialize};
 use zap_sys::FirewallStatus;
 
-use crate::snapshot::{PeerListing, RoomListing, RoomView};
+use crate::snapshot::{LayerConversion, PeerListing, RoomListing, RoomView, ShareView};
 use crate::types::RoomMode;
 
 /// Gravidade de um problema encontrado.
@@ -92,6 +92,30 @@ pub struct DiagOtherVersion {
     pub newer: bool,
 }
 
+/// Placa de vídeo e onde ela converte a cor para NV12.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct DiagVideoAdapter {
+    pub name: String,
+    /// Tem Video Processor do D3D11 (conversão na GPU); `false` = a conversão vai pela CPU.
+    pub video_processor: bool,
+}
+
+/// O que a transmissão atual está usando.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct DiagVideoShare {
+    pub encoder: String,
+    /// Conversor de cada camada codificando agora (vazio = nenhum espectador ainda).
+    pub conversion: Vec<LayerConversion>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiagVideo {
+    /// Placas relevantes (a padrão e as que dirigem monitores); vazio fora do Windows.
+    pub adapters: Vec<DiagVideoAdapter>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharing: Option<DiagVideoShare>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct DiagReport {
     pub app_version: String,
@@ -110,6 +134,8 @@ pub struct DiagReport {
     /// Maior protocolo visto na rede, se for maior que o meu.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub newer_protocol: Option<u32>,
+    #[serde(default)]
+    pub video: DiagVideo,
     pub problems: Vec<DiagProblem>,
 }
 
@@ -127,4 +153,8 @@ pub struct DiagInput {
     pub rooms: Vec<RoomListing>,
     pub room: Option<RoomView>,
     pub other_versions: Vec<(IpAddr, u32)>,
+    /// Sonda das placas de vídeo (`zap_media::probe_video_adapters`).
+    pub video_adapters: Vec<zap_media::VideoAdapter>,
+    /// Transmissão atual (do snapshot).
+    pub share: Option<ShareView>,
 }

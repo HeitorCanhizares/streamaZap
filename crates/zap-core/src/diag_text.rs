@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 
 use crate::diag::{DiagReport, Severity};
+use crate::snapshot::ConverterView;
 
 /// Relatório em texto simples, em português, pronto para colar no chat de suporte.
 pub fn relatorio_texto(r: &DiagReport) -> String {
@@ -79,6 +80,41 @@ pub fn relatorio_texto(r: &DiagReport) -> String {
             let _ = writeln!(s, "Sala atual: {} ({} pessoa(s))", atual.name, atual.participants);
         }
         None => s.push_str("Sala atual: nenhuma\n"),
+    }
+
+    s.push_str("\n== Vídeo ==\n");
+    if r.video.adapters.is_empty() {
+        s.push_str("- nenhuma placa de vídeo vista\n");
+    }
+    for placa in &r.video.adapters {
+        let onde = if placa.video_processor {
+            "conversão na GPU (Video Processor)"
+        } else {
+            "conversão pela CPU (sem Video Processor)"
+        };
+        let _ = writeln!(s, "- {}: {onde}", placa.name);
+    }
+    match &r.video.sharing {
+        Some(t) => {
+            let camadas: Vec<String> = t
+                .conversion
+                .iter()
+                .map(|c| {
+                    let onde = match c.converter {
+                        ConverterView::Gpu => "GPU",
+                        ConverterView::Cpu => "CPU",
+                    };
+                    format!("camada {} {onde}", c.layer)
+                })
+                .collect();
+            let _ = writeln!(
+                s,
+                "Transmitindo: codificador {}; conversão: {}",
+                t.encoder,
+                lista(&camadas, "nenhuma camada codificando")
+            );
+        }
+        None => s.push_str("Transmitindo: não\n"),
     }
 
     s.push_str("\n== Problemas ==\n");
@@ -170,6 +206,7 @@ mod tests {
             current_room: None,
             other_versions: Vec::new(),
             newer_protocol: None,
+            video: crate::diag::DiagVideo::default(),
             problems: vec![
                 DiagProblem {
                     severity: Severity::Warn,
@@ -198,7 +235,51 @@ mod tests {
         assert!(pos("== Rede ==") < pos("== Firewall =="));
         assert!(pos("== Firewall ==") < pos("== Amigos =="));
         assert!(pos("== Amigos ==") < pos("== Salas =="));
-        assert!(pos("== Salas ==") < pos("== Problemas =="));
+        assert!(pos("== Salas ==") < pos("== Vídeo =="));
+        assert!(pos("== Vídeo ==") < pos("== Problemas =="));
+    }
+
+    #[test]
+    fn texto_video_placas_e_transmissao() {
+        use crate::diag::{DiagVideoAdapter, DiagVideoShare};
+        use crate::snapshot::LayerConversion;
+        let mut r = relatorio(firewall_ativo());
+        let t = relatorio_texto(&r);
+        assert!(t.contains("== Vídeo ==\n- nenhuma placa de vídeo vista\nTransmitindo: não\n"));
+
+        r.video.adapters = vec![
+            DiagVideoAdapter {
+                name: "GPU A".into(),
+                video_processor: true,
+            },
+            DiagVideoAdapter {
+                name: "GPU B".into(),
+                video_processor: false,
+            },
+        ];
+        r.video.sharing = Some(DiagVideoShare {
+            encoder: "NVENC".into(),
+            conversion: vec![
+                LayerConversion {
+                    layer: 0,
+                    converter: ConverterView::Gpu,
+                },
+                LayerConversion {
+                    layer: 1,
+                    converter: ConverterView::Cpu,
+                },
+            ],
+        });
+        let t = relatorio_texto(&r);
+        assert!(t.contains("- GPU A: conversão na GPU (Video Processor)\n"));
+        assert!(t.contains("- GPU B: conversão pela CPU (sem Video Processor)\n"));
+        assert!(t.contains("Transmitindo: codificador NVENC; conversão: camada 0 GPU, camada 1 CPU\n"));
+
+        r.video.sharing = Some(DiagVideoShare {
+            encoder: "NVENC".into(),
+            conversion: vec![],
+        });
+        assert!(relatorio_texto(&r).contains("conversão: nenhuma camada codificando\n"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
-// Checagens do Diagnóstico a partir do DiagReport real (tarefa ui5-04).
-import type { DiagReport, Snapshot } from '../../bridge/types'
+// Checagens do Diagnóstico a partir do DiagReport real.
+import type { ConverterView, DiagReport, Snapshot } from '../../bridge/types'
 import { montarChecks } from './diagModel'
 import type { Check, LinhaCheck } from './diagModel'
 import { checkServidor } from './diagServidor'
@@ -81,7 +81,34 @@ function checkSalas(rel: DiagReport): Check {
   }
 }
 
-/** As 5 checagens (srv, net, fw, peers, rooms) com os dados do relatório; sem relatório, cai no snapshot. */
+const ROTULO_CONVERSOR: Record<ConverterView, string> = { gpu: 'GPU', cpu: 'CPU' }
+
+function checkVideo(rel: DiagReport): Check {
+  const base = { id: 'video' as const, title: 'Placa de vídeo', short: 'Vídeo' }
+  const { adapters, sharing } = rel.video
+  const lines: LinhaCheck[] = adapters.length === 0
+    ? [{ tom: 'info', text: 'Nenhuma placa de vídeo encontrada' }]
+    : adapters.map((a) => a.video_processor
+        ? { tom: 'ok' as const, text: a.name, badge: 'conversão na GPU' }
+        : {
+            tom: 'warn' as const,
+            text: a.name,
+            badge: 'conversão na CPU',
+            sub: 'Sem Video Processor: transmite, mas usa mais processador. Atualizar o driver da placa pode resolver.',
+          })
+  const naCpu = sharing ? sharing.conversion.filter((c) => c.converter === 'cpu') : []
+  if (sharing) {
+    const camadas = sharing.conversion.length === 0
+      ? 'nenhuma camada codificando ainda'
+      : sharing.conversion.map((c) => `camada ${c.layer} na ${ROTULO_CONVERSOR[c.converter]}`).join(' · ')
+    lines.push({ tom: naCpu.length > 0 ? 'warn' : 'ok', text: `Transmitindo · ${sharing.encoder}`, sub: camadas })
+  }
+  const aviso = adapters.some((a) => !a.video_processor) || naCpu.length > 0
+  return { ...base, status: aviso ? 'warn' : 'ok', lines }
+}
+
+/** As 6 checagens (srv, net, fw, peers, rooms, video) com os dados do relatório; sem relatório,
+ * cai nas 5 do snapshot (a placa de vídeo só vem no relatório). */
 export function montarChecksReal(rel: DiagReport | null, snap: Snapshot): Check[] {
   if (rel === null) return montarChecks(snap)
   return [
@@ -90,5 +117,6 @@ export function montarChecksReal(rel: DiagReport | null, snap: Snapshot): Check[
     checkFirewall(rel),
     checkAmigos(rel),
     checkSalas(rel),
+    checkVideo(rel),
   ]
 }

@@ -29,6 +29,7 @@ const share: ShareView = {
   layers: [0],
   viewers_per_layer: [1],
   encode_ms: 4,
+  conversion: [{ layer: 0, converter: 'gpu' }],
 }
 
 // Pega o span colorido do ping (o que tem o texto "N ms" ou "—" no fim do primeiro bloco).

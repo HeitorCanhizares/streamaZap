@@ -128,6 +128,15 @@ também por causa da espera), CPU 20,6 / 21,5 / 23,3 ms, leitura média ~5,2 ms,
 espera pelo quadro. Nas mesmas condições, a CPU acrescenta ~8 ms ao p95 (cópia, conversão e
 subida).
 
+**Conversor no Diagnóstico.** A tela Diagnóstico ganhou a checagem "Placa de vídeo": cada placa que
+importa (a padrão e as que dirigem monitores, sondadas com `zap_media::probe_video_adapters`, que cria
+de verdade o conversor do Video Processor) aparece com "conversão na GPU" ou, em amarelo, "conversão
+na CPU". Durante uma transmissão, aparece também o codificador e o conversor de cada camada
+(`ShareView::conversion`, vindo de `LayerStats::converter`). O "Copiar relatório" ganhou a seção
+"== Vídeo ==". Achados novos: `video_cpu_conversion` (placa sem Video Processor; no driver básico
+sugere instalar o driver) e `share_cpu_conversion` (a placa tem VP, mas a transmissão caiu para a
+CPU). Se o único aviso for o de vídeo, o resumo fala de processador, não de amigos.
+
 ## Atualização da rodada 3 (m4c, 2026-11-04, fechamento)
 
 Plano: `docs/planos/m4c-estabilizacao.md`. A seção 10 é o fechamento da hierarquia de agentes; a 11
@@ -217,8 +226,8 @@ como no servidor de teste, ele precisa de cinco mudanças. A referência em cód
 
 ### Próximos passos
 1. Servidor de produção (acima), depois um teste do app com ele entre dois PCs.
-2. CI Windows/Linux com o M4 e a cadeia de dispositivos do `zap-gpu`; conversor em uso no Diagnóstico
-   do app (`LayerStats::converter`); entrega de memória ao codificador de software (portão aberto).
+2. CI Windows/Linux com o M4 e a cadeia de dispositivos do `zap-gpu`; entrega de memória ao
+   codificador de software (portão aberto).
 3. M5: chaves do updater e uma release de teste. M6: paridade e remoção do app Python.
 
 ## Atualização do M4 (2026-11-04, rodada M4b + M2, fechamento no Windows)

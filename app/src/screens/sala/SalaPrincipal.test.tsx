@@ -50,7 +50,7 @@ describe('SalaPrincipal', () => {
   })
 
   it('botao_parar', () => {
-    montar({ share: { source: 's', audio: 'none', preset: '720p30', encoder: 'x', layers: [], viewers_per_layer: [], encode_ms: 1 } })
+    montar({ share: { source: 's', audio: 'none', preset: '720p30', encoder: 'x', layers: [], viewers_per_layer: [], encode_ms: 1, conversion: [] } })
     expect(screen.getAllByRole('button', { name: 'Parar' }).length).toBeGreaterThan(0)
   })
 
