@@ -78,16 +78,26 @@ pub(crate) async fn connect_bridge_for(room: &Arc<OnlineRoom>) -> Result<(), Cor
 async fn reassina_na_ponte(shared: &Arc<Shared>, pc: &Arc<PubConn>) {
     let subs: Vec<_> = shared.subs.lock().values().cloned().collect();
     for sub in subs {
-        pc.router.register(sub.track.number, sub.video.clone());
+        if let Some(v) = &sub.video {
+            pc.router.register(sub.track.number, v.clone());
+        }
         let audio = sub.audio_number.is_some();
         if let (Some(n), Ok(rx)) = (
             sub.audio_number,
             shared.audio_rx.get_or_create(&sub.track.participant_id),
         ) {
-            pc.router.register(n, rx);
+            // Uma contagem por assinatura, como no `start`.
+            pc.router.acquire(n, rx);
         }
+        // Só áudio não tem tamanho nem camada; o vídeo mantém o pedido que tinha.
+        let (size, max_layer) = if sub.audio_only() {
+            (TileSize::Thumbnail, None)
+        } else {
+            let sp = sub.spec();
+            (sp.size, sp.max_layer)
+        };
         // Erro aqui só significa que a ponte caiu de novo: `watch_bridge` trata.
-        let _ = pc.subscribe(&sub.track.id, TileSize::Main, None, audio).await;
+        let _ = pc.subscribe(&sub.track.id, size, max_layer, audio).await;
     }
 }
 

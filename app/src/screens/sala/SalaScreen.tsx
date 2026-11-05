@@ -1,5 +1,6 @@
 // Tarefa ui-22: tela "Dentro da sala". Compõe SalaPrincipal, SalaTiles e SalaPainel.
-// sala-08: dono do estado compartilhado (mudo, volume, PiP, painel) e do layout flex-wrap do design 3-sala.html.
+// Dona do estado compartilhado (lugar de cada transmissão, volumes, painel) e das assinaturas:
+// toda transmissão de outra pessoa é assinada sozinha ao aparecer (useAssinaturas).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../bridge/api'
 import { useSnapshot } from '../../bridge/store'
@@ -8,7 +9,17 @@ import { SalaPainel } from './SalaPainel'
 import { SalaPrincipal } from './SalaPrincipal'
 import { SalaTiles } from './SalaTiles'
 import { SalaTransmissao } from './SalaTransmissao'
-import { inviteText, ownTracks } from './salaModel'
+import {
+  celulasDaPrincipal,
+  inviteText,
+  lugaresDasStreams,
+  ownTracks,
+  streamsDaSala,
+  volumeInicial,
+  type Lugar,
+  type VolumePessoa,
+} from './salaModel'
+import { useAssinaturas, type PedidoStream } from './useAssinaturas'
 
 export interface SalaScreenProps { onLeft: () => void }
 
@@ -16,15 +27,16 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const snap = useSnapshot()
   const room = snap.room
 
-  const [mainTile, setMainTile] = useState<number | null>(snap.tiles[0]?.tile ?? null)
-  // Verdadeiro quando o usuário fechou a principal e não havia outro tile para pôr no lugar.
-  const [principalFechada, setPrincipalFechada] = useState(false)
+  // Onde o usuário pôs cada transmissão (principal, faixa ou fechada); sem escolha vale o padrão.
+  const [escolhas, setEscolhas] = useState<Record<string, Lugar>>({})
+  // Volume que escolhi para cada pessoa (0..100).
+  const [volumes, setVolumes] = useState<Record<string, VolumePessoa>>({})
   const [smoothingAuto, setSmoothingAuto] = useState(true)
   const [cameraOn, setCameraOn] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  // Volume geral da sala, por cima do volume de cada pessoa.
   const [muted, setMuted] = useState(false)
-  const [volume, setVolume] = useState(80)
-  const [pipHidden, setPipHidden] = useState(false)
+  const [volume, setVolume] = useState(100)
   const [panelOpen, setPanelOpen] = useState(true)
   const [painelTx, setPainelTx] = useState(false)
 
@@ -35,11 +47,26 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     setCameraOn(temCamera)
   }, [temCamera])
 
-  // Se o tile principal sumiu do snapshot, volta ao primeiro disponível (salvo se o usuário fechou a principal).
-  const tileAtivo = principalFechada
-    ? null
-    : snap.tiles.some((t) => t.tile === mainTile) ? mainTile : (snap.tiles[0]?.tile ?? null)
-  const main = snap.tiles.find((t) => t.tile === tileAtivo) ?? null
+  // Transmissões dos outros, onde cada uma fica e o que assinar (o canto = câmera sobre a tela).
+  const streams = room ? streamsDaSala(room, meId) : []
+  const lugares = lugaresDasStreams(streams, escolhas)
+  const celulas = celulasDaPrincipal(streams, lugares)
+  const cantos = new Set(celulas.flatMap((c) => (c.pip ? [c.pip.trackId] : [])))
+  const pedidos: PedidoStream[] = streams
+    .filter((s) => lugares[s.trackId] !== 'fechada')
+    .map((s) => ({
+      stream: s,
+      lugar: cantos.has(s.trackId) ? 'canto' : lugares[s.trackId] === 'principal' ? 'principal' : 'faixa',
+    }))
+  const canvasDe = useAssinaturas(pedidos, celulas.length)
+  const naFaixa = streams.filter((s) => lugares[s.trackId] !== 'principal')
+  // O cartão "Você" só aparece quando transmito (o botão de compartilhar já está nos controles).
+  const mostrarVoce = !!snap.share || temCamera || cameraOn
+
+  // Volume geral: aplica no núcleo sempre que muda (e ao entrar na sala).
+  useEffect(() => {
+    void Promise.resolve(api.setMasterVolume(volume / 100, muted)).catch(() => {})
+  }, [volume, muted])
   // Convite do cabeçalho: código da sala ou IP do Radmin, conforme o que existir.
   const invite = room ? inviteText(room, snap.network) : undefined
 
@@ -63,21 +90,22 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     )
   }
 
-  const onPick = (tile: number) => {
-    setMainTile(tile)
-    setPrincipalFechada(false)
+  // Uma escolha fixa onde tudo está agora (pôr outra na principal soma, não troca); a câmera no
+  // canto de uma tela desce junto quando a tela sai da principal.
+  const onMover = (trackId: string, lugar: Lugar) => {
+    const canto = celulas.find((c) => c.stream.trackId === trackId)?.pip
+    setEscolhas({
+      ...lugares,
+      ...(canto && lugar !== 'principal' ? { [canto.trackId]: 'faixa' as Lugar } : {}),
+      [trackId]: lugar,
+    })
   }
 
-  const onCloseMain = () => {
-    if (tileAtivo === null) return
-    void api.unwatch(tileAtivo).catch(() => {})
-    // Escolhe o próximo tile; sem outro, a principal fica vazia em vez de reabrir o mesmo.
-    const proximo = snap.tiles.find((t) => t.tile !== tileAtivo)?.tile ?? null
-    if (proximo === null) {
-      setPrincipalFechada(true)
-    } else {
-      setMainTile(proximo)
-    }
+  const volumeDe = (ownerId: string): VolumePessoa =>
+    volumes[ownerId] ?? volumeInicial(room.participants.find((p) => p.id === ownerId))
+  const onVolumePessoa = (ownerId: string, v: VolumePessoa) => {
+    setVolumes((m) => ({ ...m, [ownerId]: v }))
+    void Promise.resolve(api.setVolume(ownerId, v.vol / 100, v.muted)).catch(() => {})
   }
 
   const onSmoothingAuto = (v: boolean) => {
@@ -144,7 +172,13 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
       <div style={{ flex: '999 1 600px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <SalaPrincipal
           room={room}
-          main={main}
+          celulas={celulas}
+          tiles={snap.tiles}
+          canvasDe={canvasDe}
+          temOutras={naFaixa.length > 0}
+          volumeDe={volumeDe}
+          onVolumePessoa={onVolumePessoa}
+          onMover={onMover}
           share={snap.share}
           smoothingAuto={smoothingAuto}
           onSmoothingAuto={onSmoothingAuto}
@@ -156,29 +190,32 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
           muted={muted}
           volume={volume}
           camOn={cameraOn}
-          pipHidden={pipHidden}
-          onTogglePip={() => setPipHidden((h) => !h)}
           panelOpen={panelOpen}
           onOpenPanel={() => setPanelOpen(true)}
           onToggleMute={() => setMuted((m) => !m)}
           onVolume={setVolume}
-          onCloseMain={onCloseMain}
           invite={invite}
         />
-        <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
-          <SalaTiles
-            room={room}
-            tiles={snap.tiles}
-            mainTile={tileAtivo}
-            onPick={onPick}
-            meId={meId}
-            camOn={cameraOn}
-            sharing={!!snap.share}
-            onToggleCam={onToggleCamera}
-            onToggleShare={onToggleShare}
-          />
-        </div>
+        {(aviso || naFaixa.length > 0 || mostrarVoce) && (
+          <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
+            <SalaTiles
+              room={room}
+              streams={naFaixa}
+              lugares={lugares}
+              canvasDe={canvasDe}
+              volumeDe={volumeDe}
+              onVolumePessoa={onVolumePessoa}
+              onMover={onMover}
+              mostrarVoce={mostrarVoce}
+              meId={meId}
+              camOn={cameraOn}
+              sharing={!!snap.share}
+              onToggleCam={onToggleCamera}
+              onToggleShare={onToggleShare}
+            />
+          </div>
+        )}
       </div>
       {painelTx && (
         <SalaTransmissao

@@ -13,6 +13,10 @@ export interface SalaControlesProps {
   onToggleCam: () => void
   onToggleShare: () => void
   onLeave: () => void
+  /** Some com o mouse parado (useOcioso); padrão: sempre visível. */
+  visivel?: boolean
+  /** Mouse em cima ou foco nos controles: o pai não deixa sumir. */
+  onPreso?: (preso: boolean) => void
 }
 
 const redondo: CSSProperties = {
@@ -48,12 +52,24 @@ export function SalaControles(props: SalaControlesProps): ReactNode {
     whiteSpace: 'nowrap',
   }
   const svgBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true } as const
+  const visivel = props.visivel ?? true
+  const preso = props.onPreso
 
   return (
     <div
       role="toolbar"
       aria-label="Controles da sala"
+      data-visivel={visivel}
+      onPointerEnter={() => preso?.(true)}
+      onPointerLeave={() => preso?.(false)}
+      onFocus={() => preso?.(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) preso?.(false)
+      }}
       style={{
+        opacity: visivel ? 1 : 0,
+        pointerEvents: visivel ? 'auto' : 'none',
+        transition: 'opacity 0.25s ease',
         position: 'absolute',
         left: '50%',
         bottom: 22,

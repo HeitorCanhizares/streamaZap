@@ -1,11 +1,17 @@
 // Tarefa config-04
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+
+vi.mock('../../video/player', () => ({
+  VideoPlayer: class { push() {} close() {} },
+}))
+
+import { api } from '../../bridge/api'
 import { ConfigVideo } from './ConfigVideo'
 import { mockSettings, mockSources } from '../../bridge/mock'
 import type { Settings } from '../../bridge/types'
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 function com(video: Partial<Settings['video']>): Settings {
   const s = mockSettings()
@@ -68,10 +74,45 @@ describe('ConfigVideo', () => {
 
   it('alternar espelho inverte mirror_preview', () => {
     const onChange = vi.fn()
+    vi.spyOn(api, 'cameraPreview').mockResolvedValue(undefined)
     render(<ConfigVideo settings={com({ mirror_preview: true })} onChange={onChange} sources={mockSources()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Testar câmera' }))
     expect((screen.getByTestId('camera-preview') as HTMLElement).style.transform).toBe('scaleX(-1)')
     fireEvent.click(screen.getByRole('switch', { name: /Espelhar/ }))
     expect(onChange.mock.calls[0][0].video.mirror_preview).toBe(false)
+  })
+
+  it('prévia da câmera: só liga no botão, abre a câmera escolhida e fecha no Parar', () => {
+    const abrir = vi.spyOn(api, 'cameraPreview').mockResolvedValue(undefined)
+    const fechar = vi.spyOn(api, 'cameraPreviewStop').mockResolvedValue(undefined)
+    render(<ConfigVideo settings={com({ camera_id: 'camera:0' })} onChange={vi.fn()} sources={mockSources()} />)
+    expect(abrir).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('camera-preview')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Testar câmera' }))
+    expect(screen.getByLabelText('Prévia ao vivo da sua câmera')).toBeTruthy()
+    expect(abrir).toHaveBeenCalledWith('camera:0', expect.any(Number), expect.any(Function))
+    const tile = abrir.mock.calls[0][1]
+    fireEvent.click(screen.getByRole('button', { name: 'Parar' }))
+    expect(fechar).toHaveBeenCalledWith(tile)
+    expect(screen.getByRole('button', { name: 'Testar câmera' })).toBeTruthy()
+  })
+
+  it('prévia da câmera: erro do núcleo aparece e volta ao botão', async () => {
+    vi.spyOn(api, 'cameraPreview').mockRejectedValue(new Error('nenhuma câmera encontrada'))
+    vi.spyOn(api, 'cameraPreviewStop').mockResolvedValue(undefined)
+    render(<ConfigVideo settings={mockSettings()} onChange={vi.fn()} sources={mockSources()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Testar câmera' }))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('nenhuma câmera encontrada'))
+    expect(screen.getByRole('button', { name: 'Testar câmera' })).toBeTruthy()
+  })
+
+  it('sair da tela fecha a prévia', () => {
+    vi.spyOn(api, 'cameraPreview').mockResolvedValue(undefined)
+    const fechar = vi.spyOn(api, 'cameraPreviewStop').mockResolvedValue(undefined)
+    const { unmount } = render(<ConfigVideo settings={mockSettings()} onChange={vi.fn()} sources={mockSources()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Testar câmera' }))
+    unmount()
+    expect(fechar).toHaveBeenCalledTimes(1)
   })
 
   it('suavização: auto desabilita o slider e mostra "auto"', () => {

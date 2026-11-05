@@ -52,6 +52,13 @@ pub async fn set_volume(
     Ok(())
 }
 
+/// Volume geral da sala: `core.set_master_volume(volume, muted)`.
+#[tauri::command]
+pub async fn set_master_volume(state: State<'_, Arc<AppState>>, volume: f32, muted: bool) -> Result<(), String> {
+    state.core.set_master_volume(clamp_volume(volume), muted);
+    Ok(())
+}
+
 /// `core.set_smoothing(auto, ms)`.
 #[tauri::command]
 pub async fn set_smoothing(state: State<'_, Arc<AppState>>, auto: bool, ms: u32) -> Result<(), String> {

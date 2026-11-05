@@ -1,16 +1,27 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import type { RoomView, TileView, ShareView } from '../../bridge/types'
-import { api } from '../../bridge/api'
-import { VideoPlayer } from '../../video/player'
+// Tela principal da sala: uma ou mais transmissões lado a lado (a câmera de quem está com a tela
+// aqui vai no canto dela), o cabeçalho e os controles, que somem com o mouse parado.
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import type { RoomView, ShareView, TileView } from '../../bridge/types'
 import { VideoFrame } from '../../components/VideoFrame'
-import { ScenePreview, type SceneName } from '../../components/ScenePreview'
+import { CanvasSlot } from './CanvasSlot'
 import { SalaCabecalho } from './SalaCabecalho'
 import { SalaControles } from './SalaControles'
+import { kindLabel, type Celula, type Lugar, type VolumePessoa } from './salaModel'
+import { useOcioso } from './useOcioso'
 
 export interface SalaPrincipalProps {
   room: RoomView
-  main: TileView | null
+  /** Transmissões na tela principal (cada uma uma célula; câmera no canto da tela do dono). */
+  celulas: Celula[]
+  /** Métricas do núcleo por tile (camada, ping, resolução). */
+  tiles: TileView[]
+  canvasDe: (trackId: string) => HTMLCanvasElement
+  /** Há transmissões fora da principal? Muda o texto da tela vazia. */
+  temOutras: boolean
   share: ShareView | null
+  volumeDe: (ownerId: string) => VolumePessoa
+  onVolumePessoa: (ownerId: string, v: VolumePessoa) => void
+  onMover: (trackId: string, lugar: Lugar) => void
   smoothingAuto: boolean
   onSmoothingAuto: (v: boolean) => void
   onToggleCamera: () => void
@@ -19,26 +30,27 @@ export interface SalaPrincipalProps {
   onStopShare?: () => void
   onLeave: () => void
   onFullscreen: () => void
-  // Props abaixo vêm da SalaScreen (sala-07); até lá têm padrão.
+  /** Volume geral da sala (0..100) e mudo geral. */
   muted?: boolean
   volume?: number
   camOn?: boolean
-  pipHidden?: boolean
-  onTogglePip?: () => void
   panelOpen?: boolean
   onOpenPanel?: () => void
   onToggleMute?: () => void
   onVolume?: (v: number) => void
-  onCloseMain?: () => void
   reconnecting?: boolean
   // Texto copiado pelo botão Copiar convite (vem de inviteText na SalaScreen).
   invite?: string
 }
 
 const noop = () => {}
-const SCENA: Record<string, SceneName> = { camera: 'cama', window: 'desktop', screen: 'game' }
 const PILULA: CSSProperties = { background: 'rgba(10,16,14,0.8)', borderRadius: 9, display: 'flex', alignItems: 'center' }
-const BTN_X: CSSProperties = { border: '1px solid #2A443C', background: 'rgba(10,16,14,0.8)', color: '#E6F4EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+const BTN: CSSProperties = { border: '1px solid #2A443C', background: 'rgba(10,16,14,0.8)', color: '#E6F4EC', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }
+const CENTRO: CSSProperties = {
+  position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, textAlign: 'center',
+  color: '#8BA498', fontSize: 13,
+}
+const MONO = "'JetBrains Mono', monospace"
 
 function IconeX({ size }: { size: number }): ReactNode {
   return (
@@ -48,76 +60,139 @@ function IconeX({ size }: { size: number }): ReactNode {
   )
 }
 
-export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
-  const { room, main } = p
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const [mudoLocal, setMudo] = useState(false)
-  const mudo = p.muted ?? mudoLocal
+/** Seta para baixo numa bandeja: "mandar para a faixa de baixo". */
+function IconeBaixo({ size }: { size: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 4v10M8 10l4 4 4-4M4 18h16" />
+    </svg>
+  )
+}
 
-  const trackMain = main ? room.tracks.find((t) => t.id === main.track_id) : undefined
+function IconeSom({ mudo, size }: { mudo: boolean; size: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 9v6h4l5 4V5L8 9z" />
+      {mudo ? <path d="m17 9 5 6M22 9l-5 6" /> : <path d="M16.5 8.5a5 5 0 0 1 0 7" />}
+    </svg>
+  )
+}
+
+/** Colunas da grade da principal para `n` células. */
+function colunas(n: number): number {
+  if (n <= 1) return 1
+  if (n <= 4) return 2
+  return 3
+}
+
+interface CelulaProps {
+  room: RoomView
+  celula: Celula
+  tile: TileView | undefined
+  canvasDe: (trackId: string) => HTMLCanvasElement
+  visivel: boolean
+  varias: boolean
+  volume: VolumePessoa
+  onVolumePessoa: (ownerId: string, v: VolumePessoa) => void
+  onMover: (trackId: string, lugar: Lugar) => void
+}
+
+function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume, onVolumePessoa, onMover }: CelulaProps): ReactNode {
+  const s = celula.stream
+  const pessoa = room.participants.find((x) => x.id === s.ownerId)
+  const nome = pessoa?.name ?? 'Alguém'
+  const tipo = kindLabel(s.kind)
+  const rotulo = tile ? `camada ${tile.layer + 1} · ${Math.round(tile.ping_ms)} ms ${tile.height}p${tile.fps}` : 'conectando…'
+  const some: CSSProperties = { opacity: visivel ? 1 : 0, pointerEvents: visivel ? 'auto' : 'none', transition: 'opacity 0.25s ease' }
+  const margem = varias ? 12 : 26
+  const lado = varias ? 34 : 40
+  const somLabel = (volume.muted ? 'Ativar som de ' : 'Silenciar ') + nome
+  const pip = celula.pip
+
+  return (
+    <div data-testid="celula-principal" style={{ position: 'relative', minWidth: 0, minHeight: 0, background: '#0A100E', borderRadius: varias ? 12 : 0, overflow: 'hidden' }}>
+      <span style={CENTRO}>{`Carregando: ${tipo.toLowerCase()} de ${nome}…`}</span>
+      <CanvasSlot canvas={canvasDe(s.trackId)} label={`${tipo} de ${nome}`} />
+
+      <span style={{ ...PILULA, ...some, position: 'absolute', left: margem, top: margem, height: 30, maxWidth: `calc(100% - ${margem * 2 + 140}px)`, padding: '0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+        <span className="zp-blink" aria-hidden="true" style={{ flex: '0 0 7px', width: 7, height: 7, borderRadius: '50%', background: '#FF5D6E' }} />
+        AO VIVO
+        <span style={{ fontWeight: 500, letterSpacing: 0, color: 'var(--texto-2)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{`· ${nome} · ${tipo}`}</span>
+      </span>
+
+      <span style={{ ...some, position: 'absolute', right: margem, top: margem - 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {!varias && (
+          <span style={{ ...PILULA, height: 30, padding: '0 12px', fontFamily: MONO, fontSize: 11.5, color: 'var(--texto-2)', whiteSpace: 'nowrap' }}>{rotulo}</span>
+        )}
+        <button type="button" className="zp-x" onClick={() => onVolumePessoa(s.ownerId, { ...volume, muted: !volume.muted })} aria-label={somLabel} title={somLabel}
+          style={{ ...BTN, width: lado, height: lado, borderRadius: 12, color: volume.muted ? '#FF8592' : '#E6F4EC' }}>
+          <IconeSom mudo={volume.muted} size={18} />
+        </button>
+        <button type="button" className="zp-x" onClick={() => onMover(s.trackId, 'faixa')} aria-label={`Mandar ${tipo.toLowerCase()} de ${nome} para baixo`} title="Mandar para a faixa de baixo"
+          style={{ ...BTN, width: lado, height: lado, borderRadius: 12 }}>
+          <IconeBaixo size={18} />
+        </button>
+        <button type="button" className="zp-x" onClick={() => onMover(s.trackId, 'fechada')} aria-label={`Fechar tela de ${nome}`} title={`Fechar tela de ${nome}`}
+          style={{ ...BTN, width: lado, height: lado, borderRadius: 12 }}>
+          <IconeX size={18} />
+        </button>
+      </span>
+
+      {pip && (
+        <span style={{ position: 'absolute', right: margem, bottom: varias ? margem : 96, width: varias ? '30%' : '22%', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden', border: '2px solid #0A100E', boxShadow: '0 0 0 1px #3BF08A, 0 10px 30px rgba(0,0,0,0.5)', background: '#0A100E' }}>
+          <CanvasSlot canvas={canvasDe(pip.trackId)} label={`Câmera de ${nome}`} />
+          <span style={{ position: 'absolute', left: 6, bottom: 6, padding: '2px 8px', borderRadius: 6, background: 'rgba(10,16,14,0.8)', fontSize: 11.5, pointerEvents: 'none' }}>{`cam · ${nome}`}</span>
+          <button type="button" className="zp-x" onClick={() => onMover(pip.trackId, 'faixa')} aria-label={`Tirar a câmera de ${nome} do canto`} title="Mandar a câmera para a faixa de baixo"
+            style={{ ...BTN, ...some, position: 'absolute', right: 6, top: 6, width: 32, height: 32, borderRadius: 10 }}>
+            <IconeX size={15} />
+          </button>
+        </span>
+      )}
+    </div>
+  )
+}
+
+export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
+  const { room, celulas } = p
+  const ocioso = useOcioso()
+  const mudo = p.muted ?? false
 
   // Guarda as últimas props para os atalhos sem reinscrever o listener a cada render.
-  const ref = useRef({ p, mudo, dono: undefined as string | undefined })
-  ref.current = { p, mudo, dono: trackMain?.owner_id }
-
-  const tile = main?.tile
-  const trackId = main?.track_id
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (tile === undefined || trackId === undefined || !canvas) return
-    // Idempotente: cada execução cria seu player e o cleanup desfaz tudo (StrictMode).
-    const player = new VideoPlayer(canvas)
-    void api
-      .watch(trackId, tile, [canvas.clientWidth || 1280, canvas.clientHeight || 720], null, (buf) => player.push(buf))
-      .catch(() => {})
-    return () => {
-      void api.unwatch(tile)?.catch?.(() => {})
-      player.close()
-    }
-  }, [tile, trackId])
-
-  const alternarMudo = () => {
-    const { p: pr, mudo: m, dono } = ref.current
-    const novo = !m
-    setMudo(novo)
-    pr.onToggleMute?.()
-    // Sem dono do track não há a quem aplicar o mudo.
-    if (dono) void api.setVolume(dono, 1, novo)?.catch?.(() => {})
-  }
+  const ref = useRef({ p, acordar: ocioso.acordar })
+  ref.current = { p, acordar: ocioso.acordar }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      const pr = ref.current.p
+      const { p: pr, acordar } = ref.current
+      acordar()
       if (e.key === 'F11') {
         pr.onFullscreen()
       } else if (e.key === 'Escape') {
         if (document.fullscreenElement) pr.onFullscreen()
       } else if (e.key === 'm' || e.key === 'M') {
-        alternarMudo()
+        pr.onToggleMute?.()
       } else if (e.key === 'c' || e.key === 'C') {
         pr.onToggleCamera()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const dono = trackMain ? room.participants.find((x) => x.id === trackMain.owner_id) : undefined
-  const nome = dono?.name ?? 'Transmissão'
-  const temCamera = !!trackMain && trackMain.kind !== 'camera' && room.tracks.some((t) => t.owner_id === trackMain.owner_id && t.kind === 'camera')
-  const mostrarPip = temCamera && !p.pipHidden
   const compartilhando = p.share != null
-  const aoVivo = !!main
-  const rotulo = main ? `camada ${main.layer + 1} · ${Math.round(main.ping_ms)} ms ${main.height}p${main.fps}` : ''
+  const primeira = celulas[0]?.stream
+  const tilePrimeira = primeira ? p.tiles.find((t) => t.tile === primeira.tile) : undefined
+  const n = celulas.length
+  const cols = colunas(n)
+  const linhas = Math.max(1, Math.ceil(n / cols))
 
   return (
     <main style={{ flex: '999 1 600px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 28px 28px' }}>
       <SalaCabecalho
         room={room}
-        main={main}
+        main={primeira ? { track_id: primeira.trackId } : null}
         sharing={compartilhando}
         panelOpen={p.panelOpen ?? true}
         onOpenPanel={p.onOpenPanel ?? noop}
@@ -125,77 +200,65 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
         invite={p.invite}
       />
 
-      <VideoFrame>
-        {main ? (
-          <>
-            <ScenePreview scene={SCENA[trackMain?.kind ?? 'screen'] ?? 'game'} />
-            <canvas ref={(c) => { canvasRef.current = c }} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
-          </>
-        ) : (
-          <div className="zp-dots" style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center', padding: 24 }}>
-            <img src="/icone.png" alt="" style={{ width: 104, height: 104, borderRadius: 26, display: 'block', boxShadow: '0 0 0 1px #2A443C, 0 0 36px rgba(59,240,138,0.35)' }} />
-            <span style={{ fontFamily: "'Unbounded', sans-serif", fontWeight: 700, fontSize: 20 }}>Nenhuma transmissão aberta</span>
-            <span style={{ color: 'var(--texto-2)' }}>Reabra a tela ou a câmera de alguém aqui embaixo.</span>
-          </div>
-        )}
+      <div
+        data-testid="palco"
+        onPointerMove={ocioso.acordar}
+        onPointerDown={ocioso.acordar}
+        onPointerLeave={ocioso.sair}
+        style={{ cursor: ocioso.visivel ? 'auto' : 'none' }}
+      >
+        <VideoFrame>
+          {n > 0 ? (
+            <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${linhas}, minmax(0, 1fr))`, gap: n > 1 ? 8 : 0, padding: n > 1 ? 8 : 0 }}>
+              {celulas.map((c) => (
+                <CelulaPrincipal
+                  key={c.stream.trackId}
+                  room={room}
+                  celula={c}
+                  tile={p.tiles.find((t) => t.tile === c.stream.tile)}
+                  canvasDe={p.canvasDe}
+                  visivel={ocioso.visivel}
+                  varias={n > 1}
+                  volume={p.volumeDe(c.stream.ownerId)}
+                  onVolumePessoa={p.onVolumePessoa}
+                  onMover={p.onMover}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="zp-dots" style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center', padding: 24 }}>
+              <img src="/icone.png" alt="" style={{ width: 104, height: 104, borderRadius: 26, display: 'block', boxShadow: '0 0 0 1px #2A443C, 0 0 36px rgba(59,240,138,0.35)' }} />
+              <span style={{ fontFamily: "'Unbounded', sans-serif", fontWeight: 700, fontSize: 20 }}>Nenhuma transmissão na tela principal</span>
+              <span style={{ color: 'var(--texto-2)' }}>
+                {p.temOutras ? 'Escolha uma transmissão aqui embaixo.' : 'Quando alguém compartilhar a tela, ela aparece aqui.'}
+              </span>
+            </div>
+          )}
 
-        {aoVivo && (
-          <>
-            <span style={{ ...PILULA, position: 'absolute', left: 26, top: 26, height: 30, padding: '0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', gap: 8 }}>
-              <span className="zp-blink" aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: '#FF5D6E' }} />
-              AO VIVO
-              <span style={{ fontWeight: 500, letterSpacing: 0, color: 'var(--texto-2)' }}>{`· ${nome}`}</span>
+          {p.reconnecting && (
+            <span role="status" style={{ position: 'absolute', left: '50%', top: 26, transform: 'translateX(-50%)', height: 34, padding: '0 16px', borderRadius: 999, background: '#FFB547', color: '#1A1204', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="zp-blink" aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: '#1A1204' }} />
+              Conexão caiu — reconectando…
             </span>
-            <span style={{ position: 'absolute', right: 26, top: 22, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ ...PILULA, height: 30, padding: '0 12px', fontFamily: "'JetBrains Mono', monospace", fontSize: 11.5, color: 'var(--texto-2)', gap: 10 }}>{rotulo}</span>
-              <button type="button" className="zp-x" onClick={p.onCloseMain} aria-label={`Fechar tela de ${nome}`} title={`Fechar tela de ${nome}`} style={{ ...BTN_X, width: 40, height: 40, borderRadius: 12 }}>
-                <IconeX size={18} />
-              </button>
-            </span>
-          </>
-        )}
+          )}
 
-        {p.reconnecting && (
-          <span role="status" style={{ position: 'absolute', left: '50%', top: 26, transform: 'translateX(-50%)', height: 34, padding: '0 16px', borderRadius: 999, background: '#FFB547', color: '#1A1204', fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="zp-blink" aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: '#1A1204' }} />
-            Conexão caiu — reconectando…
-          </span>
-        )}
-
-        {mostrarPip && (
-          <span style={{ position: 'absolute', right: 26, bottom: 96, width: '22%', borderRadius: 14, overflow: 'hidden', border: '2px solid #0A100E', boxShadow: '0 0 0 1px #3BF08A, 0 10px 30px rgba(0,0,0,0.5)' }}>
-            <ScenePreview scene="cama" />
-            <span style={{ position: 'absolute', left: 8, bottom: 8, padding: '2px 8px', borderRadius: 6, background: 'rgba(10,16,14,0.8)', fontSize: 11.5 }}>{`cam · ${nome}`}</span>
-            <button type="button" className="zp-x" onClick={p.onTogglePip} aria-label={`Fechar câmera de ${nome}`} title="Fechar câmera" style={{ ...BTN_X, position: 'absolute', right: 6, top: 6, width: 36, height: 36, borderRadius: 10 }}>
-              <IconeX size={16} />
-            </button>
-          </span>
-        )}
-
-        {temCamera && p.pipHidden && (
-          <button type="button" className="zp-ghost" onClick={p.onTogglePip} style={{ position: 'absolute', right: 26, bottom: 96, height: 40, padding: '0 14px', borderRadius: 999, border: '1px solid #2A443C', background: 'rgba(10,16,14,0.86)', color: '#E6F4EC', fontWeight: 600, fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="7" width="13" height="10" rx="2" />
-              <path d="m16 11 5-3v8l-5-3z" />
-            </svg>
-            Mostrar câmera
-          </button>
-        )}
-
-        <SalaControles
-          muted={mudo}
-          volume={p.volume ?? 100}
-          camOn={p.camOn ?? false}
-          sharing={compartilhando}
-          smoothingMs={main ? Math.round(main.smoothing_ms) : 0}
-          onFullscreen={p.onFullscreen}
-          onToggleMute={alternarMudo}
-          onVolume={p.onVolume ?? noop}
-          onToggleCam={p.onToggleCamera}
-          onToggleShare={p.onToggleShare}
-          onLeave={p.onLeave}
-        />
-      </VideoFrame>
+          <SalaControles
+            muted={mudo}
+            volume={p.volume ?? 100}
+            camOn={p.camOn ?? false}
+            sharing={compartilhando}
+            smoothingMs={tilePrimeira ? Math.round(tilePrimeira.smoothing_ms) : 0}
+            onFullscreen={p.onFullscreen}
+            onToggleMute={p.onToggleMute ?? noop}
+            onVolume={p.onVolume ?? noop}
+            onToggleCam={p.onToggleCamera}
+            onToggleShare={p.onToggleShare}
+            onLeave={p.onLeave}
+            visivel={ocioso.visivel}
+            onPreso={ocioso.prender}
+          />
+        </VideoFrame>
+      </div>
     </main>
   )
 }

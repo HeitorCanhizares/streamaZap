@@ -29,6 +29,37 @@ fn so_audio(req: &ShareRequest) -> bool {
     req.source == SO_AUDIO
 }
 
+/// Fonte da câmera escolhida (`settings.video.camera_id`, como a interface grava: `camera:<id>`).
+/// Sem câmera escolhida, ou se ela sumiu: a primeira que o Windows lista. `synthetic:LxA` vira a
+/// câmera sintética; fora do Windows, sem escolha, também. No Windows sem câmera: `Unsupported`.
+pub(crate) fn camera_source(camera_id: Option<String>) -> Result<SourceRef, CoreError> {
+    // A interface grava o id da lista de fontes (`camera:<id>`); o dispositivo é o resto.
+    let camera_id = camera_id.map(|id| match id.strip_prefix("camera:") {
+        Some(dispositivo) => dispositivo.to_string(),
+        None => id,
+    });
+    let disponiveis = if cfg!(windows) {
+        zap_capture::list_cameras().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let camera_id = match camera_id {
+        Some(id) if id.starts_with("synthetic:") || !cfg!(windows) || disponiveis.iter().any(|c| c.id == id) => {
+            Some(id)
+        }
+        _ => disponiveis.first().map(|c| c.id.clone()),
+    };
+    match camera_id {
+        Some(id) if id.starts_with("synthetic:") => parse_source(&id),
+        Some(id) => Ok(SourceRef::Camera(id)),
+        None if cfg!(windows) => Err(CoreError::Unsupported("nenhuma câmera encontrada".into())),
+        None => Ok(SourceRef::Synthetic {
+            width: 1280,
+            height: 720,
+        }),
+    }
+}
+
 /// Título amigável da fonte; sem achar, o próprio id.
 fn titulo_da_fonte(src: &SourceRef, id: &str) -> String {
     let achado = match src {
@@ -347,32 +378,7 @@ impl ShareSession {
             let s = shared.settings.read();
             (s.video.camera_id.clone(), s.video.encoder, s.local.interface.clone())
         };
-        // A interface grava o id da lista de fontes (`camera:<id>`); o dispositivo é o resto.
-        let camera_id = camera_id.map(|id| match id.strip_prefix("camera:") {
-            Some(dispositivo) => dispositivo.to_string(),
-            None => id,
-        });
-        // Sem câmera escolhida (ou a escolhida sumiu): a primeira que o Windows lista.
-        let disponiveis = if cfg!(windows) {
-            zap_capture::list_cameras().unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        let camera_id = match camera_id {
-            Some(id) if id.starts_with("synthetic:") || !cfg!(windows) || disponiveis.iter().any(|c| c.id == id) => {
-                Some(id)
-            }
-            _ => disponiveis.first().map(|c| c.id.clone()),
-        };
-        let src = match camera_id {
-            Some(id) if id.starts_with("synthetic:") => parse_source(&id)?,
-            Some(id) => SourceRef::Camera(id),
-            None if cfg!(windows) => return Err(CoreError::Unsupported("nenhuma câmera encontrada".into())),
-            None => SourceRef::Synthetic {
-                width: 1280,
-                height: 720,
-            },
-        };
+        let src = camera_source(camera_id)?;
         let ms = shared.ensure_media_server().await?;
         let ladder = zap_rate::ladder::camera_ladder(1280, 720);
         let track = room

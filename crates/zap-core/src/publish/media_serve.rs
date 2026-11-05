@@ -1,6 +1,6 @@
 //! Atendimento de uma conexão de espectador no publicador.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -18,7 +18,9 @@ use super::{MediaServer, PublishedTrack};
 ///   por trilha; se já existe para a trilha só chama `apply_subscribe`. Vídeo: `add_viewer` e
 ///   `camada.atual` inicial ("inicio") com a camada mais barata; se `audio == Some(true)`,
 ///   também liga o `ViewerLink` de áudio (primeira `PublishedTrack::Audio` registrada).
-/// - `Unsubscribe{track_id}`: remove o link. `KeyframeRequest{track_id}`: `request_keyframe` da
+///   Assinar a trilha de áudio direto (quem compartilha só o som) também liga o áudio.
+/// - `Unsubscribe{track_id}`: remove o link. Depois de cada assinar/cancelar, `ajustar_audio`
+///   mantém o áudio ligado só enquanto alguém nesta conexão o quer. `KeyframeRequest{track_id}`: `request_keyframe` da
 ///   camada atual do link. `Report`: `Prober::on_report` (uma vez, com o relógio do publicador)
 ///   e `apply_report` em todos os links da conexão. `Ping`→`Pong`.
 /// - Ao terminar (stream fechado, erro): remove todos os links da conexão dos publicadores.
@@ -33,6 +35,8 @@ pub(crate) async fn serve_viewer(
     // Uma sondagem por conexão, compartilhada pelos links de vídeo dela.
     let prober = zap_net::probe::Prober::new(sender.clone());
     let mut links: HashMap<String, (Arc<ViewerLink>, PublishedTrack)> = HashMap::new();
+    // Trilhas de áudio assinadas direto (não vieram junto com um vídeo).
+    let mut audio_direto: HashSet<String> = HashSet::new();
 
     // Fim de stream, erro de leitura ou conexão fechada encerram o laço do mesmo jeito.
     while let Ok(Some(msg)) = rx.recv().await {
@@ -44,14 +48,27 @@ pub(crate) async fn serve_viewer(
                 audio,
             } => {
                 assinar(
-                    &server, &sender, &prober, &tx, &label, &mut links, track_id, size, max_layer, audio,
+                    &server,
+                    &sender,
+                    &prober,
+                    &tx,
+                    &label,
+                    &mut links,
+                    &mut audio_direto,
+                    track_id,
+                    size,
+                    max_layer,
+                    audio,
                 )
                 .await;
+                ajustar_audio(&server, &sender, &tx, &label, &mut links, &audio_direto, &prober);
             }
             ControlMsg::Unsubscribe { track_id } => {
+                audio_direto.remove(&track_id);
                 if let Some((link, track)) = links.remove(&track_id) {
                     remove_link(&link, &track, &prober);
                 }
+                ajustar_audio(&server, &sender, &tx, &label, &mut links, &audio_direto, &prober);
             }
             ControlMsg::KeyframeRequest { track_id, .. } => {
                 if let Some((link, PublishedTrack::Video(p))) = links.get(&track_id) {
@@ -122,6 +139,7 @@ async fn assinar(
     tx: &ControlTx,
     label: &str,
     links: &mut HashMap<String, (Arc<ViewerLink>, PublishedTrack)>,
+    audio_direto: &mut HashSet<String>,
     track_id: String,
     size: TileSize,
     max_layer: Option<u8>,
@@ -173,39 +191,58 @@ async fn assinar(
         links.insert(track_id.clone(), (link, track.clone()));
     }
 
-    // O áudio do participante viaja junto com o vídeo assinado.
-    if !matches!(track, PublishedTrack::Video(_)) {
-        return;
+    // Áudio assinado direto: vale até o `cancelar` dele (ou um `audio: false`).
+    if matches!(track, PublishedTrack::Audio(_)) {
+        if audio == Some(false) {
+            audio_direto.remove(&track_id);
+        } else {
+            audio_direto.insert(track_id);
+        }
     }
-    match audio {
-        Some(true) => {
-            let candidata = {
-                let tracks = server.tracks.lock();
-                tracks
-                    .iter()
-                    .filter(|(id, t)| matches!(t, PublishedTrack::Audio(_)) && !links.contains_key(*id))
-                    .min_by(|a, b| a.0.cmp(b.0))
-                    .map(|(id, t)| (id.clone(), t.clone()))
-            };
-            if let Some((id, t)) = candidata {
-                let link = novo_link(server, sender, tx, label, &id, &t, 0);
-                link.state.lock().audio = true;
-                links.insert(id, (link, t));
-            }
-        }
-        Some(false) => {
-            let ids: Vec<String> = links
+}
+
+/// Liga ou desliga o áudio desta conexão. Fica ligado enquanto um vídeo assinado pedir áudio
+/// (`audio: true`) ou a trilha de áudio estiver assinada direto; sem ninguém, sai (antes ele
+/// continuava chegando depois de fechar todas as telas).
+fn ajustar_audio(
+    server: &MediaServer,
+    sender: &Arc<MediaSender>,
+    tx: &ControlTx,
+    label: &str,
+    links: &mut HashMap<String, (Arc<ViewerLink>, PublishedTrack)>,
+    audio_direto: &HashSet<String>,
+    prober: &zap_net::probe::Prober,
+) {
+    let quer = !audio_direto.is_empty()
+        || links
+            .values()
+            .any(|(l, t)| matches!(t, PublishedTrack::Video(_)) && l.state.lock().audio);
+    let tem = links.values().any(|(_, t)| matches!(t, PublishedTrack::Audio(_)));
+    if quer && !tem {
+        let candidata = {
+            let tracks = server.tracks.lock();
+            tracks
                 .iter()
-                .filter(|(_, (_, t))| matches!(t, PublishedTrack::Audio(_)))
-                .map(|(id, _)| id.clone())
-                .collect();
-            for id in ids {
-                if let Some((link, t)) = links.remove(&id) {
-                    remove_link(&link, &t, prober);
-                }
+                .filter(|(_, t)| matches!(t, PublishedTrack::Audio(_)))
+                .min_by(|a, b| a.0.cmp(b.0))
+                .map(|(id, t)| (id.clone(), t.clone()))
+        };
+        if let Some((id, t)) = candidata {
+            let link = novo_link(server, sender, tx, label, &id, &t, 0);
+            link.state.lock().audio = true;
+            links.insert(id, (link, t));
+        }
+    } else if !quer && tem {
+        let ids: Vec<String> = links
+            .iter()
+            .filter(|(_, (_, t))| matches!(t, PublishedTrack::Audio(_)))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            if let Some((link, t)) = links.remove(&id) {
+                remove_link(&link, &t, prober);
             }
         }
-        None => {}
     }
 }
 
@@ -429,6 +466,72 @@ mod tests {
             }
         }
         assert!(audio >= 3, "poucos datagramas de áudio: {audio}");
+        encerra(&c);
+    }
+
+    /// Conta datagramas de áudio durante `janela`.
+    async fn conta_audio(c: &mut Cenario, janela: Duration) -> usize {
+        let fim = tokio::time::Instant::now() + janela;
+        let mut n = 0;
+        while tokio::time::Instant::now() < fim {
+            if let Ok(Some(MediaEvent::Audio { .. })) =
+                tokio::time::timeout(Duration::from_millis(100), c.eventos.recv()).await
+            {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// Quem compartilha só o som não tem vídeo: assinar a trilha de áudio direto recebe o som.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn assinar_so_o_audio_recebe_datagramas() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("a1", TileSize::Thumbnail, Some(true)))
+            .await
+            .unwrap();
+        assert!(
+            conta_audio(&mut c, Duration::from_secs(2)).await >= 3,
+            "o áudio direto não chegou"
+        );
+        assert!(c.video.shared.viewers.lock().is_empty(), "não devia assinar vídeo");
+        encerra(&c);
+    }
+
+    /// Cancelar o único vídeo que pedia áudio desliga o áudio da conexão.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancelar_o_video_desliga_o_audio() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("v1", TileSize::Main, Some(true))).await.unwrap();
+        assert!(conta_audio(&mut c, Duration::from_secs(2)).await >= 3);
+        c.tx.send(&ControlMsg::Unsubscribe { track_id: "v1".into() })
+            .await
+            .unwrap();
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        while !c.audio.viewers.lock().is_empty() && tokio::time::Instant::now() < fim {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(c.audio.viewers.lock().is_empty(), "o áudio continuou ligado");
+        encerra(&c);
+    }
+
+    /// Cancelar o áudio direto não corta o áudio que um vídeo assinado ainda pede.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancelar_audio_direto_mantem_o_do_video() {
+        let mut c = cenario().await;
+        c.tx.send(&assinar("a1", TileSize::Thumbnail, Some(true)))
+            .await
+            .unwrap();
+        c.tx.send(&assinar("v1", TileSize::Main, Some(true))).await.unwrap();
+        c.tx.send(&ControlMsg::Unsubscribe { track_id: "a1".into() })
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        while c.eventos.try_recv().is_ok() {}
+        assert!(
+            conta_audio(&mut c, Duration::from_secs(2)).await >= 3,
+            "o vídeo ficou sem áudio"
+        );
         encerra(&c);
     }
 

@@ -6,6 +6,7 @@ mod pool;
 mod router;
 mod video_rx;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,7 +19,7 @@ pub use pool::{ConnPool, PubConn};
 pub use router::{Router, TrackHandler};
 pub use video_rx::VideoRx;
 
-use zap_proto::{TileSize, Track};
+use zap_proto::{TileSize, Track, TrackKind};
 
 use crate::engine::Shared;
 use crate::types::TileId;
@@ -35,21 +36,23 @@ pub struct WatchSpec {
     pub max_layer: Option<u8>,
 }
 
-/// Uma trilha sendo assistida num tile.
+/// Uma trilha sendo assistida num tile: vídeo (com o áudio do mesmo participante, se houver) ou
+/// só o áudio, quando a pessoa compartilha só o som.
 pub struct Subscription {
     pub tile: TileId,
     pub track: Track,
     pub(crate) conn: Arc<PubConn>,
     pub(crate) metrics: Arc<TileMetrics>,
-    // Mantém o receptor de vídeo vivo enquanto a assinatura existir.
-    #[allow(dead_code)]
-    pub(crate) video: Arc<VideoRx>,
-    /// Número da trilha de áudio registrada no `Router`, se houve.
+    /// Receptor de vídeo (vivo enquanto a assinatura existir); `None` na assinatura só de áudio.
+    pub(crate) video: Option<Arc<VideoRx>>,
+    /// Número da trilha de áudio pega no `Router` (`acquire`), se houve.
     pub(crate) audio_number: Option<u16>,
     /// Tarefa que chama `VideoRx::tick` a cada 50 ms.
     pub(crate) tick_task: Mutex<Option<JoinHandle<()>>>,
     /// Pedido atual (tamanho/teto); `update` grava aqui.
     pub(crate) spec: Mutex<WatchSpec>,
+    /// Já parou: o áudio pego no `Router` é solto uma vez só.
+    stopped: AtomicBool,
 }
 
 impl Subscription {
@@ -66,6 +69,9 @@ impl Subscription {
 
     /// Registra os receptores na `conn` já pronta e envia `assinar`.
     async fn start_with(shared: &Arc<Shared>, spec: WatchSpec, conn: Arc<PubConn>) -> Result<Self, CoreError> {
+        if spec.track.kind == TrackKind::Audio {
+            return Self::start_audio_only(shared, spec, conn).await;
+        }
         let spec_atual = spec.clone();
         let participant_id = spec.track.participant_id.clone();
         let metrics = Arc::new(TileMetrics::new());
@@ -84,6 +90,7 @@ impl Subscription {
             request_kf,
         );
         conn.router.register(spec.track.number, video.clone());
+        let video_dyn: Arc<dyn TrackHandler> = video.clone();
 
         // O tick só vive enquanto a assinatura existir (abortado em `stop`).
         let tick_video = video.clone();
@@ -100,12 +107,12 @@ impl Subscription {
         if let Some(audio) = &spec.audio_track {
             match shared.audio_rx.get_or_create(&participant_id) {
                 Ok(rx) => {
-                    conn.router.register(audio.number, rx);
+                    conn.router.acquire(audio.number, rx);
                     audio_number = Some(audio.number);
                 }
                 Err(e) => {
                     handle.abort();
-                    conn.router.unregister(spec.track.number);
+                    conn.router.unregister_if(spec.track.number, &video_dyn);
                     return Err(e);
                 }
             }
@@ -115,9 +122,9 @@ impl Subscription {
             .await
         {
             handle.abort();
-            conn.router.unregister(spec.track.number);
+            conn.router.unregister_if(spec.track.number, &video_dyn);
             if let Some(n) = audio_number {
-                conn.router.unregister(n);
+                conn.router.release(n);
             }
             return Err(e);
         }
@@ -126,10 +133,34 @@ impl Subscription {
             track: spec.track,
             conn,
             metrics,
-            video,
+            video: Some(video),
             audio_number,
             tick_task: Mutex::new(Some(handle)),
+            stopped: AtomicBool::new(false),
             spec: Mutex::new(spec_atual),
+        })
+    }
+
+    /// Só o áudio: quem compartilha só o som não tem trilha de vídeo para levar o áudio junto.
+    /// Pede `assinar` da própria trilha de áudio (o publicador liga o áudio dessa conexão).
+    async fn start_audio_only(shared: &Arc<Shared>, spec: WatchSpec, conn: Arc<PubConn>) -> Result<Self, CoreError> {
+        let rx = shared.audio_rx.get_or_create(&spec.track.participant_id)?;
+        let numero = spec.track.number;
+        conn.router.acquire(numero, rx);
+        if let Err(e) = conn.subscribe(&spec.track.id, spec.size, None, true).await {
+            conn.router.release(numero);
+            return Err(e);
+        }
+        Ok(Self {
+            tile: spec.tile,
+            track: spec.track.clone(),
+            conn,
+            metrics: Arc::new(TileMetrics::new()),
+            video: None,
+            audio_number: Some(numero),
+            tick_task: Mutex::new(None),
+            stopped: AtomicBool::new(false),
+            spec: Mutex::new(spec),
         })
     }
     /// Como `start`, mas na conexão dada (rota direta sem ponte), sem passar pelo `ConnPool`.
@@ -142,15 +173,25 @@ impl Subscription {
     pub(crate) fn spec(&self) -> WatchSpec {
         self.spec.lock().clone()
     }
+    /// Só áudio (sem vídeo)?
+    pub fn audio_only(&self) -> bool {
+        self.video.is_none()
+    }
     /// Para sem mandar `cancelar` (a conexão já caiu): aborta o tique, tira do `Router` e do playout.
+    /// Idempotente: o áudio só é solto uma vez.
     #[allow(dead_code)]
     pub(crate) fn stop_local(&self, shared: &Arc<Shared>) {
         if let Some(t) = self.tick_task.lock().take() {
             t.abort();
         }
-        self.conn.router.unregister(self.track.number);
-        if let Some(n) = self.audio_number {
-            self.conn.router.unregister(n);
+        if let Some(v) = &self.video {
+            let h: Arc<dyn TrackHandler> = v.clone();
+            self.conn.router.unregister_if(self.track.number, &h);
+        }
+        if !self.stopped.swap(true, Ordering::Relaxed) {
+            if let Some(n) = self.audio_number {
+                self.conn.router.release(n);
+            }
         }
         shared.playout.remove_tile(self.tile);
     }
@@ -184,7 +225,7 @@ impl Subscription {
 mod tests {
     use super::*;
     use crate::engine::{Core, CoreOptions};
-    use zap_proto::{Access, ControlMsg, TrackKind};
+    use zap_proto::{Access, ControlMsg};
 
     #[test]
     fn watch_spec_clone_debug() {
@@ -298,15 +339,17 @@ mod tests {
             .await
             .expect("start_on");
         // Router + tick + a própria assinatura seguram o VideoRx.
-        assert!(Arc::strong_count(&sub.video) >= 3);
+        let video = sub.video.clone().expect("vídeo");
+        // Router + tick + a própria assinatura + este clone.
+        assert!(Arc::strong_count(&video) >= 4);
         sub.stop_local(&core.shared);
         for _ in 0..50 {
-            if Arc::strong_count(&sub.video) == 1 {
+            if Arc::strong_count(&video) == 2 {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        assert_eq!(Arc::strong_count(&sub.video), 1, "router e tick soltaram o VideoRx");
+        assert_eq!(Arc::strong_count(&video), 2, "router e tick soltaram o VideoRx");
         assert!(sub.tick_task.lock().is_none());
         encerrar(core, dir).await;
     }

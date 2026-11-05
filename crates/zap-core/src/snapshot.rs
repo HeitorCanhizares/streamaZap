@@ -155,6 +155,8 @@ pub enum TrackViewKind {
     Screen,
     Window,
     Camera,
+    /// Só o som (quem compartilha o áudio sem tela).
+    Audio,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]

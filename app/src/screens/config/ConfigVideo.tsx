@@ -1,7 +1,7 @@
 // Tarefa config-04: seção 'Vídeo e câmera' (porte fiel de docs/design/4-configuracoes.html 177-216).
 import type { CSSProperties, ReactNode } from 'react'
 import type { Preset, Sources } from '../../bridge/types'
-import { ScenePreview } from '../../components/ScenePreview'
+import { PreviaCamera } from './PreviaCamera'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 
 // Cards do design, na ordem.
@@ -47,7 +47,7 @@ export function ConfigVideo({ settings, onChange, sources }: ConfigSecaoProps & 
             onChange={(e) => onChange({ video: { ...video, camera_id: e.target.value === '' ? null : e.target.value } })}
             style={{ height: 44, padding: '0 10px', borderRadius: 12, border: '1px solid #2A443C', background: '#0A100E', color: '#E6F4EC' }}
           >
-            <option value="">Nenhuma</option>
+            <option value="">Padrão do Windows</option>
             {sources.cameras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           <button
@@ -61,17 +61,12 @@ export function ConfigVideo({ settings, onChange, sources }: ConfigSecaoProps & 
             <span style={{ fontSize: 13, color: '#A3BDB1' }}>Espelhar só a minha prévia</span>
           </button>
         </div>
-        <div style={{ flex: '1 1 200px', minWidth: 0, position: 'relative', borderRadius: 14, overflow: 'hidden', border: '1px solid #2A443C' }}>
-          <span
-            data-testid="camera-preview"
-            style={{ display: 'block', transform: video.mirror_preview ? 'scaleX(-1)' : 'none' }}
-          >
-            <ScenePreview scene="camc" />
-          </span>
+        <div style={{ flex: '1 1 200px', minWidth: 0, position: 'relative', aspectRatio: '16 / 9', borderRadius: 14, overflow: 'hidden', border: '1px solid #2A443C', background: '#0A100E' }}>
+          <PreviaCamera cameraId={video.camera_id} espelhar={video.mirror_preview} />
           <span
             style={{
               position: 'absolute', left: 8, top: 8, padding: '2px 8px', borderRadius: 6,
-              background: 'rgba(10,16,14,0.82)', fontFamily: mono, fontSize: 10.5, letterSpacing: '0.08em',
+              background: 'rgba(10,16,14,0.82)', fontFamily: mono, fontSize: 10.5, letterSpacing: '0.08em', pointerEvents: 'none',
             }}
           >
             SUA CÂMERA

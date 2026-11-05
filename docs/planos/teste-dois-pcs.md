@@ -26,7 +26,7 @@ produção seguir o contrato novo (`docs/ESTADO.md`, "O que o servidor de produ�
 |---|---|---|---|
 | 1 | **Nova sala**, modo **Local**, fonte **Tela inteira** (a miniatura tem que mostrar a tela de verdade e se atualizar) | — | A sala abre e o cartão **Você** mostra a prévia ao vivo da tela de A |
 | 2 | — | Na lista **Radmin / rede local**, a sala de A aparece. **Entrar** | B entra em até ~3 s |
-| 3 | — | — | B vê a tela de A, sem travar e sem borrão parado |
+| 3 | — | — | B vê a tela de A **na hora, sem clicar em nada**, e ouve o som. Sem travar e sem borrão parado |
 | 4 | Abra um cronômetro com milésimos (um site serve) e fotografe as duas telas juntas com o celular | — | A diferença entre os dois cronômetros é o atraso. Anote |
 | 5 | Mexa rápido numa janela, role uma página, toque um vídeo | — | A imagem acompanha; quando muda muito pode borrar um pouco, mas volta |
 | 6 | Crie a sala com o som em **Só alguns apps**, marcando o navegador, e toque um vídeo nele | — | B ouve só o som do navegador, sincronizado com a imagem |
@@ -51,6 +51,17 @@ confira em B a cada **Aplicar**:
 
 B também clica **Compartilhar** e escolhe uma tela. Os dois devem ver a tela um do outro ao mesmo tempo, e a
 imagem de A não pode piorar muito por causa disso.
+
+Com mais de uma transmissão na sala (a tela e a câmera de A, por exemplo; com um terceiro PC, melhor):
+- a primeira tela abre sozinha na **tela principal** e o resto aparece pequeno na **faixa de baixo**;
+- o botão de seta para cima (ou clicar na miniatura) põe outra na principal: as duas ficam lado a
+  lado, sem a imagem piscar nem sumir;
+- a seta para baixo devolve para a faixa; o **X** fecha (para de receber) e **Reabrir** volta;
+- a câmera de quem está com a tela na principal aparece no canto dessa tela;
+- quem compartilha **só o som** aparece embaixo como um cartão com o nome e "só o som", e é ouvido;
+- o volume de cada pessoa (cartão embaixo ou botão de som na principal) e o volume geral da barra
+  funcionam;
+- com o mouse parado no vídeo, os botões somem em ~2 s e voltam ao mexer o mouse.
 
 ## Teste 4: queda e volta
 

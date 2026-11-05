@@ -17,7 +17,9 @@ export interface RoomListing {
 export interface PeerListing { name: string; version: string; ip: string; receives_you: boolean }
 // volume 0..1 e muted: o que EU escolhi para esse participante (set_volume); ausentes = 0,8 e false.
 export interface Participant { id: string; name: string; color: string; ping_ms: number; sharing: boolean; camera: boolean; volume?: number; muted?: boolean }
-export interface TrackView { id: string; owner_id: string; kind: 'screen' | 'window' | 'camera'; title: string; number: number }
+// kind 'audio': o som de quem compartilha (aparece sozinho quando a pessoa transmite só o som).
+export type TrackKind = 'screen' | 'window' | 'camera' | 'audio'
+export interface TrackView { id: string; owner_id: string; kind: TrackKind; title: string; number: number }
 export interface ChatLine { id: string; author_id: string; author: string; color: string; text: string; ts: number }
 // code: codigo para convite (ex.: 'ZAP-7K2Q'); ausente na sala Local sem codigo.
 // me_id: meu id de participante nesta sala (no Online vem do servidor, diferente do install_id).

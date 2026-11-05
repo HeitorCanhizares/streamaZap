@@ -112,6 +112,10 @@ fn tick_tiles(shared: &Arc<Shared>) {
     let subs: Vec<_> = shared.subs.lock().iter().map(|(t, s)| (*t, s.clone())).collect();
     let now = shared.clock.now_us();
     for (tile, sub) in subs {
+        // Só o som não tem camada nem quadro: não vira tile de vídeo.
+        if sub.audio_only() {
+            continue;
+        }
         let v = sub.metrics().view(now);
         let smoothing_ms = shared
             .playout

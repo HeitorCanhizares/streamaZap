@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { mockSnapshot } from '../../bridge/mock'
 import type { RoomView } from '../../bridge/types'
-import { inviteText, kindLabel, ownTracks, roomChip, watching } from './salaModel'
+import {
+  celulasDaPrincipal,
+  inviteText,
+  kindLabel,
+  lugaresDasStreams,
+  ownTracks,
+  pedidoDoLugar,
+  roomChip,
+  streamsDaSala,
+  tileDaTrilha,
+  watching,
+  type Stream,
+} from './salaModel'
 
 const sala = (): RoomView => mockSnapshot().room!
 const semCodigo = (): RoomView => {
@@ -35,6 +47,7 @@ describe('kindLabel', () => {
     expect(kindLabel('screen')).toBe('Tela')
     expect(kindLabel('window')).toBe('Janela')
     expect(kindLabel('camera')).toBe('Webcam')
+    expect(kindLabel('audio')).toBe('Só o som')
   })
 })
 
@@ -88,5 +101,91 @@ describe('ownTracks', () => {
     r.tracks.push({ id: 'trk-9', owner_id: 'p-ju', kind: 'window', title: 'x', number: 2 })
     r.tracks.unshift({ id: 'trk-8', owner_id: 'p-ju', kind: 'screen', title: 'y', number: 1 })
     expect(ownTracks(r, 'p-ju').screen?.id).toBe('trk-8')
+  })
+})
+
+// Sala com tela + câmera da Ana, janela da Bia, só o som do Caio e as minhas trilhas.
+const salaCheia = (): RoomView => ({
+  id: 'r', name: 'S', mode: 'local', chat: [], unread: 0,
+  participants: [],
+  tracks: [
+    { id: 'cam-ana', owner_id: 'ana', kind: 'camera', title: 'Cam', number: 2 },
+    { id: 'tela-ana', owner_id: 'ana', kind: 'screen', title: 'Tela', number: 1 },
+    { id: 'som-ana', owner_id: 'ana', kind: 'audio', title: 'Áudio', number: 3 },
+    { id: 'jan-bia', owner_id: 'bia', kind: 'window', title: 'Jogo', number: 4 },
+    { id: 'som-caio', owner_id: 'caio', kind: 'audio', title: 'Áudio', number: 5 },
+    { id: 'minha', owner_id: 'eu', kind: 'screen', title: 'Minha', number: 6 },
+  ],
+})
+
+describe('streamsDaSala', () => {
+  it('vídeos dos outros (tela antes da câmera) e o som só de quem não tem vídeo', () => {
+    const ids = streamsDaSala(salaCheia(), 'eu').map((s) => s.trackId)
+    expect(ids).toEqual(['tela-ana', 'jan-bia', 'cam-ana', 'som-caio'])
+  })
+
+  it('o tile é fixo por trilha', () => {
+    const a = streamsDaSala(salaCheia(), 'eu')
+    const b = streamsDaSala(salaCheia(), 'eu')
+    expect(a.map((s) => s.tile)).toEqual(b.map((s) => s.tile))
+    expect(tileDaTrilha('tela-ana')).toBe(a[0].tile)
+    expect(new Set(a.map((s) => s.tile)).size).toBe(a.length)
+  })
+})
+
+describe('lugaresDasStreams', () => {
+  const streams = (): Stream[] => streamsDaSala(salaCheia(), 'eu')
+
+  it('padrão: a primeira tela na principal com a câmera do dono; o resto embaixo', () => {
+    expect(lugaresDasStreams(streams(), {})).toEqual({
+      'tela-ana': 'principal', 'cam-ana': 'principal', 'jan-bia': 'faixa', 'som-caio': 'faixa',
+    })
+  })
+
+  it('a escolha vale; sem nada na principal, a próxima sem escolha sobe', () => {
+    const l = lugaresDasStreams(streams(), { 'tela-ana': 'faixa' })
+    expect(l['tela-ana']).toBe('faixa')
+    expect(l['jan-bia']).toBe('principal')
+    expect(l['cam-ana']).toBe('faixa')
+  })
+
+  it('várias na principal e som nunca vai para a principal', () => {
+    const l = lugaresDasStreams(streams(), { 'jan-bia': 'principal', 'som-caio': 'principal' })
+    expect(l['jan-bia']).toBe('principal')
+    expect(l['som-caio']).toBe('faixa')
+    // Já tem algo na principal: a tela da Ana fica embaixo (sem escolha).
+    expect(l['tela-ana']).toBe('faixa')
+  })
+
+  it('fechada fica fechada', () => {
+    expect(lugaresDasStreams(streams(), { 'tela-ana': 'fechada' })['tela-ana']).toBe('fechada')
+  })
+})
+
+describe('celulasDaPrincipal', () => {
+  it('câmera do dono vai no canto da tela dele, não em outra célula', () => {
+    const s = streamsDaSala(salaCheia(), 'eu')
+    const c = celulasDaPrincipal(s, lugaresDasStreams(s, { 'jan-bia': 'principal' }))
+    expect(c.map((x) => [x.stream.trackId, x.pip?.trackId ?? null])).toEqual([['jan-bia', null]])
+    const c2 = celulasDaPrincipal(s, lugaresDasStreams(s, { 'jan-bia': 'principal', 'tela-ana': 'principal' }))
+    expect(c2.map((x) => [x.stream.trackId, x.pip?.trackId ?? null])).toEqual([
+      ['tela-ana', 'cam-ana'],
+      ['jan-bia', null],
+    ])
+  })
+
+  it('câmera sozinha na principal vira célula', () => {
+    const s = streamsDaSala(salaCheia(), 'eu')
+    const c = celulasDaPrincipal(s, { 'cam-ana': 'principal', 'tela-ana': 'faixa', 'jan-bia': 'faixa', 'som-caio': 'faixa' })
+    expect(c).toEqual([{ stream: s.find((x) => x.trackId === 'cam-ana'), pip: null }])
+  })
+})
+
+describe('pedidoDoLugar', () => {
+  it('faixa pede a camada pequena; mais células pedem menos', () => {
+    expect(pedidoDoLugar('faixa', 1)).toEqual({ size: [320, 180], maxLayer: 2 })
+    expect(pedidoDoLugar('principal', 1).size).toEqual([1920, 1080])
+    expect(pedidoDoLugar('principal', 2).size).toEqual([960, 540])
+    expect(pedidoDoLugar('canto', 1).maxLayer).toBe(1)
   })
 })

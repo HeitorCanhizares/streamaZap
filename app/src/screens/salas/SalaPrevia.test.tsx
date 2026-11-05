@@ -86,4 +86,18 @@ describe('SalaPrevia', () => {
       unmount()
     }
   })
+
+  it('(e) sala com senha: sem prévia nenhuma, nem a real no Tauri', () => {
+    mocks.tauri.ligado = true
+    const { container } = render(<SalaPrevia sala={{ ...base, trancada: true }} />)
+    expect(screen.getByTestId('previa-privada')).toBeTruthy()
+    expect(screen.getByText('Sala com senha')).toBeTruthy()
+    expect(screen.queryByTestId('previa-canvas')).toBeNull()
+    expect(mocks.hook).toHaveBeenLastCalledWith(null)
+    // Nem a cena ilustrativa, o AO VIVO ou a câmera no canto.
+    expect(container.querySelectorAll('svg[data-scene]').length).toBe(0)
+    expect(screen.queryByText('AO VIVO')).toBeNull()
+    expect(screen.queryByText(/cam ·/)).toBeNull()
+    expect(screen.getByText('Sala privada: sem prévia.')).toBeTruthy()
+  })
 })

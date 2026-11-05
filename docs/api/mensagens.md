@@ -158,7 +158,9 @@ Regras:
 Tamanho → teto de camada: `miniatura` = 2, `principal` = 0, `cheia` = 0.
 
 - **Áudio**: o espectador recebe o áudio de um publicador assinando a trilha `audio` dele **ou**
-  mandando `audio: true` no `assinar` de uma trilha de vídeo do mesmo publicador.
+  mandando `audio: true` no `assinar` de uma trilha de vídeo do mesmo publicador. O áudio segue
+  enquanto um dos dois valer (o app assina a trilha `audio` direto quando a pessoa compartilha só o
+  som) e para quando o último sai (`cancelar` da trilha de áudio e dos vídeos que pediam áudio).
 - **`camada.atual`** sai quando o keyframe da camada nova é repassado a esse espectador: `motivo`
   `"inicio"` na primeira vez, depois `"banda"`, `"teto"`, `"tamanho"` ou `"publicador"`.
 

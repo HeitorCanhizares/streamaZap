@@ -93,6 +93,8 @@ pub struct Shared {
     pub share: tokio::sync::Mutex<ShareSession>,
     pub media_server: tokio::sync::Mutex<Option<Arc<MediaServer>>>,
     pub subs: Mutex<HashMap<TileId, Arc<Subscription>>>,
+    /// Prévias da câmera abertas nas configurações, por tile.
+    pub(crate) camera_tests: Mutex<HashMap<TileId, crate::camera_test::CameraTest>>,
     pub pool: ConnPool,
     pub playout: Arc<PlayoutHub>,
     pub audio_rx: AudioRegistry,
@@ -294,6 +296,7 @@ impl Core {
             share: tokio::sync::Mutex::new(ShareSession::default()),
             media_server: tokio::sync::Mutex::new(None),
             subs: Mutex::new(HashMap::new()),
+            camera_tests: Mutex::new(HashMap::new()),
             pool: ConnPool::default(),
             playout,
             audio_rx,
@@ -410,6 +413,15 @@ impl Core {
     /// `audio_rx.set_volume(participant_id, volume, muted)`.
     pub fn set_volume(&self, participant_id: &str, volume: f32, muted: bool) {
         self.shared.audio_rx.set_volume(participant_id, volume, muted);
+    }
+    /// Volume geral da sala (0..=1, `muted` → 0) por cima do volume de cada pessoa.
+    pub fn set_master_volume(&self, volume: f32, muted: bool) {
+        let v = if muted || volume.is_nan() {
+            0.0
+        } else {
+            volume.clamp(0.0, 1.0)
+        };
+        self.shared.audio_out.set_master_volume(v);
     }
     /// Guarda em `settings.video` (sem salvar de novo se igual) e `playout.set_smoothing`.
     pub fn set_smoothing(&self, auto: bool, ms: u32) {

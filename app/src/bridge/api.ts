@@ -142,6 +142,27 @@ export const api = {
     await call('set_volume', { participantId, volume, muted })
   },
 
+  // Volume geral da sala (0..1), por cima do volume de cada pessoa; muted = silencia tudo.
+  setMasterVolume: async (volume: number, muted: boolean): Promise<void> => {
+    if (!isTauri()) return
+    await call('set_master_volume', { volume, muted })
+  },
+
+  // Prévia da câmera nas configurações: pacotes de vídeo chegam pelo canal, como em watch.
+  // cameraId: o id da lista de fontes (null = a câmera padrão).
+  cameraPreview: async (cameraId: string | null, tile: TileId, onPacket: (b: ArrayBuffer) => void): Promise<void> => {
+    if (!isTauri()) return
+    const { Channel } = await core()
+    const channel = new Channel<ArrayBuffer>()
+    channel.onmessage = onPacket
+    await call('camera_preview', { cameraId, tile, channel })
+  },
+
+  cameraPreviewStop: async (tile: TileId): Promise<void> => {
+    if (!isTauri()) return
+    await call('camera_preview_stop', { tile })
+  },
+
   setSmoothing: async (auto: boolean, ms: number): Promise<void> => {
     if (!isTauri()) return
     await call('set_smoothing', { auto, ms })

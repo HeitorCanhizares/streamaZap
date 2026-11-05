@@ -92,6 +92,39 @@ describe('SalaScreen', () => {
     expect(writeText.mock.calls[0][0]).toContain('ZAP-7K2Q')
   })
 
+  it('assina sozinho as transmissões dos outros: a primeira tela grande, o resto pequeno embaixo', () => {
+    estado.snap = mockSnapshot()
+    const watch = vi.spyOn(api, 'watch').mockResolvedValue(undefined)
+    render(<SalaScreen onLeft={() => {}} />)
+    // Marcão (tela) na principal; Dudu (janela) e Ju (câmera) na faixa, só a camada pequena.
+    expect(watch).toHaveBeenCalledWith('trk-1', expect.any(Number), [1920, 1080], null, expect.any(Function))
+    expect(watch).toHaveBeenCalledWith('trk-2', expect.any(Number), [320, 180], 2, expect.any(Function))
+    expect(watch).toHaveBeenCalledWith('trk-3', expect.any(Number), [320, 180], 2, expect.any(Function))
+    expect(screen.getAllByTestId('celula-principal')).toHaveLength(1)
+    expect(screen.getAllByTestId('cartao-faixa')).toHaveLength(2)
+  })
+
+  it('pôr outra na principal divide a tela sem abrir outra assinatura', () => {
+    estado.snap = mockSnapshot()
+    const watch = vi.spyOn(api, 'watch').mockResolvedValue(undefined)
+    const unwatch = vi.spyOn(api, 'unwatch').mockResolvedValue(undefined)
+    render(<SalaScreen onLeft={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr janela de Dudu na tela principal' }))
+    expect(screen.getAllByTestId('celula-principal')).toHaveLength(2)
+    expect(watch).toHaveBeenLastCalledWith('trk-2', expect.any(Number), [960, 540], null, expect.any(Function))
+    expect(unwatch).not.toHaveBeenCalled()
+  })
+
+  it('volume geral vai para o núcleo; sem transmitir não há cartão Você', () => {
+    estado.snap = mockSnapshot()
+    const master = vi.spyOn(api, 'setMasterVolume').mockResolvedValue(undefined)
+    render(<SalaScreen onLeft={() => {}} />)
+    expect(master).toHaveBeenLastCalledWith(1, false)
+    fireEvent.click(screen.getByRole('button', { name: 'Silenciar a sala toda' }))
+    expect(master).toHaveBeenLastCalledWith(1, true)
+    expect(screen.queryByText('Você')).toBeNull()
+  })
+
   it('painel: Fechar painel remove o aside e o botão Painel do cabeçalho o traz de volta', () => {
     estado.snap = mockSnapshot()
     render(<SalaScreen onLeft={() => {}} />)

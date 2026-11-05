@@ -11,9 +11,16 @@ pub trait TrackHandler: Send + Sync {
     fn on_event(&self, ev: MediaEvent);
 }
 
+/// Tratador de uma trilha e quantas assinaturas o usam (o áudio de um participante é
+/// compartilhado por todas as trilhas de vídeo dele assistidas na mesma conexão).
+struct Entry {
+    handler: Arc<dyn TrackHandler>,
+    refs: usize,
+}
+
 #[derive(Default)]
 pub struct Router {
-    handlers: Mutex<HashMap<u16, Arc<dyn TrackHandler>>>,
+    handlers: Mutex<HashMap<u16, Entry>>,
 }
 
 impl Router {
@@ -22,10 +29,36 @@ impl Router {
     }
     /// Registra o tratador da trilha; se já havia um, ele é substituído.
     pub fn register(&self, track: u16, h: Arc<dyn TrackHandler>) {
-        self.handlers.lock().insert(track, h);
+        self.handlers.lock().insert(track, Entry { handler: h, refs: 1 });
     }
     pub fn unregister(&self, track: u16) {
         self.handlers.lock().remove(&track);
+    }
+    /// Tira o tratador da trilha só se ainda for `h`: uma assinatura antiga que termina depois
+    /// de uma nova da mesma trilha não apaga o tratador da nova.
+    pub fn unregister_if(&self, track: u16, h: &Arc<dyn TrackHandler>) {
+        let mut m = self.handlers.lock();
+        if m.get(&track).is_some_and(|e| Arc::ptr_eq(&e.handler, h)) {
+            m.remove(&track);
+        }
+    }
+    /// Registro compartilhado (áudio): o primeiro registra `h`, os seguintes só contam.
+    pub fn acquire(&self, track: u16, h: Arc<dyn TrackHandler>) {
+        self.handlers
+            .lock()
+            .entry(track)
+            .or_insert(Entry { handler: h, refs: 0 })
+            .refs += 1;
+    }
+    /// Desfaz um `acquire`; o tratador sai quando ninguém mais usa a trilha.
+    pub fn release(&self, track: u16) {
+        let mut m = self.handlers.lock();
+        if let Some(e) = m.get_mut(&track) {
+            e.refs = e.refs.saturating_sub(1);
+            if e.refs == 0 {
+                m.remove(&track);
+            }
+        }
     }
     /// Entrega ao tratador de `header.track` (Video/Audio) ou `track` (Lost). Sem tratador: descarta.
     pub fn dispatch(&self, ev: MediaEvent) {
@@ -36,7 +69,7 @@ impl Router {
         };
         // Clona o Arc e solta o lock antes de chamar o tratador: assim ele pode
         // se (des)registrar sem travar o roteador.
-        let h = self.handlers.lock().get(&track).cloned();
+        let h = self.handlers.lock().get(&track).map(|e| e.handler.clone());
         if let Some(h) = h {
             h.on_event(ev);
         }
@@ -167,6 +200,41 @@ mod tests {
 
         assert!(antigo.0.lock().is_empty());
         assert_eq!(novo.0.lock().len(), 1);
+    }
+
+    #[test]
+    fn unregister_if_so_tira_o_proprio_tratador() {
+        let r = Router::new();
+        let antigo: Arc<dyn TrackHandler> = Arc::new(Guarda::default());
+        let novo = Arc::new(Guarda::default());
+        r.register(1, antigo.clone());
+        r.register(1, novo.clone());
+        // A assinatura antiga termina depois da nova: o tratador da nova continua.
+        r.unregister_if(1, &antigo);
+        r.dispatch(video(1));
+        assert_eq!(novo.0.lock().len(), 1);
+
+        let novo_dyn: Arc<dyn TrackHandler> = novo.clone();
+        r.unregister_if(1, &novo_dyn);
+        r.dispatch(video(1));
+        assert_eq!(novo.0.lock().len(), 1, "saiu: não entrega mais");
+    }
+
+    #[test]
+    fn audio_compartilhado_sai_so_no_ultimo_release() {
+        let r = Router::new();
+        let a = Arc::new(Guarda::default());
+        // Tela e câmera do mesmo participante pedem o mesmo áudio.
+        r.acquire(5, a.clone());
+        r.acquire(5, a.clone());
+        r.release(5);
+        r.dispatch(audio(5));
+        assert_eq!(a.0.lock().len(), 1, "uma assinatura ainda usa o áudio");
+        r.release(5);
+        r.dispatch(audio(5));
+        assert_eq!(a.0.lock().len(), 1, "nenhuma usa mais: descarta");
+        // Release a mais não faz nada.
+        r.release(5);
     }
 
     #[tokio::test]

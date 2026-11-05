@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 use zap_core::ShareRequest;
 
@@ -30,4 +31,31 @@ pub async fn share_stop(state: State<'_, Arc<AppState>>) -> Result<(), String> {
 #[tauri::command]
 pub async fn camera_set(state: State<'_, Arc<AppState>>, on: bool) -> Result<(), String> {
     state.core.set_camera(on).await.map_err(convert::err_string)
+}
+
+/// Prévia da câmera nas configurações: `videos.register(tile, channel)` ANTES de
+/// `core.camera_preview(camera_id, tile)`; se o núcleo falhar, `videos.remove(tile)`.
+#[tauri::command]
+pub async fn camera_preview(
+    state: State<'_, Arc<AppState>>,
+    camera_id: Option<String>,
+    tile: u32,
+    channel: Channel<InvokeResponseBody>,
+) -> Result<(), String> {
+    state.videos.register(tile, channel);
+    match state.core.camera_preview(camera_id, tile).await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            state.videos.remove(tile);
+            Err(convert::err_string(e))
+        }
+    }
+}
+
+/// `core.camera_preview_stop(tile)` e `videos.remove(tile)`.
+#[tauri::command]
+pub async fn camera_preview_stop(state: State<'_, Arc<AppState>>, tile: u32) -> Result<(), String> {
+    state.core.camera_preview_stop(tile);
+    state.videos.remove(tile);
+    Ok(())
 }

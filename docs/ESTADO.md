@@ -105,6 +105,34 @@ Problemas que o dono achou usando o app, corrigidos direto (sem a hierarquia):
 - **Textos**: lista de salas, abas de fonte, barra de controles e cartões da sala na janela mínima
   (1100×700) sem quebrar nem vazar.
 
+Segunda leva (mesmo dia):
+- **Quem entrava na sala não via nem ouvia nada** (a imagem parada de "sem transmissão"): a
+  interface só fazia `watch` dos tiles que já estavam no snapshot, e o núcleo só cria um tile depois
+  do `watch`. Ninguém pedia o primeiro. Os testes não pegavam porque o mock já vem com tiles. Agora a
+  `SalaScreen` deriva as transmissões de `room.tracks` (`streamsDaSala`) e assina todas sozinha
+  (`useAssinaturas`): uma assinatura e um canvas por trilha, tile fixo por trilha
+  (`tileDaTrilha`).
+- **Várias transmissões**: cada uma vai para a **tela principal** (grade lado a lado; a câmera de
+  quem está com a tela ali vai no canto dela) ou para a **faixa de baixo** (camada 2), ou fica
+  **fechada** (sem receber). Mudar de lugar só pede outro tamanho no mesmo tile e move o canvas no
+  DOM (`CanvasSlot`), sem reabrir a assinatura nem esperar keyframe. O cartão **Você** só aparece
+  quando eu transmito.
+- **Só o som para quem assiste**: o áudio só vinha junto com um vídeo assinado, então quem
+  compartilhava só o som não era ouvido. `watch` aceita a trilha de áudio (assinatura só de áudio) e
+  `RoomView.tracks` passou a trazer `kind: "audio"`. No publicador, `ajustar_audio` mantém o áudio da
+  conexão ligado enquanto um vídeo assinado pede áudio ou a trilha de áudio está assinada direto (e
+  desliga quando ninguém quer: antes continuava chegando depois de fechar tudo). No `Router`, o áudio
+  é contado (`acquire`/`release`): fechar a câmera de alguém não corta o som que vem com a tela.
+- **Corridas do `watch`**: um `watch` da mesma trilha enquanto a primeira ainda conecta só guarda o
+  tamanho novo (antes abria uma segunda assinatura, e o `cancelar` da primeira derrubava a segunda
+  no publicador); `Router::unregister_if` não deixa uma assinatura velha apagar o vídeo da nova.
+- **Volume geral**: a régua e o mudo da barra não faziam nada; agora `set_master_volume`.
+- **Controles da chamada** somem com o mouse parado (2,5 s; `useOcioso`) e voltam ao mexer o mouse
+  no vídeo ou apertar uma tecla; ficam visíveis com o mouse ou o foco do teclado neles.
+- **Sala com senha sem prévia** na lista: nem a prévia real (`room_preview`) nem a cena de exemplo.
+- **Câmera nas configurações**: botão **Testar câmera** com a prévia ao vivo (`camera_preview`:
+  abre a câmera só para a interface, sem sala; com a câmera ligada na sala, mostra a dela).
+
 ## Atualização da rodada 4 (M2b, 2026-11-05, fechamento)
 
 Conversão para NV12 pela CPU (plano `docs/planos/m2b-conversao-cpu.md`). `zap-gpu` ganhou o
@@ -391,3 +419,9 @@ Para rodar o CI de novo sem push: aba Actions, "v3 (Rust + interface)", "Run wor
 - Diagnóstico/servidor: o card do servidor só fica real com o M4.
 - Servidor de teste: não manda `camadas.pedidas` vazio logo depois de `trilha.publicada` (o de
   produção manda) nem eventos de sala pelo QUIC quando não há WebSocket.
+- Testes de hardware no PC do dono (2026-11-05, monitor 1 em 125% + segundo monitor na GTX 960M):
+  `zap-capture` `capture_monitor_entrega_quadro_em_1s` e `dxgi_entrega_quadro_nao_preto` falham
+  porque o processo de teste não é DPI-aware (lista 1536×864, a captura vem 1920×1080);
+  `zap-encode` `latencia_hardware` (p95 acima do limite) e `zap-gpu` `nv12_cpu_igual_gpu` também
+  falham aqui. O app (DPI-aware) não é afetado. Falta tornar esses testes DPI-aware ou comparar com o
+  tamanho da duplicação.

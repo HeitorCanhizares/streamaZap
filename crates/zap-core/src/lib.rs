@@ -14,6 +14,7 @@
 #![deny(unsafe_code)]
 
 pub mod audio_out;
+mod camera_test;
 pub mod diag;
 pub mod diag_build;
 pub mod diag_collect;

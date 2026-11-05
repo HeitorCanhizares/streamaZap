@@ -6,7 +6,8 @@ import { roomChip, watching } from './salaModel'
 
 export interface SalaCabecalhoProps {
   room: RoomView
-  main: TileView | null
+  /** O que está na tela principal (só a trilha importa). */
+  main: Pick<TileView, 'track_id'> | null
   sharing: boolean
   panelOpen: boolean
   onOpenPanel: () => void

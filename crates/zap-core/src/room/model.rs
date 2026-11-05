@@ -206,15 +206,12 @@ impl RoomModel {
             tracks: self
                 .tracks
                 .iter()
-                .filter_map(|t| {
-                    let kind = vista_de(t.kind)?;
-                    Some(TrackView {
-                        id: t.id.clone(),
-                        owner_id: t.participant_id.clone(),
-                        kind,
-                        title: t.title.clone(),
-                        number: t.number,
-                    })
+                .map(|t| TrackView {
+                    id: t.id.clone(),
+                    owner_id: t.participant_id.clone(),
+                    kind: vista_de(t.kind),
+                    title: t.title.clone(),
+                    number: t.number,
                 })
                 .collect(),
             chat: self.chat.iter().cloned().collect(),
@@ -240,13 +237,13 @@ fn visao_participante(tracks: &[Track], p: &Participant) -> snapshot::Participan
     }
 }
 
-/// Tipo de trilha que aparece na visão; áudio não aparece (só vídeo).
-fn vista_de(kind: TrackKind) -> Option<TrackViewKind> {
+/// Tipo da trilha na visão (o áudio aparece para a interface achar quem compartilha só o som).
+fn vista_de(kind: TrackKind) -> TrackViewKind {
     match kind {
-        TrackKind::Screen => Some(TrackViewKind::Screen),
-        TrackKind::Window => Some(TrackViewKind::Window),
-        TrackKind::Camera => Some(TrackViewKind::Camera),
-        TrackKind::Audio => None,
+        TrackKind::Screen => TrackViewKind::Screen,
+        TrackKind::Window => TrackViewKind::Window,
+        TrackKind::Camera => TrackViewKind::Camera,
+        TrackKind::Audio => TrackViewKind::Audio,
     }
 }
 
@@ -514,9 +511,12 @@ mod tests {
         let v = m.to_view();
         assert_eq!(v.id, "s_1");
         assert_eq!(v.mode, RoomMode::Online);
-        // Áudio fica de fora; tela e câmera aparecem com o tipo certo.
+        // Tela, câmera e áudio aparecem com o tipo certo.
         let kinds: Vec<TrackViewKind> = v.tracks.iter().map(|t| t.kind).collect();
-        assert_eq!(kinds, vec![TrackViewKind::Screen, TrackViewKind::Camera]);
+        assert_eq!(
+            kinds,
+            vec![TrackViewKind::Screen, TrackViewKind::Camera, TrackViewKind::Audio]
+        );
         assert!(v.tracks.iter().all(|t| t.owner_id == "p_2"));
         // Latência (ping) do participante preservada.
         let p = v.participants.iter().find(|p| p.id == "p_2").unwrap();
