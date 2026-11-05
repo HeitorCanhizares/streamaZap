@@ -1,218 +1,151 @@
-<p align="center"><img src="streamazap/assets/icon.png" width="160" alt="StreamaZap"></p>
+<p align="center"><img src="app/public/icone.png" width="160" alt="streamaZap"></p>
 
-# StreamaZap
+# streamaZap
 
-Compartilhe sua **tela** (ou uma **janela**) e o **som dos aplicativos que você escolher**
-com amigos na rede local ou pelo **Radmin VPN**. Aplicativo open source escrito em Python.
+Compartilhe a sua **tela**, uma **janela**, a **webcam** ou **só o som** com os amigos, pelo
+**Radmin VPN** ou pela rede de casa. App open source para Windows, escrito em Rust + Tauri.
 
-- 🖥 **Tela inteira ou uma janela específica.** A janela é capturada mesmo atrás de outras.
-- 🔊 **Som do jeito que você quiser:** sem som, todo o som do PC (exceto o do próprio StreamaZap)
-  ou só os aplicativos marcados (ex.: apenas o jogo, ou apenas o navegador).
-- 📡 **As salas aparecem sozinhas.** Quem cria uma sala anuncia a sala em todas as redes do PC,
-  incluindo a do Radmin VPN. Quem estiver na mesma rede do Radmin vê a sala na lista e clica para entrar.
-- 👥 **Todo mundo pode compartilhar:** qualquer participante clica em *Compartilhar minha tela*
-  e os outros escolhem em *Assistindo:* quem querem ver. Cada um envia o próprio vídeo direto
-  para quem assiste (P2P pelo Radmin), dividindo a carga.
-- ✏️ **Editar a transmissão ao vivo** (trocar tela/janela, som, qualidade) sem derrubar ninguém.
-- 🌊 **Vídeo liso sem mexer em nada:** a *Suavização* se ajusta sozinha (sobe quando a rede
-  engasga, desce quando ela estabiliza) e a qualidade adaptável mede quanto a conexão de cada um
-  aguenta e ajusta o bitrate para caber, voltando a subir depois. O som acompanha o vídeo
-  acelerando/desacelerando 1-2% em vez de cortar.
-- 🌍 **Feito para amigos longe:** mede a latência de cada um, reconecta sozinho se a conexão
-  cair e não acumula atraso (descarta vídeo velho em vez de deixar o atraso crescer).
-- 🔒 Senha opcional na sala, 💬 chat e lista de quem está assistindo com a latência de cada um.
-- ⚡ Vídeo H.264 pela GPU (NVIDIA NVENC, Intel QuickSync, AMD AMF) com fallback para CPU; áudio Opus.
+- 🖥 **Tela inteira, uma janela ou a webcam.** A janela é capturada mesmo atrás de outras.
+- 🔊 **O som do jeito que você quiser:** o do PC inteiro (menos o do próprio app), só o de alguns
+  apps (ex.: só o jogo ou só o navegador), nenhum, ou **só o som**, sem imagem.
+- 📡 **As salas aparecem sozinhas** para quem está na mesma rede do Radmin ou na rede de casa.
+- 👥 **Várias transmissões ao mesmo tempo:** cada uma vai para a **tela principal** (lado a lado)
+  ou fica pequena na **faixa de baixo**; a câmera de quem está com a tela na principal aparece no
+  canto dela. Quem entra vê e ouve na hora, sem clicar em nada.
+- 🎚 **Qualidade que se ajusta a cada pessoa:** quem transmite manda três versões do vídeo
+  (simulcast) e cada amigo recebe a que a conexão dele aguenta, sem piorar a dos outros.
+  Até **1080p60**.
+- 🌊 **Vídeo liso:** a suavização se ajusta sozinha à rede de cada um, e o som acompanha a imagem.
+- ✏️ **Trocar sem sair da sala:** fonte, som, qualidade e câmera, pelo botão **Transmissão**.
+- 🔒 Senha opcional (sala com senha não mostra prévia na lista), 💬 chat, volume por pessoa e
+  volume geral, tela cheia (F11).
+- 🩺 **Diagnóstico** que explica o que está errado (firewall, Radmin, placa de vídeo) e corrige o
+  firewall com um clique.
+- ⚡ Vídeo H.264 pela placa de vídeo (Media Foundation: NVIDIA, Intel, AMD), com reserva no
+  processador; som Opus.
+- 🔄 **Atualiza sozinho**, conferindo a assinatura, e nunca reinicia com você numa sala.
 
 ## Download
 
-Baixe o instalador mais recente em **[Releases](https://github.com/HeitorCanhizares/streamaZap/releases/latest)**:
+Baixe a versão mais nova em **[Releases](https://github.com/HeitorCanhizares/streamaZap/releases/latest)**:
 
-- `StreamaZap-Setup-X.Y.Z.exe` — instalador (cria atalhos e já libera o app no Firewall do Windows);
-- `StreamaZap-X.Y.Z-portable.zip` — versão portátil, é só extrair e abrir `StreamaZap.exe`.
+- `StreamaZap-Setup-X.Y.Z.exe`: instalador. Não pede administrador.
+- `StreamaZap-Portatil-X.Y.Z.zip`: versão portátil, é só descompactar e abrir.
 
-**Atualização automática:** ao abrir, o app verifica se há versão nova nas Releases. Se
-houver, baixa o instalador (conferindo o SHA-256), instala em modo silencioso e reabre já
-atualizado — o Windows pede a permissão de administrador uma vez. Dá para desligar em
-*"Atualizar automaticamente ao abrir"* na tela inicial. Na versão portátil o app apenas
-mostra o link para baixar.
+**Requisitos:** Windows 10 (versão 2004 ou mais nova, para o som por app) ou Windows 11, 64 bits.
 
-**Requisitos:** Windows 10 versão 2004 ou mais recente (para capturar o som por aplicativo), 64 bits.
+**Vindo da versão antiga (Python)?** O instalador remove a antiga sozinho (essa remoção pede
+administrador uma vez). As configurações da versão antiga não vêm junto.
 
-## Como usar com amigos (Radmin VPN)
+## Como usar com amigos
 
-1. Todos instalam o [Radmin VPN](https://www.radmin-vpn.com/) e entram na **mesma rede** do Radmin.
-2. Todos abrem o StreamaZap. A barra inferior mostra `✅ Radmin VPN conectado: 26.x.x.x`.
-3. Quem vai transmitir clica em **Criar sala**, escolhe a tela ou janela, o som e a qualidade,
-   e clica em **Iniciar transmissão**.
-4. Os amigos veem a sala aparecer na lista em poucos segundos e dão **duplo clique** para entrar.
+1. Todos instalam o [Radmin VPN](https://www.radmin-vpn.com/) e entram na **mesma rede** do Radmin
+   (ou ficam na mesma rede de casa).
+2. Na primeira vez, abra **Diagnóstico** e clique **Corrigir firewall**.
+3. Quem vai transmitir clica **Nova sala**, escolhe o modo **Local**, a fonte (tela, janela, webcam
+   ou só o som), o som e a qualidade.
+4. Os amigos veem a sala na lista em poucos segundos e clicam **Entrar na sala**.
 
-Se a sala não aparecer, use **Entrar por IP…** com o IP do Radmin de quem está transmitindo
-(ex.: `26.12.34.56`). A janela de transmissão mostra os seus endereços.
+Se a sala não aparecer, use **Entrar por IP** (embaixo da lista, no modo Local) com o IP do Radmin
+de quem está transmitindo (aparece na barra de cima do app dele, como `Radmin · 26.x.x.x`).
 
-> **Dica:** no Radmin a banda costuma ser limitada; o preset **720p 30fps** é o mais estável.
+> **Dica:** no Radmin a banda costuma ser limitada; **720p 30 fps** é o mais estável.
 
-### "Tempo esgotado" ao entrar na sala
+**Na sala:** os botões da chamada somem com o mouse parado e voltam ao mexer. Atalhos: **F11** tela
+cheia, **Esc** sai da tela cheia, **M** silencia a sala, **C** liga ou desliga a sua câmera.
 
-Se a sala **aparece** na lista mas dá *tempo esgotado* ao entrar, o PC de quem transmite está
-recusando a conexão de vídeo — quase sempre o **Firewall do Windows** (a rede do Radmin costuma
-ser "Pública" e, se alguém clicou em *Cancelar* no aviso do Firewall, o Windows cria uma regra
-de **bloqueio**) ou o **firewall do antivírus**.
+### Quando não funciona
 
-- O StreamaZap verifica isso sozinho e mostra **🛡️ Corrigir firewall** (pede permissão de
-  administrador uma vez). Atualizar pelo instalador também remove as regras de bloqueio.
-- Antivírus com firewall próprio (Kaspersky, Avast, ESET, Norton…) aparecem no aviso: libere o
-  StreamaZap neles.
-- Mesmo assim, o app tenta uma **conexão reversa**: se o amigo não consegue chegar até o host,
-  o host conecta no amigo (aparece "🔁 conexão reversa" no player).
-- **Todos precisam estar na mesma versão.** Salas de outra versão aparecem com ⚠️ na lista.
+- **A sala aparece mas não dá para entrar**, ou **um vê o outro e o outro não**: quase sempre é o
+  firewall do PC de quem não recebe nada. Abra **Diagnóstico → Corrigir firewall** nesse PC.
+  Antivírus com firewall próprio (Kaspersky, Avast, ESET, Norton…) precisam liberar o streamaZap
+  neles.
+- **Amigo longe travando:** no Radmin, veja se a conexão com ele é **direta** (relay tem bem menos
+  banda). O app já manda para ele uma versão mais leve do vídeo, sem piorar a dos outros.
+- **Todos na mesma versão:** o app avisa quando alguém na rede tem uma versão mais nova.
+- Para pedir ajuda, mande o **Diagnóstico → Copiar relatório**.
 
-### Só funciona em um sentido (você vê a sala dele, mas ele não vê nada)
+### Modo Online
 
-A tela inicial mostra quem está com o StreamaZap aberto e se cada um **recebe os seus
-pacotes**. "⚠️ não está recebendo nada do seu PC" = a entrada do PC **dele** está bloqueada.
-Causas comuns, no PC bloqueado:
-
-1. Firewall do Windows com **“Bloquear todas as conexões de entrada, incluindo as da lista de
-   aplicativos permitidos”** — ignora qualquer liberação. O **🩺 Diagnóstico** detecta e o
-   **Corrigir firewall** desliga.
-2. Antivírus com firewall próprio (alguns nem aparecem para o Windows): liberar o StreamaZap nele.
-3. Radmin: veja se a conexão com o amigo é direta e use o *Ping* do próprio Radmin.
-
-Teste rápido: desligar o Firewall do Windows por 1 minuto no PC bloqueado. Se passar a
-funcionar, é o firewall. O botão **📋 Copiar relatório** do Diagnóstico junta tudo para enviar.
-
-### Amigo em outro país travando
-
-- No Radmin, veja se a conexão com o amigo é **direta** (e não "relay"/retransmitida): relay
-  tem banda bem menor. O ping aparece ao lado do nome dele na janela de transmissão.
-- Deixe **Qualidade adaptável** ligada (em *Editar transmissão*): o host ajusta o bitrate
-  pela conexão mais lenta da sala.
-- Deixe a **Suavização** em *Auto* (padrão): ela aumenta sozinha para quem está longe. A lista
-  de participantes mostra a suavização de cada um; alta = rede dele oscilando. Desmarcando
-  *Auto*, dá para fixar um valor.
-- Se a conexão cair, o app tenta reconectar sozinho (faixa laranja em cima do vídeo).
-
-Atalhos do player: **F11** ou duplo clique = tela cheia, **Esc** = sai da tela cheia.
+O modo **Online** (salas pelo servidor, com código, sem precisar de Radmin) está pronto no app, mas
+o servidor ainda não foi atualizado para a v3. Por enquanto, use o modo **Local**.
 
 ## Como funciona
 
 | Parte | Tecnologia |
 |---|---|
-| Interface | PySide6 (Qt) |
-| Captura de tela/janela | Desktop Duplication (DXGI), com `BitBlt` de reserva, para monitores; `PrintWindow` para janelas (Windows); `mss` (outros sistemas) |
-| Captura de som por app | WASAPI *process loopback* (Windows 10 2004+) via `ctypes` |
-| Vídeo | H.264 via PyAV/FFmpeg (NVENC / QSV / AMF / x264), baixa latência, sem B-frames |
-| Áudio | Opus 48 kHz estéreo, quadros de 20 ms |
-| Descoberta de salas | Broadcast UDP na porta **47801** em cada interface (ex.: `26.255.255.255` no Radmin) |
-| Transmissão | TCP na porta **47800** (usa as próximas portas se estiver ocupada; quem compartilha dentro da sala usa 47801+) |
-| Suavização | Jitter buffer automático: cada quadro leva o horário de captura e é exibido em ritmo constante; o atraso cobre o pior atraso recente da rede |
-| Áudio x vídeo | Mesmo relógio; o áudio corrige diferenças reamostrando (até 2%), com fade de 2 ms em toda emenda |
-| Congestionamento | Atraso na fila do host + latência vs. mínima recente + recebido vs. enviado; o bitrate cai para ~85% do que a conexão escoou e volta a subir sondando aos poucos |
-| Fila de envio | Áudio e controle passam na frente do vídeo; buffer do sistema do tamanho da conexão (banda x latência) |
+| Interface | Tauri 2 + React + TypeScript; vídeo decodificado com WebCodecs |
+| Captura | Monitor por Desktop Duplication (DXGI), janela por Windows Graphics Capture, webcam por Media Foundation |
+| Conversão de cor | NV12 pela placa de vídeo (Video Processor do D3D11), com reserva no processador |
+| Vídeo | H.264 por Media Foundation (hardware ou software), sem B-frames; 3 camadas (simulcast) |
+| Áudio | Opus 48 kHz estéreo; som por app via WASAPI *process loopback* |
+| Rede | QUIC (quinn): controle em streams, mídia em datagramas; tudo em UDP |
+| Descoberta | Anúncio UDP na porta **47801** em cada rede do PC (inclusive a do Radmin) |
+| Portas | Sala na UDP **47800** (ou a próxima livre); a mídia usa a porta seguinte |
+| Qualidade | Cada espectador manda relatórios; o alocador escolhe a camada de cada um pela banda medida |
+| Suavização | Relógio de reprodução por participante: o atraso cobre a oscilação recente da rede |
 
-Quando a conexão de um espectador não acompanha, o host descarta o vídeo atrasado
-dele e envia um novo keyframe em até 2 s, então o atraso não acumula. Sem ninguém
-assistindo, a captura fica pausada.
-
-Firewall: o instalador cria a regra `StreamaZap` liberando o programa. Na versão portátil,
-aceite o aviso do Firewall do Windows (marque redes **públicas** também, pois é assim que o
-Windows costuma classificar o Radmin).
+Detalhes no [plano da v3](docs/arquitetura-v3.md) e no [contrato do protocolo](docs/api/).
 
 ## Desenvolvimento
 
+Precisa de Rust (estável) e Node.js.
+
 ```bash
-python -m venv .venv
-.venv\Scripts\activate            # Linux/macOS: source .venv/bin/activate
-pip install -r requirements-dev.txt
-python -m streamazap               # abre o app
-pytest                             # testes
-ruff check .                       # lint
+cd app
+npm install
+npm run tauri dev        # abre o app
+npm run dev              # só a interface no navegador, com dados de exemplo
 ```
 
-Fora do Windows o app roda (útil para assistir e para desenvolver), mas compartilha apenas
-o monitor inteiro e sem som.
+Verificação (a mesma do CI):
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cd app && npm run check && npm test
+```
+
+Fora do Windows o núcleo compila com stubs e um backend sintético (útil para os testes), mas não
+captura nada.
 
 ### Estrutura
 
 ```
-streamazap/
-  app.py              ponto de entrada
-  discovery.py        anúncio/descoberta de salas (UDP)
-  netutil.py          interfaces de rede, detecção do Radmin
-  protocol.py         protocolo TCP (handshake, vídeo, áudio, chat)
-  host.py             servidor da sala
-  client.py           espectador
-  player.py           reprodução de áudio com buffer
-  capture/screen.py   captura de tela e janelas
-  capture/audio.py    escolha de apps e mixagem
-  capture/audio_win.py  WASAPI process loopback
-  media/              codificadores H.264 e Opus
-  ui/                 janelas Qt
-packaging/            PyInstaller e Inno Setup
-.github/workflows/    CI e geração do instalador
+crates/zap-proto    tipos e formatos do protocolo (sem I/O)
+crates/zap-rate     qualidade e latência: alocador de camadas, relógio, simulador de enlace
+crates/zap-net      QUIC, descoberta na rede local, cliente da API do servidor
+crates/zap-gpu      D3D11, texturas, conversão para NV12
+crates/zap-capture  monitor (DXGI), janela (WGC), câmera
+crates/zap-encode   H.264 por Media Foundation
+crates/zap-audio    Opus, som por app e saída de áudio
+crates/zap-media    pipelines de vídeo e áudio + backend sintético
+crates/zap-sys      firewall, interfaces de rede, Radmin
+crates/zap-core     a sala, as transmissões e o estado para a interface
+app/src-tauri       app Tauri (comandos, eventos, atualizador)
+app/src             interface React
+docs/               estado atual, arquitetura, protocolo e design
+streamazap/         app antigo em Python (sai no marco M6)
 ```
 
-### Ícone
-
-A arte fica em `packaging/icon-source.*` (png, jpg ou webp, quadrada). Para trocar,
-substitua esse arquivo: a build roda `packaging/make_icon.py`, que recorta o fundo
-branco fora do quadrado arredondado e gera o `.ico` do executável/instalador e o
-`.png` das janelas. Localmente: `pip install pillow && python packaging/make_icon.py`.
-
-### Releases automáticas
-
-Cada push no branch `master` compila o app no GitHub Actions (Windows), gera o
-instalador e publica uma **Release** automaticamente. É de lá que o app baixa as
-atualizações.
-
-- A versão é `MAJOR.MINOR` de `streamazap/__init__.py` + o número da build
-  (ex.: `0.1.42`). Para mudar MAJOR/MINOR, edite `__version__`.
-- Push em outros branches só compila: o instalador fica em **Actions → (build) → Artifacts**.
-- Para não publicar um push específico, escreva `[skip release]` na mensagem do commit.
-- Commits que só mexem em documentação (`*.md`) não geram build.
-- Versão específica: `git tag v1.0.0 && git push origin v1.0.0`, ou
-  **Actions → Build & Release → Run workflow**.
-
-## streamaZap v3 (Tauri)
-
-A v3 é a reescrita do app em Rust + Tauri (instalador de ~10 MB). Ela instala por usuário, sem pedir administrador, e atualiza sozinha: o app verifica a Release, baixa a nova versão e checa a assinatura antes de instalar.
-
-### Gerar as chaves de assinatura
-
-Uma vez só, na pasta do app:
-
-```bash
-cd app
-npx tauri signer generate -w ~/.tauri/streamazap.key
-```
-
-O comando pede uma senha e gera dois arquivos:
-
-- `streamazap.key`: a chave **privada**. Nunca commite esse arquivo e guarde um backup seguro. Se você perder a chave, os usuários já instalados não conseguem mais receber atualizações.
-- `streamazap.key.pub`: a chave **pública**. Copie o conteúdo dela para `app/src-tauri/tauri.conf.json`, no campo `plugins.updater.pubkey`, substituindo o placeholder `COLE_AQUI_A_CHAVE_PUBLICA`. Sem isso, o app mostra "atualização não configurada nesta build".
-
-### Segredos do GitHub
-
-Em **Settings → Secrets and variables → Actions → New repository secret**, crie:
-
-- `TAURI_SIGNING_PRIVATE_KEY`: o conteúdo do arquivo da chave privada (`streamazap.key`).
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: a senha usada ao gerar a chave.
+O estado atual e os próximos passos ficam em [`docs/ESTADO.md`](docs/ESTADO.md).
 
 ### Publicar uma versão
 
-1. Ajuste o campo `version` em `app/src-tauri/tauri.conf.json` e em `Cargo.toml`.
-2. Crie a tag e envie: `git tag v3.0.0 && git push origin v3.0.0`. Ou vá em **Actions → Release v3 → Run workflow**.
+1. Ajuste a versão em `Cargo.toml` (workspace), `app/src-tauri/tauri.conf.json`,
+   `app/package.json` e no `VERSAO` de `App.tsx` e `ConfigSobre.tsx`.
+2. Envie a tag: `git tag v3.X.Y && git push origin v3.X.Y`.
 
-O workflow `.github/workflows/release-v3.yml` publica o instalador `StreamaZap-Setup-X.Y.Z.exe`, o zip portátil, o `latest.json` e as assinaturas `.sig`.
+O workflow `release-v3.yml` gera o instalador, o zip portátil, o `latest.json` e as assinaturas, e
+publica a Release. Push no `master` só roda o CI (não publica nada).
 
-Canais:
-
-- **Estável**: a Release normal. O app consulta `releases/latest/download/latest.json`.
-- **Beta**: use uma tag com sufixo, por exemplo `v3.1.0-beta.1`, ou rode o workflow com a entrada `canal=beta`. A Release é marcada como prerelease e o `latest-beta.json` é anexado à Release fixa `canal-beta`.
-
-### Migração do app Python
-
-A primeira instalação da v3 remove sozinha a versão antiga (Inno Setup), em modo silencioso. Essa remoção pede administrador uma vez. As configurações da versão antiga não são migradas.
+- **Canal beta:** tag com sufixo (ex.: `v3.2.0-beta.1`). A Release sai como prerelease e só chega
+  a quem escolheu o canal beta nas Configurações.
+- **Assinatura do atualizador:** a chave pública fica em `plugins.updater.pubkey` do
+  `tauri.conf.json`; a privada e a senha ficam nos segredos do GitHub
+  `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Sem a chave privada, quem já
+  tem o app não recebe mais atualizações: guarde um backup.
 
 ## Licença
 
