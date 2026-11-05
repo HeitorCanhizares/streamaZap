@@ -323,6 +323,10 @@ O que o CI pegou e foi corrigido:
 - `zap-capture`: os testes que duplicam o monitor rodavam em paralelo, e o segundo
   `DuplicateOutput` dava E_INVALIDARG e pulava em silêncio (3 no CI; 1 por rodada aqui, em
   `lock_dispositivo.rs`). Agora esperam a vez num mutex, como os do `zap-media`.
+- `janela_animada_gera_quadros`, que pulava por causa disso, passou a rodar e falhou uma vez no CI
+  do `master` (22 quadros novos/s; a meta é 30). No runner quem compõe a tela é a CPU, e a taxa
+  oscila (passou na rodada anterior). Decisão do dono do projeto: a meta de 30 vale em GPU de
+  verdade (aqui dá 106–121); no adaptador de software o teste exige 10.
 
 Para rodar o CI de novo sem push: aba Actions, "v3 (Rust + interface)", "Run workflow".
 
