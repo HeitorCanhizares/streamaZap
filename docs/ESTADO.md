@@ -326,7 +326,14 @@ O que o CI pegou e foi corrigido:
 - `janela_animada_gera_quadros`, que pulava por causa disso, passou a rodar e falhou uma vez no CI
   do `master` (22 quadros novos/s; a meta é 30). No runner quem compõe a tela é a CPU, e a taxa
   oscila (passou na rodada anterior). Decisão do dono do projeto: a meta de 30 vale em GPU de
-  verdade (aqui dá 106–121); no adaptador de software o teste exige 10.
+  verdade (aqui dá 106–121); no adaptador de software o teste exige 10. No runner deu 22 e 36.
+
+**Aberto:** o aceite 2 Online (`online_aceite_2`) falhou 1 vez em 5 no Windows do CI (run
+42019236899, primeira tentativa): A e C certos, mas **B, que assiste direto e sem limite, ficou na
+camada 1 os 30 s** em vez de subir para a 0 (8000 kbps, pede 9200 disponíveis). Passou ao repetir
+o job; no Linux passou todas as vezes. Hipótese não verificada: no runner sobrecarregado (build
+de debug, H.264 de software a 1080p60) a sondagem em degraus não prova a banda a tempo. O aceite
+não foi mexido.
 
 Para rodar o CI de novo sem push: aba Actions, "v3 (Rust + interface)", "Run workflow".
 
