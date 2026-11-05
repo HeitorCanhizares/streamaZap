@@ -179,6 +179,7 @@ mod tests {
 
     #[test]
     fn duplication_cria_e_tem_tamanho_do_monitor() {
+        let _vez = crate::vez_da_duplicacao();
         let Some((dev, mon)) = preparar() else { return };
         let dup = match Duplication::new(&dev, &mon) {
             Ok(d) => d,
@@ -200,6 +201,7 @@ mod tests {
 
     #[test]
     fn acquire_retorna_frame_ou_timeout_em_500ms() {
+        let _vez = crate::vez_da_duplicacao();
         let Some((dev, mon)) = preparar() else { return };
         let Ok(mut dup) = Duplication::new(&dev, &mon) else {
             eprintln!("pulando: duplicação indisponível");
@@ -221,6 +223,7 @@ mod tests {
 
     #[test]
     fn wait_vblank_retorna_em_ate_100ms() {
+        let _vez = crate::vez_da_duplicacao();
         let Some((dev, mon)) = preparar() else { return };
         let Ok(dup) = Duplication::new(&dev, &mon) else {
             eprintln!("pulando: duplicação indisponível");

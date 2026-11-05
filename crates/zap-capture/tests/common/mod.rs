@@ -27,6 +27,13 @@ impl FrameSink for SinkTeste {
 
 pub type Erros = Arc<Mutex<Vec<String>>>;
 
+/// Vez dos testes que duplicam o monitor (um por vez em cada processo de teste): em paralelo, o
+/// segundo `DuplicateOutput` dá E_INVALIDARG e o teste pula. Segure a guarda até o fim do teste.
+pub fn vez_da_duplicacao() -> std::sync::MutexGuard<'static, ()> {
+    static VEZ: Mutex<()> = Mutex::new(());
+    VEZ.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub fn novo_sink() -> (SinkTeste, Receiver<CapturedFrame>, Erros) {
     let (tx, rx) = channel();
     let erros: Erros = Arc::new(Mutex::new(Vec::new()));

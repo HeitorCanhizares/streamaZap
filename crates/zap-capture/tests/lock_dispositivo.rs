@@ -22,6 +22,7 @@ use zap_gpu::{GpuDevice, PixelFormat, Texture};
 /// a frente gpu entregar `dev.lock()`, pode-se medir só a espera pelo lock.
 #[test]
 fn captura_nao_segura_o_dispositivo() {
+    let _vez = common::vez_da_duplicacao();
     let Some(mon) = list_monitors().ok().and_then(|v| v.into_iter().next()) else {
         eprintln!("pulado: sem monitores");
         return;
@@ -100,6 +101,7 @@ fn captura_nao_segura_o_dispositivo() {
 /// `new_content` em 1 s.
 #[test]
 fn janela_animada_gera_quadros() {
+    let _vez = common::vez_da_duplicacao();
     let Some(mon) = list_monitors().ok().and_then(|v| v.into_iter().next()) else {
         eprintln!("pulado: sem monitores");
         return;

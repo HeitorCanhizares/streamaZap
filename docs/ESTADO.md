@@ -1,17 +1,17 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-05, no fechamento da rodada 4 (M2b: conversão NV12 pela CPU). O trabalho das
-rodadas M4/M4b/M4c/M2b está na branch `m4-online`, em commits locais (sem push); `master` e
-`claude/loving-davinci-le0qac` têm o estado anterior.
+Atualizado em 2026-11-05, depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
+Diagnóstico e do CI. O trabalho das rodadas M4/M4b/M4c/M2b está na branch `m4-online`, já no
+GitHub e com o CI da v3 verde; `master` e `claude/loving-davinci-le0qac` têm o estado anterior.
 
 ## Antes de qualquer push no `master`
 
 - **Todo push no `master` publica uma Release do app Python.** O `build.yml` gera o instalador e
   marca como a última Release. Até o M6, ponha `[skip release]` na mensagem do commit do topo do
   push (é a do `head_commit` que conta).
-- **O CI da v3 (`rust.yml`) ainda não foi conferido com o M4 pronto.** No Windows (MSVC, GTX 1060)
-  passam fmt, clippy `-D warnings` e `cargo test --workspace` inteiro (1454 testes); o Linux e o
-  clippy do alvo `windows-gnu` não foram rodados.
+- **O CI da v3 (`rust.yml`) passa com o M4 pronto** na `m4-online` (Linux, Windows e front-end;
+  ver "CI da v3" abaixo). No `master` ele está vermelho desde o esqueleto do M4: o merge da
+  `m4-online` resolve.
 
 ## Resumo
 
@@ -60,9 +60,9 @@ ligado por padrão) e avisa quando a tela fica parada. Números em
 - a **conversão para NV12 pela CPU** (M2b, rodada 4) está feita e medida: o `Auto` cai para a CPU sem
   Video Processor, e a janela de tamanho ímpar passou a transmitir. A leitura lenta foi
   investigada (espera pelo quadro capturado, não a cópia; ver "Investigação da leitura" abaixo).
-  Falta testar num PC sem Video Processor de verdade (aqui só pelo adaptador básico e
-  `--conversao cpu`);
-- rodar a cadeia de dispositivos do `zap-gpu` no CI Windows.
+  O runner do CI Windows é um PC sem Video Processor de verdade: lá a cadeia cai no "Microsoft
+  Basic Render Driver" e o pipeline pela CPU (captura DXGI, NV12 na CPU, H.264 de software) roda
+  e passa nos testes. Falta só a medida de desempenho num PC de usuário sem VP.
 
 ### 3. Chaves do updater e uma release de teste (M5)
 
@@ -226,8 +226,8 @@ como no servidor de teste, ele precisa de cinco mudanças. A referência em cód
 
 ### Próximos passos
 1. Servidor de produção (acima), depois um teste do app com ele entre dois PCs.
-2. CI Windows/Linux com o M4 e a cadeia de dispositivos do `zap-gpu`; entrega de memória ao
-   codificador de software (portão aberto).
+2. Levar a `m4-online` ao `master` (com `[skip release]` no commit do topo), o que deixa o CI do
+   `master` verde de novo; entrega de memória ao codificador de software (portão aberto).
 3. M5: chaves do updater e uma release de teste. M6: paridade e remoção do app Python.
 
 ## Atualização do M4 (2026-11-04, rodada M4b + M2, fechamento no Windows)
@@ -302,20 +302,39 @@ produção seguir o contrato novo e um teste entre dois PCs com ele.
 
 ## O que foi verificado e como
 
-- **Linux (CI)**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (inclui
-  os testes de aceite no simulador de rede e os de sala com mídia sintética), e
-  `cargo check/clippy --target x86_64-pc-windows-gnu` (o código do Windows compila e os testes
-  linkam com MinGW). Front-end: `tsc`, ~600 testes vitest, `vite build`. Isso valia antes do M4;
-  o fechamento atual foi no Windows (ver "Atualização do M4").
-- **Windows (aqui, sem GPU de vídeo)**: `zap-test-server` com fmt, clippy `-D warnings` e todos
-  os testes; `zap-net` (`online::types`).
+### CI da v3 (2026-11-05, `m4-online`, run 42012019146)
+
+Primeiro push com o M4 pronto: os três jobs do `rust.yml` passaram na primeira.
+- **Linux**: `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace` (1313 testes, os
+  só-Windows ficam de fora; inclui os aceites do M4 com o `zap-test-server`) e
+  `cargo check --target x86_64-pc-windows-gnu` com MinGW.
+- **Windows** (`windows-latest`): clippy `-D warnings` e `cargo test --workspace` (1467 testes, 0
+  falhas). **O runner não tem GPU de vídeo**: a cadeia do `zap-gpu` escolhe o "Microsoft Basic
+  Render Driver" (sem vídeo), e por isso rodam de verdade a captura DXGI, a conversão NV12 pela
+  CPU e o H.264 de software (`cpu_gera_quadros`, `cpu_duas_camadas`, `auto_cai_para_cpu_sem_vp`,
+  `gpu_sem_vp_nao_cai`...). Pulam os testes que exigem Video Processor ou MFT de hardware, e a
+  câmera. Um passo de resumo do job mostra a placa escolhida e os motivos de pulo.
+- **Front-end**: `tsc`, vitest (83 arquivos) e `vite build`.
+
+O que o CI pegou e foi corrigido:
+- `zap-gpu`: o último passo da cadeia pegava o primeiro adaptador de qualquer tipo, que podia ser
+  a mesma GPU que acabara de falhar. Agora tenta o adaptador de software, e a ordem ficou numa
+  função testada sem GPU (`em_cadeia`).
+- `zap-net`: `send_us_trunca` lia o relógio na ordem errada e dava -1 us (4294967295).
+- `zap-capture`: os testes que duplicam o monitor rodavam em paralelo, e o segundo
+  `DuplicateOutput` dava E_INVALIDARG e pulava em silêncio (3 no CI; 1 por rodada aqui, em
+  `lock_dispositivo.rs`). Agora esperam a vez num mutex, como os do `zap-media`.
+
+Para rodar o CI de novo sem push: aba Actions, "v3 (Rust + interface)", "Run workflow".
+
+### Outras verificações
+
 - **App de verdade**: o binário Tauri abre num X virtual e mostra a interface com dados do núcleo
-  (`docs/design/prints/app-real-salas.png`).
-- **Windows (CI `windows-latest`)**: rodaram de verdade o loopback de áudio por app (WASAPI,
-  blocos de 20 ms), Opus, listas de apps/janelas/monitores, firewall por COM, VPNs, abertura do
-  codificador de software do Media Foundation e o pipeline sintético.
-  **O runner não tem GPU com suporte a vídeo**, então os testes de conversão NV12, captura DXGI/WGC
-  e codificação H.264 **pularam**.
+  (`docs/design/prints/app-real-salas.png`). Neste PC (GTX 1060) o fechamento de cada rodada roda
+  fmt, clippy e o `cargo test --workspace` inteiro, com captura, NV12 e NVENC de verdade.
+- **Windows (CI)**, desde o M2: loopback de áudio por app (WASAPI, blocos de 20 ms), Opus, listas
+  de apps/janelas/monitores, firewall por COM, VPNs e o codificador de software do Media
+  Foundation.
 
 ## Melhorias conhecidas (não bloqueiam)
 

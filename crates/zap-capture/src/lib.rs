@@ -30,6 +30,15 @@ mod windows_list;
 #[cfg(not(windows))]
 mod stub;
 
+/// Vez dos testes que duplicam o monitor. O DXGI só aceita uma duplicação por monitor em cada
+/// processo: em paralelo, o segundo `DuplicateOutput` dá E_INVALIDARG e o teste pula em silêncio
+/// (visto no CI Windows). Segure a guarda até o fim do teste.
+#[cfg(all(test, windows))]
+pub(crate) fn vez_da_duplicacao() -> std::sync::MutexGuard<'static, ()> {
+    static VEZ: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    VEZ.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 pub use camera_mode::{pick_camera_mode, CameraMode};
 pub use error::CaptureError;
 pub use handle::CaptureHandle;

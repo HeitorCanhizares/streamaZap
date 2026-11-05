@@ -226,6 +226,7 @@ mod tests {
 
     #[test]
     fn capture_monitor_entrega_quadro_em_1s() {
+        let _vez = crate::vez_da_duplicacao();
         let Ok(monitores) = crate::list_monitors() else {
             eprintln!("pulando: sem monitores");
             return;
