@@ -4298,7 +4298,7 @@ checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
 
 [[package]]
 name = "streamazap"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "parking_lot",
  "serde",
@@ -6246,7 +6246,7 @@ dependencies = [
 
 [[package]]
 name = "zap-audio"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "bytes",
  "cpal",
@@ -6262,7 +6262,7 @@ dependencies = [
 
 [[package]]
 name = "zap-capture"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "thiserror 2.0.21",
  "tracing",
@@ -6272,7 +6272,7 @@ dependencies = [
 
 [[package]]
 name = "zap-core"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -6302,7 +6302,7 @@ dependencies = [
 
 [[package]]
 name = "zap-encode"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "bytes",
  "crossbeam-channel",
@@ -6314,7 +6314,7 @@ dependencies = [
 
 [[package]]
 name = "zap-gpu"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "thiserror 2.0.21",
  "tracing",
@@ -6323,7 +6323,7 @@ dependencies = [
 
 [[package]]
 name = "zap-media"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "bytes",
  "crossbeam-channel",
@@ -6342,7 +6342,7 @@ dependencies = [
 
 [[package]]
 name = "zap-net"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "axum",
  "bytes",
@@ -6371,7 +6371,7 @@ dependencies = [
 
 [[package]]
 name = "zap-proto"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -6385,7 +6385,7 @@ dependencies = [
 
 [[package]]
 name = "zap-rate"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "proptest",
  "zap-proto",
@@ -6393,7 +6393,7 @@ dependencies = [
 
 [[package]]
 name = "zap-sys"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "if-addrs",
  "serde",
@@ -6406,7 +6406,7 @@ dependencies = [
 
 [[package]]
 name = "zap-test-server"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
