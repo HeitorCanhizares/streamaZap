@@ -47,7 +47,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     setCameraOn(temCamera)
   }, [temCamera])
 
-  // Transmissões dos outros, onde cada uma fica e o que assinar (o canto = câmera sobre a tela).
+  // Transmissões (dos outros e as minhas), onde cada uma fica e o que assinar (o canto = câmera
+  // sobre a tela).
   const streams = room ? streamsDaSala(room, meId) : []
   const lugares = lugaresDasStreams(streams, escolhas)
   const celulas = celulasDaPrincipal(streams, lugares)
@@ -59,7 +60,11 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
       lugar: cantos.has(s.trackId) ? 'canto' : lugares[s.trackId] === 'principal' ? 'principal' : 'faixa',
     }))
   const canvasDe = useAssinaturas(pedidos, celulas.length)
-  const naFaixa = streams.filter((s) => lugares[s.trackId] !== 'principal')
+  // Dos outros, fora da principal (as minhas ficam no cartão Você).
+  const naFaixa = streams.filter((s) => !s.mine && lugares[s.trackId] !== 'principal')
+  const minhaTela = streams.find((s) => s.mine && s.kind !== 'camera') ?? null
+  const minhaCam = streams.find((s) => s.mine && s.kind === 'camera') ?? null
+  const minhasForaDaPrincipal = streams.some((s) => s.mine && lugares[s.trackId] !== 'principal')
   // O cartão "Você" só aparece quando transmito (o botão de compartilhar já está nos controles).
   const mostrarVoce = !!snap.share || temCamera || cameraOn
 
@@ -90,14 +95,21 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     )
   }
 
-  // Uma escolha fixa onde tudo está agora (pôr outra na principal soma, não troca); a câmera no
-  // canto de uma tela desce junto quando a tela sai da principal.
+  // Uma escolha fixa onde tudo está agora (pôr outra na principal soma, não troca). A câmera no
+  // canto de uma tela desce junto quando a tela sai da principal; a minha tela subindo leva a minha
+  // câmera, que estava no canto do cartão Você. Calculado sobre o estado mais novo: duas mudanças
+  // seguidas não se apagam.
   const onMover = (trackId: string, lugar: Lugar) => {
-    const canto = celulas.find((c) => c.stream.trackId === trackId)?.pip
-    setEscolhas({
-      ...lugares,
-      ...(canto && lugar !== 'principal' ? { [canto.trackId]: 'faixa' as Lugar } : {}),
-      [trackId]: lugar,
+    setEscolhas((e) => {
+      const atuais = lugaresDasStreams(streams, e)
+      const extra: Record<string, Lugar> = {}
+      const canto = celulasDaPrincipal(streams, atuais).find((c) => c.stream.trackId === trackId)?.pip
+      if (canto && lugar !== 'principal') extra[canto.trackId] = 'faixa'
+      const st = streams.find((x) => x.trackId === trackId)
+      if (st?.mine && st.kind !== 'camera' && lugar === 'principal' && minhaCam && atuais[minhaCam.trackId] === 'faixa') {
+        extra[minhaCam.trackId] = 'principal'
+      }
+      return { ...atuais, ...extra, [trackId]: lugar }
     })
   }
 
@@ -168,14 +180,17 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   }
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', flex: 1, minHeight: 0 }}>
-      <div style={{ flex: '999 1 600px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+    // Ocupa a altura da janela: o vídeo e a faixa rolam do lado esquerdo e o chat tem a rolagem
+    // dele, sem a página inteira crescer com as mensagens.
+    <div style={{ display: 'flex', alignItems: 'stretch', height: '100%', minHeight: 0 }}>
+      <div data-testid="sala-coluna" style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <SalaPrincipal
           room={room}
           celulas={celulas}
           tiles={snap.tiles}
           canvasDe={canvasDe}
-          temOutras={naFaixa.length > 0}
+          temOutras={naFaixa.length > 0 || minhasForaDaPrincipal}
+          temFaixa={naFaixa.length > 0 || mostrarVoce}
           volumeDe={volumeDe}
           onVolumePessoa={onVolumePessoa}
           onMover={onMover}
@@ -208,6 +223,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
               onVolumePessoa={onVolumePessoa}
               onMover={onMover}
               mostrarVoce={mostrarVoce}
+              minhaTela={minhaTela}
+              minhaCam={minhaCam}
               meId={meId}
               camOn={cameraOn}
               sharing={!!snap.share}

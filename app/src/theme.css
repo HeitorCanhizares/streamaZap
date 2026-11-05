@@ -329,3 +329,23 @@ label:has(> .zp-toggle) { display: inline-flex; align-items: center; gap: 10px; 
 .zp-d { animation: zpDot 1.2s ease-in-out infinite; }
 
 button { color: inherit; }
+
+/* Barras de rolagem finas e escuras (as do Windows são largas e claras no tema escuro). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a443c transparent;
+}
+/* WebView2 antigo (sem scrollbar-color): o mesmo visual pelo ::-webkit-scrollbar. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a443c; border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #3a5a50; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Palco da sala: a barra de controles fica compacta quando o vídeo é estreito (uma linha só, sem
+   cobrir metade da imagem): some a régua de volume e a suavização, e "Compartilhar" vira ícone. */
+.zp-palco { container-type: inline-size; }
+@container (max-width: 700px) {
+  .zp-ctl-opc { display: none !important; }
+  .zp-ctl-txt { display: none; }
+}

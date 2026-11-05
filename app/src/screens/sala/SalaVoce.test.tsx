@@ -1,65 +1,83 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-vi.mock('../../video/player', () => ({
-  VideoPlayer: class { push() {} close() {} },
-}))
-
-import { api } from '../../bridge/api'
 import { mockSnapshot } from '../../bridge/mock'
-import { SalaVoce } from './SalaVoce'
+import { SalaVoce, type SalaVoceProps } from './SalaVoce'
+import type { Lugar, Stream } from './salaModel'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 const room = mockSnapshot().room!
+const tela: Stream = { trackId: 'minha-tela', ownerId: 'eu', kind: 'screen', tile: 40, mine: true }
+const cam: Stream = { trackId: 'minha-cam', ownerId: 'eu', kind: 'camera', tile: 41, mine: true }
 
-function spies() {
-  const watch = vi.spyOn(api, 'watch').mockResolvedValue(undefined as never)
-  const unwatch = vi.spyOn(api, 'unwatch').mockResolvedValue(undefined as never)
-  return { watch, unwatch }
+function montar(over: Partial<SalaVoceProps> = {}) {
+  const onMover = vi.fn<(trackId: string, lugar: Lugar) => void>()
+  const canvases = new Map<string, HTMLCanvasElement>()
+  const canvasDe = (id: string) => {
+    let c = canvases.get(id)
+    if (!c) { c = document.createElement('canvas'); canvases.set(id, c) }
+    return c
+  }
+  render(<SalaVoce room={room} meId="eu" camOn={false} sharing={false} canvasDe={canvasDe} onMover={onMover} {...over} />)
+  return { onMover, canvasDe }
 }
 
 describe('SalaVoce', () => {
   it('renderiza titulo Você e os botoes Câmera e Tela', () => {
-    spies()
-    render(<SalaVoce room={room} meId="p-ju" camOn={false} sharing={false} />)
+    const cam = vi.fn()
+    const share = vi.fn()
+    montar({ onToggleCam: cam, onToggleShare: share })
     expect(screen.getByText('Você')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Câmera' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Tela' })).toBeTruthy()
-  })
-
-  it('camOn com trilha camera propria chama api.watch com trk-3 e tile 9001', () => {
-    const { watch } = spies()
-    render(<SalaVoce room={room} meId="p-ju" camOn={true} sharing={false} />)
-    expect(watch).toHaveBeenCalledWith('trk-3', 9001, [320, 180], 2, expect.any(Function))
-    expect(screen.getByText('sua câmera')).toBeTruthy()
-  })
-
-  it('camOn sem trilha propria nao chama watch', () => {
-    const { watch } = spies()
-    render(<SalaVoce room={room} meId="p-ninguem" camOn={true} sharing={false} />)
-    expect(watch).not.toHaveBeenCalled()
-  })
-
-  it('desmontar chama api.unwatch', () => {
-    const { unwatch } = spies()
-    const { unmount } = render(<SalaVoce room={room} meId="p-ju" camOn={true} sharing={false} />)
-    unmount()
-    expect(unwatch).toHaveBeenCalledWith(9001)
-  })
-
-  it('clicar em Câmera chama onToggleCam', () => {
-    spies()
-    const fn = vi.fn()
-    render(<SalaVoce room={room} meId="p-ju" camOn={false} sharing={false} onToggleCam={fn} />)
     fireEvent.click(screen.getByRole('button', { name: 'Câmera' }))
-    expect(fn).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Tela' }))
+    expect(cam).toHaveBeenCalled()
+    expect(share).toHaveBeenCalled()
   })
 
-  it('aria-pressed reflete camOn e sharing', () => {
-    spies()
-    render(<SalaVoce room={room} meId="p-ninguem" camOn={true} sharing={false} />)
-    expect(screen.getByRole('button', { name: 'Câmera' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: 'Tela' }).getAttribute('aria-pressed')).toBe('false')
+  it('sem transmitir e só o som: avisos', () => {
+    montar()
+    expect(screen.getByText('Você não está transmitindo')).toBeTruthy()
+    cleanup()
+    montar({ sharing: true })
+    expect(screen.getByText('Transmitindo só o som')).toBeTruthy()
+  })
+
+  it('mostra a minha tela com a câmera no canto, nos canvases das transmissões', () => {
+    const { canvasDe } = montar({ sharing: true, camOn: true, tela, cam })
+    expect(screen.getByRole('img', { name: 'Prévia: sua tela' }).contains(canvasDe('minha-tela'))).toBe(true)
+    expect(screen.getByRole('img', { name: 'Prévia: câmera' }).contains(canvasDe('minha-cam'))).toBe(true)
+  })
+
+  it('pôr a minha tela na tela principal', () => {
+    const { onMover } = montar({ sharing: true, tela })
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr minha tela na tela principal' }))
+    expect(onMover).toHaveBeenCalledWith('minha-tela', 'principal')
+  })
+
+  it('só a câmera: sobe a câmera', () => {
+    const { onMover } = montar({ camOn: true, cam })
+    expect(screen.getByRole('img', { name: 'Prévia: sua câmera' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr minha câmera na tela principal' }))
+    expect(onMover).toHaveBeenCalledWith('minha-cam', 'principal')
+  })
+
+  it('na tela principal: aviso no cartão e sem prévia aqui', () => {
+    montar({ sharing: true, tela, lugares: { 'minha-tela': 'principal' } })
+    expect(screen.getByText('Sua transmissão está na tela principal')).toBeTruthy()
+    expect(screen.queryByRole('img', { name: 'Prévia: sua tela' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pôr minha tela na tela principal' })).toBeNull()
+  })
+
+  it('esconder e mostrar a prévia', () => {
+    const { onMover } = montar({ sharing: true, camOn: true, tela, cam })
+    fireEvent.click(screen.getByRole('button', { name: 'Esconder minha prévia' }))
+    expect(onMover).toHaveBeenCalledWith('minha-tela', 'fechada')
+    expect(onMover).toHaveBeenCalledWith('minha-cam', 'fechada')
+    cleanup()
+    const r = montar({ sharing: true, tela, lugares: { 'minha-tela': 'fechada' } })
+    expect(screen.getByText('Prévia escondida')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar minha prévia' }))
+    expect(r.onMover).toHaveBeenCalledWith('minha-tela', 'faixa')
   })
 })

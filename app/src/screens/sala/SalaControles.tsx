@@ -102,32 +102,32 @@ export function SalaControles(props: SalaControlesProps): ReactNode {
       </label>
       <input
         id="zp-sala-vol"
-        className="zp-range"
         type="range"
         min={0}
         max={100}
         value={volume}
         onChange={(e) => props.onVolume(Number(e.currentTarget.value))}
         title="Volume geral"
+        className="zp-range zp-ctl-opc"
         style={{ width: 90 }}
       />
-      <span aria-hidden="true" style={separador} />
+      <span aria-hidden="true" className="zp-ctl-opc" style={separador} />
       <button type="button" className="zp-dock" onClick={props.onToggleCam} aria-label={camLabel} title={camLabel} style={camStyle}>
         <svg width="20" height="20" viewBox="0 0 24 24" strokeLinejoin="round" strokeLinecap={camOn ? undefined : 'round'} {...svgBase}>
           <rect x="3" y="7" width="13" height="10" rx="2" />
           {camOn ? <path d="m16 11 5-3v8l-5-3z" /> : <path d="m16 11 5-3v8l-5-3zM3 3l18 18" />}
         </svg>
       </button>
-      <button type="button" className="zp-dock" onClick={props.onToggleShare} aria-pressed={sharing} style={shareStyle}>
+      <button type="button" className="zp-dock" onClick={props.onToggleShare} aria-pressed={sharing} aria-label={sharing ? 'Transmissão' : 'Compartilhar'} title={sharing ? 'Ajustar a transmissão' : 'Compartilhar'} style={shareStyle}>
         <svg width="20" height="20" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" {...svgBase}>
           <rect x="3" y="4" width="18" height="12" rx="2" />
           <path d="M8 20h8M12 16v4M12 13V7M9 10l3-3 3 3" />
         </svg>
-        {sharing ? 'Transmissão' : 'Compartilhar'}
+        <span className="zp-ctl-txt">{sharing ? 'Transmissão' : 'Compartilhar'}</span>
       </button>
       <button
         type="button"
-        className="zp-dock"
+        className="zp-dock zp-ctl-opc"
         aria-label={`Suavização automática, ${smoothingMs} milissegundos`}
         title="Suavização"
         style={{

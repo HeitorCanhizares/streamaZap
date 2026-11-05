@@ -62,7 +62,7 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
     <section
       aria-label="Salas na rede"
       style={{
-        flex: '1 1 340px', maxWidth: 392, minWidth: 340, display: 'flex', flexDirection: 'column',
+        flex: '1 1 340px', maxWidth: 392, minWidth: 340, minHeight: 0, display: 'flex', flexDirection: 'column',
         background: '#0F1916', borderRight: '1px solid #1F332D',
       }}
     >
@@ -114,7 +114,8 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
         ))}
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderTop: '1px solid #18292A' }}>
+      {/* Só a lista rola: o topo (busca, filtros) e o rodapé (apelido, entrar) ficam sempre à vista. */}
+      <div data-testid="lista-salas" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', borderTop: '1px solid #18292A' }}>
         {salas.map((s) => (
           <SalaItem key={s.id} sala={s} selecionada={props.selecionadaId === s.id} onSelect={props.onSelect} />
         ))}

@@ -148,7 +148,8 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
           }
         }}
       />
-      <div style={{ flex: '999 1 560px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* O detalhe rola sozinho, sem levar a lista junto. */}
+      <div data-testid="detalhe-coluna" style={{ flex: '999 1 560px', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         {promptCodigo ? (
           <EntrarCodigo
             onEntrar={entrarPorCodigo}

@@ -18,6 +18,9 @@ export interface SalaTilesProps {
   onMover: (trackId: string, lugar: Lugar) => void
   /** Mostra o cartão "Você" (só quando estou transmitindo: o botão de compartilhar já está nos controles). */
   mostrarVoce?: boolean
+  /** Minha tela/janela e minha câmera no ar (o cartão Você mostra as que estão na faixa). */
+  minhaTela?: Stream | null
+  minhaCam?: Stream | null
   meId?: string
   camOn?: boolean
   sharing?: boolean
@@ -166,7 +169,19 @@ export function SalaTiles(p: SalaTilesProps): ReactNode {
         />
       ))}
       {mostrarVoce && (
-        <SalaVoce room={room} meId={p.meId ?? ''} camOn={p.camOn ?? false} sharing={p.sharing ?? false} onToggleCam={p.onToggleCam} onToggleShare={p.onToggleShare} />
+        <SalaVoce
+          room={room}
+          meId={p.meId ?? ''}
+          camOn={p.camOn ?? false}
+          sharing={p.sharing ?? false}
+          tela={p.minhaTela ?? null}
+          cam={p.minhaCam ?? null}
+          lugares={lugares}
+          canvasDe={p.canvasDe}
+          onMover={p.onMover}
+          onToggleCam={p.onToggleCam}
+          onToggleShare={p.onToggleShare}
+        />
       )}
     </div>
   )

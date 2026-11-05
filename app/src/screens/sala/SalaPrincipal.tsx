@@ -18,6 +18,8 @@ export interface SalaPrincipalProps {
   canvasDe: (trackId: string) => HTMLCanvasElement
   /** Há transmissões fora da principal? Muda o texto da tela vazia. */
   temOutras: boolean
+  /** Há a faixa de baixo? O vídeo encolhe para ela caber na janela sem rolar. */
+  temFaixa?: boolean
   share: ShareView | null
   volumeDe: (ownerId: string) => VolumePessoa
   onVolumePessoa: (ownerId: string, v: VolumePessoa) => void
@@ -51,6 +53,10 @@ const CENTRO: CSSProperties = {
   color: '#8BA498', fontSize: 13,
 }
 const MONO = "'JetBrains Mono', monospace"
+// Altura que fica fora do vídeo (px): barra de título, cabeçalho da sala e margens; com a faixa de
+// baixo, também a altura de um cartão.
+const RESERVA_SEM_FAIXA = 180
+const RESERVA_COM_FAIXA = 400
 
 function IconeX({ size }: { size: number }): ReactNode {
   return (
@@ -99,9 +105,14 @@ interface CelulaProps {
 
 function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume, onVolumePessoa, onMover }: CelulaProps): ReactNode {
   const s = celula.stream
+  const eu = !!s.mine
   const pessoa = room.participants.find((x) => x.id === s.ownerId)
-  const nome = pessoa?.name ?? 'Alguém'
+  const nome = eu ? 'Você' : (pessoa?.name ?? 'Alguém')
   const tipo = kindLabel(s.kind)
+  const tipoMin = tipo.toLowerCase()
+  const rotuloVideo = eu ? `Sua ${tipoMin}` : `${tipo} de ${nome}`
+  const rotuloBaixo = eu ? `Mandar minha ${tipoMin} para baixo` : `Mandar ${tipoMin} de ${nome} para baixo`
+  const rotuloFechar = eu ? `Esconder minha ${tipoMin}` : `Fechar tela de ${nome}`
   const rotulo = tile ? `camada ${tile.layer + 1} · ${Math.round(tile.ping_ms)} ms ${tile.height}p${tile.fps}` : 'conectando…'
   const some: CSSProperties = { opacity: visivel ? 1 : 0, pointerEvents: visivel ? 'auto' : 'none', transition: 'opacity 0.25s ease' }
   const margem = varias ? 12 : 26
@@ -111,8 +122,8 @@ function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume
 
   return (
     <div data-testid="celula-principal" style={{ position: 'relative', minWidth: 0, minHeight: 0, background: '#0A100E', borderRadius: varias ? 12 : 0, overflow: 'hidden' }}>
-      <span style={CENTRO}>{`Carregando: ${tipo.toLowerCase()} de ${nome}…`}</span>
-      <CanvasSlot canvas={canvasDe(s.trackId)} label={`${tipo} de ${nome}`} />
+      <span style={CENTRO}>{eu ? `Carregando: sua ${tipoMin}…` : `Carregando: ${tipoMin} de ${nome}…`}</span>
+      <CanvasSlot canvas={canvasDe(s.trackId)} label={rotuloVideo} />
 
       <span style={{ ...PILULA, ...some, position: 'absolute', left: margem, top: margem, height: 30, maxWidth: `calc(100% - ${margem * 2 + 140}px)`, padding: '0 12px', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', gap: 8, whiteSpace: 'nowrap', overflow: 'hidden' }}>
         <span className="zp-blink" aria-hidden="true" style={{ flex: '0 0 7px', width: 7, height: 7, borderRadius: '50%', background: '#FF5D6E' }} />
@@ -124,15 +135,17 @@ function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume
         {!varias && (
           <span style={{ ...PILULA, height: 30, padding: '0 12px', fontFamily: MONO, fontSize: 11.5, color: 'var(--texto-2)', whiteSpace: 'nowrap' }}>{rotulo}</span>
         )}
-        <button type="button" className="zp-x" onClick={() => onVolumePessoa(s.ownerId, { ...volume, muted: !volume.muted })} aria-label={somLabel} title={somLabel}
-          style={{ ...BTN, width: lado, height: lado, borderRadius: 12, color: volume.muted ? '#FF8592' : '#E6F4EC' }}>
-          <IconeSom mudo={volume.muted} size={18} />
-        </button>
-        <button type="button" className="zp-x" onClick={() => onMover(s.trackId, 'faixa')} aria-label={`Mandar ${tipo.toLowerCase()} de ${nome} para baixo`} title="Mandar para a faixa de baixo"
+        {!eu && (
+          <button type="button" className="zp-x" onClick={() => onVolumePessoa(s.ownerId, { ...volume, muted: !volume.muted })} aria-label={somLabel} title={somLabel}
+            style={{ ...BTN, width: lado, height: lado, borderRadius: 12, color: volume.muted ? '#FF8592' : '#E6F4EC' }}>
+            <IconeSom mudo={volume.muted} size={18} />
+          </button>
+        )}
+        <button type="button" className="zp-x" onClick={() => onMover(s.trackId, 'faixa')} aria-label={rotuloBaixo} title="Mandar para a faixa de baixo"
           style={{ ...BTN, width: lado, height: lado, borderRadius: 12 }}>
           <IconeBaixo size={18} />
         </button>
-        <button type="button" className="zp-x" onClick={() => onMover(s.trackId, 'fechada')} aria-label={`Fechar tela de ${nome}`} title={`Fechar tela de ${nome}`}
+        <button type="button" className="zp-x" onClick={() => onMover(s.trackId, 'fechada')} aria-label={rotuloFechar} title={rotuloFechar}
           style={{ ...BTN, width: lado, height: lado, borderRadius: 12 }}>
           <IconeX size={18} />
         </button>
@@ -140,9 +153,9 @@ function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume
 
       {pip && (
         <span style={{ position: 'absolute', right: margem, bottom: varias ? margem : 96, width: varias ? '30%' : '22%', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden', border: '2px solid #0A100E', boxShadow: '0 0 0 1px #3BF08A, 0 10px 30px rgba(0,0,0,0.5)', background: '#0A100E' }}>
-          <CanvasSlot canvas={canvasDe(pip.trackId)} label={`Câmera de ${nome}`} />
+          <CanvasSlot canvas={canvasDe(pip.trackId)} label={eu ? 'Sua câmera' : `Câmera de ${nome}`} />
           <span style={{ position: 'absolute', left: 6, bottom: 6, padding: '2px 8px', borderRadius: 6, background: 'rgba(10,16,14,0.8)', fontSize: 11.5, pointerEvents: 'none' }}>{`cam · ${nome}`}</span>
-          <button type="button" className="zp-x" onClick={() => onMover(pip.trackId, 'faixa')} aria-label={`Tirar a câmera de ${nome} do canto`} title="Mandar a câmera para a faixa de baixo"
+          <button type="button" className="zp-x" onClick={() => onMover(pip.trackId, 'faixa')} aria-label={eu ? 'Tirar minha câmera do canto' : `Tirar a câmera de ${nome} do canto`} title="Mandar a câmera para a faixa de baixo"
             style={{ ...BTN, ...some, position: 'absolute', right: 6, top: 6, width: 32, height: 32, borderRadius: 10 }}>
             <IconeX size={15} />
           </button>
@@ -189,7 +202,7 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
   const linhas = Math.max(1, Math.ceil(n / cols))
 
   return (
-    <main style={{ flex: '999 1 600px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 28px 28px' }}>
+    <main style={{ flex: '0 0 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 28px 28px' }}>
       <SalaCabecalho
         room={room}
         main={primeira ? { track_id: primeira.trackId } : null}
@@ -202,10 +215,18 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
 
       <div
         data-testid="palco"
+        className="zp-palco"
         onPointerMove={ocioso.acordar}
         onPointerDown={ocioso.acordar}
         onPointerLeave={ocioso.sair}
-        style={{ cursor: ocioso.visivel ? 'auto' : 'none' }}
+        style={{
+          cursor: ocioso.visivel ? 'auto' : 'none',
+          width: '100%',
+          // 16:9 que cabe na altura da janela: barra de título, cabeçalho e margens (e a faixa de
+          // baixo, quando há) ficam de fora. Nunca menor que 480 px de largura.
+          maxWidth: `max(480px, calc((100vh - ${p.temFaixa ? RESERVA_COM_FAIXA : RESERVA_SEM_FAIXA}px) * 16 / 9))`,
+          alignSelf: 'center',
+        }}
       >
         <VideoFrame>
           {n > 0 ? (

@@ -119,9 +119,10 @@ const salaCheia = (): RoomView => ({
 })
 
 describe('streamsDaSala', () => {
-  it('vídeos dos outros (tela antes da câmera) e o som só de quem não tem vídeo', () => {
-    const ids = streamsDaSala(salaCheia(), 'eu').map((s) => s.trackId)
-    expect(ids).toEqual(['tela-ana', 'jan-bia', 'cam-ana', 'som-caio'])
+  it('vídeos dos outros (tela antes da câmera), o som só de quem não tem vídeo e os meus no fim', () => {
+    const s = streamsDaSala(salaCheia(), 'eu')
+    expect(s.map((x) => x.trackId)).toEqual(['tela-ana', 'jan-bia', 'cam-ana', 'som-caio', 'minha'])
+    expect(s.filter((x) => x.mine).map((x) => x.trackId)).toEqual(['minha'])
   })
 
   it('o tile é fixo por trilha', () => {
@@ -138,7 +139,7 @@ describe('lugaresDasStreams', () => {
 
   it('padrão: a primeira tela na principal com a câmera do dono; o resto embaixo', () => {
     expect(lugaresDasStreams(streams(), {})).toEqual({
-      'tela-ana': 'principal', 'cam-ana': 'principal', 'jan-bia': 'faixa', 'som-caio': 'faixa',
+      'tela-ana': 'principal', 'cam-ana': 'principal', 'jan-bia': 'faixa', 'som-caio': 'faixa', minha: 'faixa',
     })
   })
 
@@ -155,6 +156,28 @@ describe('lugaresDasStreams', () => {
     expect(l['som-caio']).toBe('faixa')
     // Já tem algo na principal: a tela da Ana fica embaixo (sem escolha).
     expect(l['tela-ana']).toBe('faixa')
+  })
+
+  it('só a minha transmissão: ela vai sozinha para a principal (com a minha câmera no canto)', () => {
+    const r: RoomView = {
+      ...salaCheia(),
+      tracks: [
+        { id: 'minha-cam', owner_id: 'eu', kind: 'camera', title: 'Cam', number: 8 },
+        { id: 'minha', owner_id: 'eu', kind: 'screen', title: 'Minha', number: 6 },
+        { id: 'som-caio', owner_id: 'caio', kind: 'audio', title: 'Áudio', number: 5 },
+      ],
+    }
+    const s = streamsDaSala(r, 'eu')
+    const l = lugaresDasStreams(s, {})
+    expect(l).toEqual({ minha: 'principal', 'minha-cam': 'principal', 'som-caio': 'faixa' })
+    expect(celulasDaPrincipal(s, l).map((c) => [c.stream.trackId, c.pip?.trackId ?? null])).toEqual([['minha', 'minha-cam']])
+  })
+
+  it('alguém começa a transmitir vídeo: a dele vai para a principal e a minha desce', () => {
+    const s = streamsDaSala(salaCheia(), 'eu')
+    const l = lugaresDasStreams(s, {})
+    expect(l.minha).toBe('faixa')
+    expect(l['tela-ana']).toBe('principal')
   })
 
   it('fechada fica fechada', () => {
@@ -187,5 +210,8 @@ describe('pedidoDoLugar', () => {
     expect(pedidoDoLugar('principal', 1).size).toEqual([1920, 1080])
     expect(pedidoDoLugar('principal', 2).size).toEqual([960, 540])
     expect(pedidoDoLugar('canto', 1).maxLayer).toBe(1)
+    // A minha na principal pede o tamanho médio (o núcleo não liga a melhor camada só para mim).
+    expect(pedidoDoLugar('principal', 1, true).size).toEqual([1280, 720])
+    expect(pedidoDoLugar('faixa', 1, true).size).toEqual([320, 180])
   })
 })

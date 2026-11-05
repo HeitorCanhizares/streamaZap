@@ -47,7 +47,7 @@ export function useAssinaturas(pedidos: PedidoStream[], celulas: number): (track
     for (const { stream: s, lugar } of pedidos) {
       vivos.add(s.trackId)
       const video = s.kind !== 'audio'
-      const { size, maxLayer } = video ? pedidoDoLugar(lugar, celulas) : { size: [320, 180] as [number, number], maxLayer: null }
+      const { size, maxLayer } = video ? pedidoDoLugar(lugar, celulas, s.mine) : { size: [320, 180] as [number, number], maxLayer: null }
       const chave = `${size[0]}x${size[1]}:${maxLayer ?? '-'}`
       let e = mapa.get(s.trackId)
       if (!e) {

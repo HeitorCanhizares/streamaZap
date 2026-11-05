@@ -133,6 +133,18 @@ Segunda leva (mesmo dia):
 - **Câmera nas configurações**: botão **Testar câmera** com a prévia ao vivo (`camera_preview`:
   abre a câmera só para a interface, sem sala; com a câmera ligada na sala, mostra a dela).
 
+Terceira leva (depois da v3.1.0):
+- **Minha transmissão na tela principal**: as minhas trilhas de vídeo entram no modelo das
+  transmissões (`Stream.mine`); sem vídeo dos outros, a minha vai sozinha para a principal. O cartão
+  Você mostra as minhas que estão na faixa e tem o botão de subir. A prévia local escolhe a camada
+  pelo tamanho pedido (`publish::video::layer_for`): a mais leve na miniatura, a camada 1 na principal
+  (não liga a 0 só para eu me ver).
+- **Rolagem e tamanhos**: barras de rolagem finas e escuras (`theme.css`); na lista de salas só a
+  lista e o detalhe rolam (topo e rodapé fixos); na sala o vídeo cabe na altura da janela (16:9,
+  com a faixa de baixo) e o chat rola sozinho, sem a página crescer com as mensagens; nas
+  configurações a coluna fica centrada com até 1280 px. A barra de controles fica compacta (uma
+  linha) quando o vídeo tem menos de 700 px de largura (container query em `.zp-palco`).
+
 ## Atualização da rodada 4 (M2b, 2026-11-05, fechamento)
 
 Conversão para NV12 pela CPU (plano `docs/planos/m2b-conversao-cpu.md`). `zap-gpu` ganhou o

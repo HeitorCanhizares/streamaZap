@@ -62,7 +62,7 @@ impl Core {
                 }
                 // Minha trilha: prévia local, sem rede.
                 drop(model);
-                self.watch_local(track.id, tile);
+                self.watch_local(track.id, tile, size);
                 return Ok(());
             }
             // Trilha de áudio sozinha (a pessoa compartilha só o som): assinatura só de áudio.
@@ -237,7 +237,7 @@ impl Core {
     /// Prévia local da minha trilha `track_id` no `tile`: o publicador dela entrega a camada mais
     /// leve direto à interface (`VideoPublisher::set_local_preview`). Trilha que não é mais minha
     /// (parei de transmitir): nada.
-    fn watch_local(&self, track_id: String, tile: TileId) {
+    fn watch_local(&self, track_id: String, tile: TileId, size: TileSize) {
         let sh = self.shared.clone();
         self.shared.rt.spawn(async move {
             let publicador = {
@@ -250,7 +250,7 @@ impl Core {
                 achado
             };
             if let Some(p) = publicador {
-                p.set_local_preview(tile, sh.playout.clone());
+                p.set_local_preview(tile, sh.playout.clone(), size);
             }
         });
     }

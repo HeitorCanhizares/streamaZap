@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crossbeam_channel::Receiver;
 use parking_lot::Mutex;
 use zap_media::{EncodedFrame, VideoPipeline, VideoPipelineConfig};
-use zap_proto::LayerSpec;
+use zap_proto::{LayerSpec, TileSize};
 use zap_rate::allocator::Allocator;
 
 use super::viewer::ViewerLink;
@@ -27,8 +27,8 @@ pub struct VideoShared {
     /// Camadas pedidas pelo servidor Online (`camadas.pedidas`); somadas (maior kbps por
     /// camada) ao pedido do alocador a cada tick.
     pub bridge_requests: Mutex<Vec<zap_rate::allocator::LayerRequest>>,
-    /// Prévia local (eu vendo o que transmito): a camada mais leve vai direto para o tile da
-    /// interface, sem passar pela rede.
+    /// Prévia local (eu vendo o que transmito): uma camada vai direto para o tile da interface,
+    /// sem passar pela rede (a mais leve na miniatura, a do meio na tela principal).
     pub local_preview: Mutex<Option<LocalPreview>>,
 }
 
@@ -36,22 +36,34 @@ pub struct VideoShared {
 pub struct LocalPreview {
     pub tile: TileId,
     pub out: Arc<PlayoutHub>,
+    /// Tamanho pedido pela interface: escolhe a camada (`layer_for`).
+    pub size: TileSize,
     /// Ainda sem keyframe entregue: o decodificador da interface só começa num keyframe.
     pub waiting_key: bool,
 }
 
+/// Camada da prévia local para o tamanho pedido: a mais leve (maior número) na miniatura; na
+/// tela principal, a segunda melhor (camada 1), para não ligar a camada 0 só para eu me ver. Escada
+/// com uma camada só: ela.
+pub fn layer_for(ladder: &[LayerSpec], size: TileSize) -> Option<u8> {
+    let mut camadas: Vec<u8> = ladder.iter().map(|l| l.layer).collect();
+    camadas.sort_unstable();
+    match size {
+        TileSize::Thumbnail => camadas.last().copied(),
+        TileSize::Main | TileSize::Full => camadas.get(1).or(camadas.last()).copied(),
+    }
+}
+
 impl VideoShared {
-    /// Camada da prévia local: a mais leve da escada (maior número).
+    /// Camada da prévia local (`None` sem prévia). Trava a prévia e a escada uma depois da outra.
     pub fn preview_layer(&self) -> Option<u8> {
-        self.ladder.lock().iter().map(|l| l.layer).max()
+        let size = self.local_preview.lock().as_ref().map(|p| p.size)?;
+        layer_for(&self.ladder.lock(), size)
     }
 
     /// Pedidos que não vêm do alocador: os da ponte Online e o da prévia local, unidos.
     pub fn extra_requests(&self) -> Vec<zap_rate::allocator::LayerRequest> {
         let ponte = self.bridge_requests.lock().clone();
-        if self.local_preview.lock().is_none() {
-            return ponte;
-        }
         let previa: Vec<_> = self
             .preview_layer()
             .and_then(|camada| {
@@ -73,7 +85,8 @@ impl VideoShared {
     pub fn deliver_preview(&self, f: &EncodedFrame) {
         let mut previa = self.local_preview.lock();
         let Some(p) = previa.as_mut() else { return };
-        if self.preview_layer() != Some(f.layer) {
+        // Ordem das travas: prévia e depois escada (`preview_layer` não segura as duas juntas).
+        if layer_for(&self.ladder.lock(), p.size) != Some(f.layer) {
             return;
         }
         if p.waiting_key && !f.keyframe {
@@ -170,12 +183,13 @@ impl VideoPublisher {
             self.shared.pipeline.set_requests(&self.shared.extra_requests());
         }
     }
-    /// Liga a prévia local no `tile` (substitui a anterior): a camada mais leve passa a ser
-    /// codificada mesmo sem espectador e chega à interface pela `PlayoutHub`, sem rede.
-    pub fn set_local_preview(&self, tile: TileId, out: Arc<PlayoutHub>) {
+    /// Liga a prévia local no `tile` (substitui a anterior): a camada de `layer_for(size)` passa
+    /// a ser codificada mesmo sem espectador e chega à interface pela `PlayoutHub`, sem rede.
+    pub fn set_local_preview(&self, tile: TileId, out: Arc<PlayoutHub>, size: TileSize) {
         *self.shared.local_preview.lock() = Some(LocalPreview {
             tile,
             out,
+            size,
             waiting_key: true,
         });
         // Liga a camada já (sem esperar o tick) e pede o keyframe para a interface começar.
@@ -386,5 +400,23 @@ mod tests {
         // A tarefa do alocador pode demorar um tick para soltar o Arc.
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn camada_da_previa_pelo_tamanho() {
+        let c = |layer: u8| LayerSpec {
+            layer,
+            width: 640,
+            height: 360,
+            fps: 30,
+            kbps: 500,
+        };
+        let escada = vec![c(0), c(1), c(2)];
+        // Miniatura: a mais leve; tela principal: a do meio (não liga a 0 só para eu me ver).
+        assert_eq!(super::layer_for(&escada, TileSize::Thumbnail), Some(2));
+        assert_eq!(super::layer_for(&escada, TileSize::Main), Some(1));
+        assert_eq!(super::layer_for(&escada, TileSize::Full), Some(1));
+        assert_eq!(super::layer_for(&[c(0)], TileSize::Full), Some(0));
+        assert_eq!(super::layer_for(&[], TileSize::Main), None);
     }
 }

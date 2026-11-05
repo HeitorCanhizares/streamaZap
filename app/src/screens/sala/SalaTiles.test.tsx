@@ -5,7 +5,6 @@ vi.mock('../../video/player', () => ({
   VideoPlayer: class { push() {} close() {} },
 }))
 
-import { api } from '../../bridge/api'
 import { SalaTiles, type SalaTilesProps } from './SalaTiles'
 import { volumeInicial, type Lugar, type Stream, type VolumePessoa } from './salaModel'
 import type { RoomView } from '../../bridge/types'
@@ -108,21 +107,18 @@ describe('SalaTiles', () => {
     expect(screen.queryByRole('group', { name: 'Transmissões na sala' })).toBeNull()
   })
 
-  it('cartão Você só quando estou transmitindo', () => {
-    vi.spyOn(api, 'watch').mockResolvedValue(undefined)
+  it('cartão Você só quando estou transmitindo, com a minha câmera e o botão de subir', () => {
     const cam = vi.fn()
     const share = vi.fn()
-    const roomMe: RoomView = {
-      ...room,
-      tracks: [...room.tracks, { id: 'trk-me', owner_id: 'me', kind: 'camera', title: 'Minha', number: 9 }],
-    }
-    montar({ room: roomMe, streams: [], mostrarVoce: true, meId: 'me', camOn: true, onToggleCam: cam, onToggleShare: share })
+    const minhaCam: Stream = { trackId: 'trk-me', ownerId: 'me', kind: 'camera', tile: 9, mine: true }
+    const { onMover } = montar({ streams: [], mostrarVoce: true, meId: 'me', camOn: true, minhaCam, onToggleCam: cam, onToggleShare: share })
     expect(screen.getByText('Você')).toBeTruthy()
     expect(screen.getByText('sua câmera')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Câmera' }))
     fireEvent.click(screen.getByRole('button', { name: 'Tela' }))
     expect(cam).toHaveBeenCalled()
     expect(share).toHaveBeenCalled()
-    expect(api.watch).toHaveBeenCalledWith('trk-me', 9001, [320, 180], 2, expect.any(Function))
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr minha câmera na tela principal' }))
+    expect(onMover).toHaveBeenCalledWith('trk-me', 'principal')
   })
 })

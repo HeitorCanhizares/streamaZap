@@ -125,6 +125,42 @@ describe('SalaScreen', () => {
     expect(screen.queryByText('Você')).toBeNull()
   })
 
+  it('só a minha transmissão: vai sozinha para a principal e dá para mandar para baixo', () => {
+    const base = mockSnapshot()
+    estado.snap = {
+      ...base,
+      share: { source: 'screen:0', audio: 'none', preset: '720p30', encoder: 'auto', layers: [], viewers_per_layer: [], encode_ms: 1, conversion: [] },
+      room: { ...base.room!, tracks: [{ id: 'minha', owner_id: base.me.install_id, kind: 'screen', title: 'Tela', number: 1 }] },
+    }
+    const watch = vi.spyOn(api, 'watch').mockResolvedValue(undefined)
+    render(<SalaScreen onLeft={() => {}} />)
+    expect(screen.getAllByTestId('celula-principal')).toHaveLength(1)
+    expect(screen.getByRole('img', { name: 'Sua tela' })).toBeTruthy()
+    // A minha na principal pede o tamanho médio (prévia local, sem rede).
+    expect(watch).toHaveBeenCalledWith('minha', expect.any(Number), [1280, 720], null, expect.any(Function))
+    fireEvent.click(screen.getByRole('button', { name: 'Mandar minha tela para baixo' }))
+    expect(screen.queryAllByTestId('celula-principal')).toHaveLength(0)
+    expect(screen.getByRole('img', { name: 'Prévia: sua tela' })).toBeTruthy()
+    expect(watch).toHaveBeenLastCalledWith('minha', expect.any(Number), [320, 180], 2, expect.any(Function))
+  })
+
+  it('com a tela de outra pessoa: a minha fica no cartão Você e sobe ao lado da dela', () => {
+    const base = mockSnapshot()
+    estado.snap = {
+      ...base,
+      share: { source: 'screen:0', audio: 'none', preset: '720p30', encoder: 'auto', layers: [], viewers_per_layer: [], encode_ms: 1, conversion: [] },
+      room: { ...base.room!, tracks: [...base.room!.tracks, { id: 'minha', owner_id: base.me.install_id, kind: 'screen', title: 'Tela', number: 9 }] },
+    }
+    vi.spyOn(api, 'watch').mockResolvedValue(undefined)
+    render(<SalaScreen onLeft={() => {}} />)
+    expect(screen.getAllByTestId('celula-principal')).toHaveLength(1)
+    expect(screen.getByRole('img', { name: 'Prévia: sua tela' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Pôr minha tela na tela principal' }))
+    expect(screen.getAllByTestId('celula-principal')).toHaveLength(2)
+    expect(screen.getByRole('img', { name: 'Sua tela' })).toBeTruthy()
+    expect(screen.getByText('Sua transmissão está na tela principal')).toBeTruthy()
+  })
+
   it('painel: Fechar painel remove o aside e o botão Painel do cabeçalho o traz de volta', () => {
     estado.snap = mockSnapshot()
     render(<SalaScreen onLeft={() => {}} />)

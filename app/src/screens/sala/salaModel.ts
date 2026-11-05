@@ -60,13 +60,16 @@ export function ownTracks(room: RoomView, meId: string): { screen: TrackView | n
 /** Onde a transmissão aparece. 'fechada' = sem receber nada (economiza banda). */
 export type Lugar = 'principal' | 'faixa' | 'fechada'
 
-/** Uma transmissão de outra pessoa: vídeo (tela, janela, câmera) ou só o som. */
+/** Uma transmissão na sala: vídeo (tela, janela, câmera) ou só o som. As minhas (`mine`) são só
+ *  vídeo e chegam pela prévia local do núcleo, sem rede. */
 export interface Stream {
   trackId: string
   ownerId: string
   kind: TrackView['kind']
   /** Tile fixo desta trilha enquanto o app estiver aberto (o núcleo assina por tile). */
   tile: number
+  /** Minha transmissão (a tela ou a câmera que eu estou mandando). */
+  mine?: boolean
 }
 
 // Tiles das transmissões: abaixo dos reservados do "Você" (9000) e da prévia da lista (1_000_000).
@@ -88,22 +91,24 @@ const ehVideo = (k: TrackView['kind']): boolean => k !== 'audio'
 // Tela e janela antes da câmera; depois a ordem de chegada (número da trilha).
 const ordemTipo = (k: TrackView['kind']): number => (k === 'camera' ? 1 : 0)
 
-/** Transmissões dos outros: os vídeos (tela/janela antes da câmera) e, de quem não tem vídeo, o
- *  som (só o som). O som de quem tem vídeo vem junto com o vídeo. */
+/** Transmissões da sala: os vídeos dos outros (tela/janela antes da câmera), o som de quem só manda
+ *  som (o som de quem tem vídeo vem junto com o vídeo) e, por último, os meus vídeos. */
 export function streamsDaSala(room: RoomView, meId: string): Stream[] {
+  const porTipo = (a: TrackView, b: TrackView): number => ordemTipo(a.kind) - ordemTipo(b.kind) || a.number - b.number
   const dosOutros = room.tracks.filter((t) => t.owner_id !== meId)
   const comVideo = new Set(dosOutros.filter((t) => ehVideo(t.kind)).map((t) => t.owner_id))
-  const videos = dosOutros
-    .filter((t) => ehVideo(t.kind))
-    .sort((a, b) => ordemTipo(a.kind) - ordemTipo(b.kind) || a.number - b.number)
+  const videos = dosOutros.filter((t) => ehVideo(t.kind)).sort(porTipo)
   const soSom = dosOutros.filter((t) => t.kind === 'audio' && !comVideo.has(t.owner_id))
-  return [...videos, ...soSom].map((t) => ({ trackId: t.id, ownerId: t.owner_id, kind: t.kind, tile: tileDaTrilha(t.id) }))
+  const meus = room.tracks.filter((t) => t.owner_id === meId && ehVideo(t.kind)).sort(porTipo)
+  const vira = (t: TrackView, mine: boolean): Stream => ({ trackId: t.id, ownerId: t.owner_id, kind: t.kind, tile: tileDaTrilha(t.id), ...(mine ? { mine } : {}) })
+  return [...videos.map((t) => vira(t, false)), ...soSom.map((t) => vira(t, false)), ...meus.map((t) => vira(t, true))]
 }
 
 /**
  * Lugar de cada transmissão. A escolha do usuário vale (o som sozinho nunca vai para a principal).
- * Sem escolha: se nada estiver na principal, a primeira tela/janela (ou câmera) vai para lá; a
- * câmera de quem está com a tela na principal vai junto (no canto da tela); o resto, na faixa.
+ * Sem escolha: se nada estiver na principal, a primeira tela/janela (ou câmera) dos outros vai para
+ * lá; sem vídeo dos outros, a minha (quem só tem a própria transmissão vê ela grande). A câmera de
+ * quem está com a tela na principal vai junto (no canto da tela); o resto, na faixa.
  */
 export function lugaresDasStreams(streams: Stream[], escolhas: Record<string, Lugar>): Record<string, Lugar> {
   const out: Record<string, Lugar> = {}
@@ -113,8 +118,9 @@ export function lugaresDasStreams(streams: Stream[], escolhas: Record<string, Lu
   }
   const semEscolha = streams.filter((s) => out[s.trackId] === undefined && ehVideo(s.kind))
   const temPrincipal = (): boolean => streams.some((s) => out[s.trackId] === 'principal')
+  const primeiraDe = (lista: Stream[]): Stream | undefined => lista.find((s) => s.kind !== 'camera') ?? lista[0]
   if (!temPrincipal()) {
-    const primeira = semEscolha.find((s) => s.kind !== 'camera') ?? semEscolha[0]
+    const primeira = primeiraDe(semEscolha.filter((s) => !s.mine)) ?? primeiraDe(semEscolha.filter((s) => s.mine))
     if (primeira) out[primeira.trackId] = 'principal'
   }
   const telaNaPrincipal = new Set(
@@ -148,9 +154,16 @@ export function celulasDaPrincipal(streams: Stream[], lugares: Record<string, Lu
   return celulas
 }
 
-/** O que pedir ao núcleo por lugar: tamanho em px e teto de camada (null = sem teto). */
-export function pedidoDoLugar(lugar: 'principal' | 'faixa' | 'canto', celulas: number): { size: [number, number]; maxLayer: number | null } {
+/** O que pedir ao núcleo por lugar: tamanho em px e teto de camada (null = sem teto). A minha
+ *  transmissão na principal pede o tamanho médio: o núcleo mostra a camada do meio, sem ligar a
+ *  melhor só para eu me ver. */
+export function pedidoDoLugar(
+  lugar: 'principal' | 'faixa' | 'canto',
+  celulas: number,
+  mine = false,
+): { size: [number, number]; maxLayer: number | null } {
   if (lugar === 'faixa') return { size: [320, 180], maxLayer: 2 }
+  if (mine && lugar === 'principal') return { size: [1280, 720], maxLayer: null }
   if (lugar === 'canto') return { size: [480, 270], maxLayer: 1 }
   // Mais células dividem a tela: cada uma pede menos.
   if (celulas <= 1) return { size: [1920, 1080], maxLayer: null }

@@ -101,7 +101,8 @@ async fn abrir(shared: &Arc<Shared>, camera_id: Option<String>, tile: TileId) ->
     {
         let sessao = shared.share.lock().await;
         if let Some(c) = sessao.camera.as_ref() {
-            c.publisher.set_local_preview(tile, shared.playout.clone());
+            c.publisher
+                .set_local_preview(tile, shared.playout.clone(), zap_proto::TileSize::Main);
             shared.camera_tests.lock().insert(tile, CameraTest::Room);
             return Ok(());
         }
