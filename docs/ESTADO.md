@@ -253,10 +253,19 @@ como no servidor de teste, ele precisa de cinco mudanças. A referência em cód
    controle QUIC da ponte. O `relatorio` sai quando houve chegadas, sondas ou perdas.
 
 ### Próximos passos
-1. Servidor de produção (acima), depois um teste do app com ele entre dois PCs.
+1. **Backlog do modo Online** (decisão do dono em 2026-11-05: analisar depois). Lado do servidor
+   em `BACKLOG.md` do repositório do servidor (commit `d6d1f30`). Levantamento da sessão do
+   servidor contra o app em `1029f5b`:
+   - servidor: atualizar os crates fixados (hoje `26e8031`; compila sem mudanças e traz o prazo do
+     keyframe), portar a sondagem pela ponte (`zap-test-server/src/probe.rs`) e completar a
+     tolerância de 5 s; o envio por conexão e os canais já existem; o `DELETE` do dono funciona;
+   - senha: o servidor exige senha desde 2026-11-05 (`requer_senha: true`) e ela fica; o app deve
+     pedir a senha ao receber `401 senha_servidor` em `POST /v1/sessoes` (hoje só falha) e, mais
+     tarde, um link de convite que leve servidor, código e senha;
+   - depois: teste do app com o servidor entre dois PCs.
 2. Entrega de memória ao codificador de software (portão aberto); medir o caminho pela CPU num PC
    de usuário sem Video Processor.
-3. M5: chaves do updater e uma release de teste. M6: paridade e remoção do app Python.
+3. M6: remover `streamazap/`, o `build.yml` e o `ci.yml` do Python.
 
 ## Atualização do M4 (2026-11-04, rodada M4b + M2, fechamento no Windows)
 
