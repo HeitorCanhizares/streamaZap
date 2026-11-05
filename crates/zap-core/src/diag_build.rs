@@ -392,6 +392,7 @@ mod tests_basicos {
             tracks: vec![],
             chat: vec![],
             unread: 0,
+            me_id: String::new(),
         };
         let atual = sala_atual_do(Some(&view)).expect("sala presente");
         assert_eq!(atual.name, "Sala");
@@ -768,6 +769,7 @@ mod tests_montar {
                 tracks: vec![],
                 chat: vec![],
                 unread: 0,
+                me_id: String::new(),
             }),
             other_versions: vec![(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 5)],
             video_adapters: vec![zap_media::VideoAdapter {
@@ -799,6 +801,7 @@ mod tests_montar {
                 layer: 0,
                 converter: ConverterView::Gpu,
             }],
+            request: None,
         });
         let r = montar_relatorio(&e);
         let t = r.video.sharing.clone().expect("transmissão");

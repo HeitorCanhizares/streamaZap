@@ -9,7 +9,7 @@ import { CriarNomeAcesso } from './CriarNomeAcesso'
 import { CriarQualidade } from './CriarQualidade'
 import { CriarResumo } from './CriarResumo'
 import { CriarSom } from './CriarSom'
-import { cenaDaFonte, modoHint, qualidadeTexto, somTexto, type Acesso, type SomModo } from './criarModel'
+import { cenaDaFonte, erroDoPedido, listaDaAba, modoHint, montarPedido, qualidadeTexto, somTexto, type Acesso, type SomModo } from './criarModel'
 import './criar.css'
 
 export interface CriarScreenProps { onCreated: () => void; onCancel: () => void }
@@ -17,11 +17,7 @@ export interface CriarScreenProps { onCreated: () => void; onCancel: () => void 
 const SOURCES_VAZIO: Sources = { screens: [], windows: [], cameras: [], apps: [], encoders: [] }
 
 // Lista de fontes de cada aba, na mesma ordem usada pela grade de CriarFontes.
-function listaDa(sources: Sources, tab: FonteTab): SourceItem[] {
-  if (tab === 'telas') return sources.screens
-  if (tab === 'janelas') return sources.windows
-  return sources.cameras
-}
+const listaDa = (sources: Sources, tab: FonteTab): SourceItem[] => listaDaAba(sources, tab)
 
 // Tela "Criar sala": monta a sala e começa a transmissão com as escolhas feitas.
 export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNode {
@@ -36,6 +32,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
   const [tab, setTab] = useState<FonteTab>('telas')
   const [selected, setSelected] = useState<string | null>(null)
   const [cameraCorner, setCameraCorner] = useState(false)
+  const [cameraId, setCameraId] = useState<string | null>(null)
   const [sound, setSound] = useState<SomModo>('none')
   const [marcados, setMarcados] = useState<string[]>([])
   const [preset, setPreset] = useState<Preset>('720p30')
@@ -70,7 +67,9 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
     api
       .settingsGet()
       .then((cfg) => {
-        if (vivo) setPreset(cfg.video.default_preset)
+        if (!vivo) return
+        setPreset(cfg.video.default_preset)
+        setCameraId(cfg.video.camera_id)
       })
       .catch(() => {
         // Sem configuração: fica com a qualidade padrão.
@@ -84,11 +83,13 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
   function trocarAba(nova: FonteTab): void {
     setTab(nova)
     setSelected(listaDa(sources, nova)[0]?.id ?? null)
+    // Só o som sem som não transmite nada: já sugere o som do PC inteiro.
+    if (nova === 'audio' && sound === 'none') setSound('all')
   }
 
   const lista = listaDa(sources, tab)
   const indice = lista.findIndex((f) => f.id === selected)
-  const fonte = indice >= 0 ? lista[indice].name : ''
+  const fonte = tab === 'audio' ? 'Só o som' : indice >= 0 ? lista[indice].name : ''
   const nomesApps = sources.apps.filter((a) => marcados.includes(a.id)).map((a) => a.name)
 
   async function iniciar(): Promise<void> {
@@ -101,13 +102,31 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
       setErro('Sem conexão com o servidor. Confira o endereço em Configurações › Conexão.')
       return
     }
-    if (selected === null) return
+    const falta = erroDoPedido(tab, selected, sound, marcados)
+    const pedido = montarPedido(tab, selected, sound, marcados, preset, encoder)
+    if (falta !== null || pedido === null) {
+      setErro(falta ?? 'Escolha o que compartilhar.')
+      return
+    }
 
     setErro(null)
     setBusy(true)
     try {
       await api.roomCreate({ name: nome, mode: modo, password: acesso === 'senha' ? senha : null })
-      await api.shareStart({ source: selected, audio: sound === 'apps' ? marcados : sound, preset, encoder })
+      await api.shareStart(pedido)
+      // Webcam no canto: grava a câmera escolhida e liga. Falha na câmera não impede a sala.
+      if (cameraCorner && (tab === 'telas' || tab === 'janelas')) {
+        try {
+          const escolhida = cameraId ?? sources.cameras[0]?.id ?? null
+          if (escolhida !== null) {
+            const cfg = await api.settingsGet()
+            await api.settingsSet({ video: { ...cfg.video, camera_id: escolhida } })
+          }
+          await api.cameraSet(true)
+        } catch {
+          // A sala abre mesmo sem câmera; o botão da câmera na sala tenta de novo.
+        }
+      }
       onCreated()
     } catch (e) {
       setErro(String(e))
@@ -150,6 +169,8 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           onSelect={setSelected}
           cameraCorner={cameraCorner}
           onCameraCorner={setCameraCorner}
+          cameraId={cameraId}
+          onCameraId={setCameraId}
           onRefresh={() => void carregar()}
         />
 
@@ -193,7 +214,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           <button
             type="button"
             className="zp-criar-cta"
-            disabled={busy || selected === null}
+            disabled={busy || (selected === null && tab !== 'audio')}
             onClick={() => void iniciar()}
             style={{
               height: 52,
@@ -226,7 +247,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
         acesso={acesso}
         fonte={fonte}
         cena={cenaDaFonte(tab, Math.max(indice, 0))}
-        mostrarPip={cameraCorner && tab !== 'webcam'}
+        mostrarPip={cameraCorner && (tab === 'telas' || tab === 'janelas')}
         som={somTexto(sound, nomesApps)}
         qualidade={qualidadeTexto(preset, adaptavel)}
         radminIp={snap.network.radmin_ip}

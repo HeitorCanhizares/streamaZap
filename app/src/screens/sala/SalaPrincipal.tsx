@@ -15,6 +15,8 @@ export interface SalaPrincipalProps {
   onSmoothingAuto: (v: boolean) => void
   onToggleCamera: () => void
   onToggleShare: () => void
+  /** Parar a transmissão (botão do cabeçalho); sem ele, usa onToggleShare. */
+  onStopShare?: () => void
   onLeave: () => void
   onFullscreen: () => void
   // Props abaixo vêm da SalaScreen (sala-07); até lá têm padrão.
@@ -119,7 +121,7 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
         sharing={compartilhando}
         panelOpen={p.panelOpen ?? true}
         onOpenPanel={p.onOpenPanel ?? noop}
-        onStop={p.onToggleShare}
+        onStop={p.onStopShare ?? p.onToggleShare}
         invite={p.invite}
       />
 

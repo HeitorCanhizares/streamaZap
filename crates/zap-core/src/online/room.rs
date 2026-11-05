@@ -245,11 +245,22 @@ impl OnlineRoom {
             .map_err(|e| CoreError::Connect(e.to_string()))
     }
 
-    /// Sai da sala. Erros de rede são ignorados; pode ser chamada mais de uma vez.
+    /// Eu sou o dono da sala?
+    pub fn is_owner(&self) -> bool {
+        self.model.lock().room.owner_id == self.my_id
+    }
+
+    /// Sai da sala. O dono **encerra** a sala (`DELETE /v1/salas/{codigo}`), como na sala Local;
+    /// sem isso o servidor a mantinha listada por até 2 min depois de o dono sair. Erros de rede são
+    /// ignorados; pode ser chamada mais de uma vez.
     pub async fn leave(&self) {
-        self.left.store(true, Ordering::SeqCst);
-        if let Some(ws) = self.session.ws() {
-            let _ = ws.send(ControlMsg::RoomLeave {}).await;
+        // Já saiu (ou a sala foi encerrada): não manda nada ao servidor de novo.
+        let ja_saiu = self.left.swap(true, Ordering::SeqCst);
+        let dono = self.is_owner();
+        if !dono {
+            if let Some(ws) = self.session.ws() {
+                let _ = ws.send(ControlMsg::RoomLeave {}).await;
+            }
         }
         self.session.set_route(None);
         for t in self.tasks.lock().drain(..) {
@@ -269,7 +280,17 @@ impl OnlineRoom {
             *shared.pool.online.lock() = None;
         }
         // Por último: o servidor pode demorar, e o resto já está desfeito.
+        if ja_saiu {
+            return;
+        }
         if let Some(client) = self.session.client() {
+            if dono {
+                match client.delete_room(&self.code).await {
+                    Ok(()) => return,
+                    // Servidor sem a rota (ou recusou): pelo menos sai.
+                    Err(e) => tracing::debug!("encerrar a sala no servidor: {e}"),
+                }
+            }
             if let Err(e) = client.leave(&self.code).await {
                 tracing::debug!("sair da sala no servidor: {e}");
             }
@@ -350,6 +371,22 @@ mod tests {
         }
         sala.leave().await;
         encerrar(core, d).await;
+    }
+
+    /// O dono sai: a sala é encerrada no servidor e ninguém mais entra pelo código.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn dono_sai_e_a_sala_e_encerrada() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (a, da) = novo_core(srv.base_url.clone()).await;
+        let (b, db) = novo_core(srv.base_url.clone()).await;
+        let sala_a = OnlineRoom::create(&a.shared, req("Sala", None)).await.unwrap();
+        assert!(sala_a.is_owner());
+        let codigo = sala_a.code.clone();
+        sala_a.leave().await;
+        let res = OnlineRoom::join(&b.shared, codigo, None).await;
+        assert!(res.is_err(), "a sala devia ter sido encerrada");
+        encerrar(a, da).await;
+        encerrar(b, db).await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

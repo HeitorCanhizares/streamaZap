@@ -177,6 +177,40 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn so_audio_sem_som_e_invalido() {
+        let (core, d) = novo();
+        core.create_room(sala()).await.expect("criar sala");
+        let r = core
+            .start_share(ShareRequest {
+                source: crate::share::SO_AUDIO.into(),
+                ..pedido_sintetico()
+            })
+            .await;
+        assert!(matches!(r, Err(CoreError::Invalid(_))));
+        assert!(core.snapshot().share.is_none());
+        encerrar(core, d).await;
+    }
+
+    /// Trocar para "só o som" sem escolher o som é recusado e mantém a tela no ar.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn update_para_so_audio_sem_som_mantem_a_tela() {
+        let (core, d) = novo();
+        core.create_room(sala()).await.expect("criar sala");
+        core.start_share(pedido_sintetico()).await.expect("iniciar share");
+        let r = core
+            .update_share(ShareRequest {
+                source: crate::share::SO_AUDIO.into(),
+                ..pedido_sintetico()
+            })
+            .await;
+        assert!(matches!(r, Err(CoreError::Invalid(_))));
+        let share = core.snapshot().share.clone().expect("continua transmitindo");
+        assert_eq!(share.source, "synthetic:1920x1080");
+        assert_eq!(share.request.map(|q| q.source).as_deref(), Some("synthetic:1920x1080"));
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn set_camera_sintetica() {
         let (core, d) = novo();
         core.update_settings(|s| s.video.camera_id = Some("synthetic:1280x720".into()));

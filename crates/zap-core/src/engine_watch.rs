@@ -44,11 +44,14 @@ impl Core {
             let model = room.model();
             let model = model.lock();
             let track = model.track_by_id(track_id).cloned().ok_or(CoreError::TrackNotFound)?;
-            if track.participant_id == room.my_id() {
-                return Err(CoreError::Invalid("não dá para assistir a própria transmissão".into()));
-            }
             if !matches!(track.kind, TrackKind::Screen | TrackKind::Window | TrackKind::Camera) {
                 return Err(CoreError::Invalid("só dá para assistir trilhas de vídeo".into()));
+            }
+            if track.participant_id == room.my_id() {
+                // Minha trilha: prévia local, sem rede.
+                drop(model);
+                self.watch_local(track.id, tile);
+                return Ok(());
             }
             let audio = model
                 .tracks
@@ -161,7 +164,42 @@ impl Core {
         Ok(())
     }
     /// Para a assinatura do tile, remove de `UiState.tiles`, `touch()`.
+    /// Prévia local da minha trilha `track_id` no `tile`: o publicador dela entrega a camada mais
+    /// leve direto à interface (`VideoPublisher::set_local_preview`). Trilha que não é mais minha
+    /// (parei de transmitir): nada.
+    fn watch_local(&self, track_id: String, tile: TileId) {
+        let sh = self.shared.clone();
+        self.shared.rt.spawn(async move {
+            let publicador = {
+                let sessao = sh.share.lock().await;
+                let achado = [sessao.screen.as_ref(), sessao.camera.as_ref()]
+                    .into_iter()
+                    .flatten()
+                    .find(|v| v.track.id == track_id)
+                    .map(|v| v.publisher.clone());
+                achado
+            };
+            if let Some(p) = publicador {
+                p.set_local_preview(tile, sh.playout.clone());
+            }
+        });
+    }
+
+    /// Desliga a prévia local que estiver no `tile` (tela ou câmera).
+    fn unwatch_local(&self, tile: TileId) {
+        let sh = self.shared.clone();
+        self.shared.rt.spawn(async move {
+            let sessao = sh.share.lock().await;
+            for v in [sessao.screen.as_ref(), sessao.camera.as_ref()].into_iter().flatten() {
+                v.publisher.clear_local_preview(tile);
+            }
+            drop(sessao);
+            sh.playout.remove_tile(tile);
+        });
+    }
+
     pub fn unwatch(&self, tile: TileId) {
+        self.unwatch_local(tile);
         let shared = self.shared.clone();
         // Primeiro invalida o watch em andamento, depois tira de `subs` (ver `generations`).
         generations().lock().remove(&(Arc::as_ptr(&shared) as usize, tile));
@@ -258,19 +296,51 @@ mod tests {
         encerrar(core, d).await;
     }
 
+    /// Minha trilha vira prévia local: a camada mais leve chega ao tile, começando num keyframe,
+    /// sem nenhum espectador na rede; `unwatch` corta a entrega.
     #[tokio::test(flavor = "multi_thread")]
-    async fn watch_propria_trilha_invalid() {
-        let (core, d) = novo();
+    async fn watch_propria_trilha_vira_previa_local() {
+        let d = dir();
+        let sink = TestSink::new();
+        let opts = CoreOptions {
+            discovery: false,
+            broadcast: false,
+            include_loopback: true,
+            audio_out: false,
+            ..Default::default()
+        };
+        let core = Core::start_with(d.clone(), sink.clone(), opts).expect("core");
         sala(&core).await;
-        let room = core.shared.current_room().expect("sala");
-        let meu = room.my_id();
-        room.model()
-            .lock()
-            .upsert_track(trilha("t_meu", &meu, 1, TrackKind::Screen));
-        assert!(matches!(
-            core.watch("t_meu", 1, TileSize::Main, None),
-            Err(CoreError::Invalid(_))
-        ));
+        core.start_share(ShareRequest {
+            source: "synthetic:640x360".into(),
+            audio: AudioChoice::Keyword("none".into()),
+            preset: Preset::P720p30,
+            encoder: "auto".into(),
+        })
+        .await
+        .expect("compartilhar");
+        let trilha_id = {
+            let sessao = core.shared.share.lock().await;
+            sessao.screen.as_ref().expect("tela publicada").track.id.clone()
+        };
+        const TILE: TileId = 9000;
+        core.watch(&trilha_id, TILE, TileSize::Thumbnail, Some(2))
+            .expect("prévia");
+        let chegou = sink
+            .wait_for(Duration::from_secs(5), |s| s.video_count(TILE) >= 3)
+            .await;
+        assert!(chegou, "a prévia local não entregou quadros");
+        {
+            let videos = sink.videos.lock();
+            let primeiro = videos.iter().find(|(_, t, _)| *t == TILE).expect("quadro");
+            assert!(primeiro.2.keyframe, "a prévia tem que começar num keyframe");
+        }
+        core.unwatch(TILE);
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let antes = sink.video_count(TILE);
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(sink.video_count(TILE), antes, "unwatch devia parar a prévia");
+        core.stop_share().await;
         encerrar(core, d).await;
     }
 

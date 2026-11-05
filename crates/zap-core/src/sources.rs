@@ -165,11 +165,7 @@ pub fn parse_audio(choice: &AudioChoice) -> Result<AudioSelection, CoreError> {
 /// Miniatura RGBA `w`×`h` da fonte. M3: placeholder determinístico (degradê cuja cor deriva do
 /// hash do id da fonte); captura real de miniaturas fica para depois (nota do decompositor).
 pub fn thumbnail(src: &SourceRef, w: u32, h: u32) -> Result<Rgba, CoreError> {
-    if !(1..=MINIATURA_MAX).contains(&w) || !(1..=MINIATURA_MAX).contains(&h) {
-        return Err(CoreError::Invalid(format!(
-            "dimensão de miniatura inválida: {w}x{h} (1 a {MINIATURA_MAX})"
-        )));
-    }
+    check_thumbnail_size(w, h)?;
 
     // A cor base vem do hash da fonte: a mesma fonte sempre gera a mesma imagem.
     let base = fnv1a32(format!("{src:?}").as_bytes());
@@ -192,6 +188,16 @@ pub fn thumbnail(src: &SourceRef, w: u32, h: u32) -> Result<Rgba, CoreError> {
         height: h,
         data,
     })
+}
+
+/// Cada lado da miniatura entre 1 e `MINIATURA_MAX`.
+pub(crate) fn check_thumbnail_size(w: u32, h: u32) -> Result<(), CoreError> {
+    if !(1..=MINIATURA_MAX).contains(&w) || !(1..=MINIATURA_MAX).contains(&h) {
+        return Err(CoreError::Invalid(format!(
+            "dimensão de miniatura inválida: {w}x{h} (1 a {MINIATURA_MAX})"
+        )));
+    }
+    Ok(())
 }
 
 /// FNV-1a de 32 bits: hash simples e estável entre execuções (ao contrário de `DefaultHasher`).

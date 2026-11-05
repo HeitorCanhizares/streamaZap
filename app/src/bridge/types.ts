@@ -20,12 +20,14 @@ export interface Participant { id: string; name: string; color: string; ping_ms:
 export interface TrackView { id: string; owner_id: string; kind: 'screen' | 'window' | 'camera'; title: string; number: number }
 export interface ChatLine { id: string; author_id: string; author: string; color: string; text: string; ts: number }
 // code: codigo para convite (ex.: 'ZAP-7K2Q'); ausente na sala Local sem codigo.
-export interface RoomView { id: string; name: string; mode: RoomMode; code?: string; participants: Participant[]; tracks: TrackView[]; chat: ChatLine[]; unread: number }
+// me_id: meu id de participante nesta sala (no Online vem do servidor, diferente do install_id).
+export interface RoomView { id: string; name: string; mode: RoomMode; code?: string; participants: Participant[]; tracks: TrackView[]; chat: ChatLine[]; unread: number; me_id?: string }
 export interface TileView { tile: TileId; track_id: string; layer: number; width: number; height: number; fps: number; kbps: number; ping_ms: number; smoothing_ms: number; reason: string }
 /** Onde a cor é convertida para NV12: Video Processor da GPU ou reserva na CPU. */
 export type ConverterView = 'gpu' | 'cpu'
 export interface LayerConversion { layer: number; converter: ConverterView }
-export interface ShareView { source: string; audio: string; preset: Preset; encoder: string; layers: number[]; viewers_per_layer: number[]; encode_ms: number; conversion: LayerConversion[] }
+// request: o pedido em vigor (a sala abre o seletor com ele). source 'none' = só o som.
+export interface ShareView { source: string; audio: string; preset: Preset; encoder: string; layers: number[]; viewers_per_layer: number[]; encode_ms: number; conversion: LayerConversion[]; request?: ShareRequest }
 export interface NetworkStatus { radmin_ip: string | null; interfaces: string[] }
 export interface Snapshot {
   version: number
@@ -57,7 +59,9 @@ export interface Settings {
 export interface SourceItem { id: string; kind: 'screen' | 'window' | 'camera' | 'app'; name: string }
 export interface Sources { screens: SourceItem[]; windows: SourceItem[]; cameras: SourceItem[]; apps: SourceItem[]; encoders: string[] }
 export interface CreateRoom { name: string; mode: RoomMode; password: string | null }
+// source: id da fonte (screen:N, window:H, camera:ID) ou SO_AUDIO ('none') para transmitir só o som.
 export interface ShareRequest { source: string; audio: 'none' | 'all' | string[]; preset: Preset; encoder: string }
+export const SO_AUDIO = 'none'
 export type JoinTarget = { room_id: string } | { ip: string; port: number } | { code: string }
 
 // Miniatura de fonte (source_thumbnail): RGBA 8 bits, linhas de cima para baixo.

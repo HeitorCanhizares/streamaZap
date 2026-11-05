@@ -2,13 +2,13 @@ import type { ReactNode } from 'react'
 import type { Preset } from '../../bridge/types'
 import { PRESETS_UI } from './criarModel'
 
-export interface CriarQualidadeProps { encoders: string[]; preset: Preset; onPreset: (p: Preset) => void; encoder: string; onEncoder: (e: string) => void; adaptavel: boolean; onAdaptavel: (v: boolean) => void }
+export interface CriarQualidadeProps { encoders: string[]; preset: Preset; onPreset: (p: Preset) => void; encoder: string; onEncoder: (e: string) => void; adaptavel: boolean; onAdaptavel: (v: boolean) => void; numero?: string }
 
 // Seção 06 "Qualidade" (2-criar-sala.html 167-191).
 
 const MONO = "'JetBrains Mono', monospace"
 
-export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder, adaptavel, onAdaptavel }: CriarQualidadeProps): ReactNode {
+export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder, adaptavel, onAdaptavel, numero = '06' }: CriarQualidadeProps): ReactNode {
   const bloco = { display: 'flex', flexDirection: 'column' as const, gap: 12, padding: 20, borderRadius: 18, background: 'var(--superficie)', border: '1px solid var(--borda)' }
 
   // Opção "auto" é o padrão: o servidor escolhe o codificador disponível.
@@ -17,7 +17,7 @@ export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder,
   return (
     <section style={{ ...bloco, flex: '1 1 320px', minWidth: 0 }}>
       <h2 style={{ margin: 0, display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 14, fontWeight: 600 }}>
-        <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--verde)' }}>06</span>
+        <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--verde)' }}>{numero}</span>
         Qualidade
       </h2>
       <div role="radiogroup" aria-label="Qualidade" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>

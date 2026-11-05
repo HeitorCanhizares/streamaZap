@@ -7,7 +7,8 @@ import { Button } from '../../components/Button'
 import { SalaPainel } from './SalaPainel'
 import { SalaPrincipal } from './SalaPrincipal'
 import { SalaTiles } from './SalaTiles'
-import { inviteText } from './salaModel'
+import { SalaTransmissao } from './SalaTransmissao'
+import { inviteText, ownTracks } from './salaModel'
 
 export interface SalaScreenProps { onLeft: () => void }
 
@@ -25,6 +26,14 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const [volume, setVolume] = useState(80)
   const [pipHidden, setPipHidden] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
+  const [painelTx, setPainelTx] = useState(false)
+
+  // Meu id nesta sala (no Online vem do servidor); a câmera está ligada se a trilha dela existe.
+  const meId = room?.me_id || snap.me.install_id
+  const temCamera = room ? ownTracks(room, meId).camera !== null : false
+  useEffect(() => {
+    setCameraOn(temCamera)
+  }, [temCamera])
 
   // Se o tile principal sumiu do snapshot, volta ao primeiro disponível (salvo se o usuário fechou a principal).
   const tileAtivo = principalFechada
@@ -79,17 +88,33 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const onToggleCamera = () => {
     const novo = !cameraOn
     setCameraOn(novo)
-    void api.cameraSet(novo).catch(() => {})
+    void api.cameraSet(novo).catch((e: unknown) => {
+      setCameraOn(!novo)
+      setAviso(`Câmera: ${e instanceof Error ? e.message : String(e)}`)
+    })
   }
 
+  // Trocou o dispositivo com a câmera ligada: desliga e liga com o novo.
+  const onCameraTrocada = () => {
+    void (async () => {
+      try {
+        await api.cameraSet(false)
+        await api.cameraSet(true)
+      } catch (e) {
+        setAviso(`Câmera: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    })()
+  }
+
+  // Compartilhar (ou ajustar a transmissão): abre o painel com fonte, som, qualidade e câmera.
   const onToggleShare = () => {
-    if (snap.share) {
-      setAviso(null)
-      void api.shareStop().catch(() => {})
-    } else {
-      // Sem seletor de fonte neste marco: a escolha fica em Criar sala.
-      setAviso('Escolha a fonte em Criar sala')
-    }
+    setAviso(null)
+    setPainelTx(true)
+  }
+
+  const onStopShare = () => {
+    setAviso(null)
+    void api.shareStop().catch(() => {})
   }
 
   const onLeave = async () => {
@@ -125,6 +150,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
           onSmoothingAuto={onSmoothingAuto}
           onToggleCamera={onToggleCamera}
           onToggleShare={onToggleShare}
+          onStopShare={onStopShare}
           onLeave={() => { void onLeave() }}
           onFullscreen={onFullscreen}
           muted={muted}
@@ -146,7 +172,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
             tiles={snap.tiles}
             mainTile={tileAtivo}
             onPick={onPick}
-            meId={snap.me.install_id}
+            meId={meId}
             camOn={cameraOn}
             sharing={!!snap.share}
             onToggleCam={onToggleCamera}
@@ -154,11 +180,20 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
           />
         </div>
       </div>
+      {painelTx && (
+        <SalaTransmissao
+          share={snap.share}
+          camOn={cameraOn}
+          onToggleCamera={onToggleCamera}
+          onCameraTrocada={onCameraTrocada}
+          onClose={() => setPainelTx(false)}
+        />
+      )}
       {panelOpen && (
         <SalaPainel
           room={room}
           onSend={onSend}
-          meId={snap.me.install_id}
+          meId={meId}
           onClose={() => setPanelOpen(false)}
         />
       )}

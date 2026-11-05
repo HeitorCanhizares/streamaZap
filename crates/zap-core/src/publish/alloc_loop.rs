@@ -84,10 +84,20 @@ pub fn run_alloc_tick(shared: &Arc<VideoShared>, rt: &tokio::runtime::Handle) {
         .update(now, &inputs, Budget::Direct { upload_kbps: upload });
 
     // O pipeline ignora pedidos iguais; sem espectadores `requests` vem vazio e desliga tudo.
-    let ponte = shared.bridge_requests.lock().clone();
-    shared.pipeline.set_requests(&merge_requests(&out.requests, &ponte));
+    // A ponte Online e a prévia local entram junto (`extra_requests`).
+    shared
+        .pipeline
+        .set_requests(&merge_requests(&out.requests, &shared.extra_requests()));
     for l in &out.keyframes {
         shared.pipeline.request_keyframe(*l);
+    }
+    // Prévia local ainda esperando o primeiro keyframe: pede de novo (a camada pode ter
+    // acabado de ligar, ou a escada mudou).
+    let previa_esperando = shared.local_preview.lock().as_ref().is_some_and(|p| p.waiting_key);
+    if previa_esperando {
+        if let Some(camada) = shared.preview_layer() {
+            shared.pipeline.request_keyframe(camada);
+        }
     }
 
     for d in &out.viewers {
@@ -256,6 +266,7 @@ mod tests {
             upload_kbps: AtomicU32::new(0),
             clock: Clock::new(),
             bridge_requests: Mutex::new(Vec::new()),
+            local_preview: Mutex::new(None),
         }))
     }
 

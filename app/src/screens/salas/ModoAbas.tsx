@@ -24,6 +24,7 @@ function estiloBotao(ativo: boolean): CSSProperties {
     alignItems: 'center',
     gap: 10,
     minHeight: 52,
+    minWidth: 0,
     padding: '6px 12px',
     borderRadius: 10,
     border: 0,
@@ -37,7 +38,8 @@ function estiloSub(ativo: boolean): CSSProperties {
   return {
     fontSize: 11.5,
     color: ativo ? '#9FE8C0' : '#7E978B',
-    whiteSpace: 'nowrap',
+    lineHeight: 1.25,
+    overflowWrap: 'anywhere',
   }
 }
 
@@ -62,7 +64,7 @@ export function ModoAbas(props: ModoAbasProps): ReactNode {
             style={estiloBotao(ativo)}
           >
             <span style={{ flex: '0 0 20px', display: 'flex' }}>{aba.icone}</span>
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, minWidth: 0 }}>
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1, minWidth: 0, overflow: 'hidden' }}>
               <span style={{ fontWeight: 700, fontSize: 14 }}>{aba.label}</span>
               <span style={estiloSub(ativo)}>{`${aba.sub} · ${aba.contagem}`}</span>
             </span>

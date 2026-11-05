@@ -45,6 +45,7 @@ export function SalaControles(props: SalaControlesProps): ReactNode {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
+    whiteSpace: 'nowrap',
   }
   const svgBase = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true } as const
 
@@ -57,11 +58,15 @@ export function SalaControles(props: SalaControlesProps): ReactNode {
         left: '50%',
         bottom: 22,
         transform: 'translateX(-50%)',
+        width: 'max-content',
+        maxWidth: 'calc(100% - 24px)',
         display: 'flex',
+        flexWrap: 'wrap',
+        justifyContent: 'center',
         alignItems: 'center',
         gap: 8,
         padding: 8,
-        borderRadius: 999,
+        borderRadius: 30,
         background: 'rgba(10,16,14,0.86)',
         border: '1px solid #2A443C',
         boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
@@ -102,7 +107,7 @@ export function SalaControles(props: SalaControlesProps): ReactNode {
           <rect x="3" y="4" width="18" height="12" rx="2" />
           <path d="M8 20h8M12 16v4M12 13V7M9 10l3-3 3 3" />
         </svg>
-        {sharing ? 'Parar' : 'Compartilhar tela'}
+        {sharing ? 'Transmissão' : 'Compartilhar'}
       </button>
       <button
         type="button"
@@ -146,6 +151,7 @@ export function SalaControles(props: SalaControlesProps): ReactNode {
           background: '#FF5D6E',
           color: '#1A0508',
           fontWeight: 700,
+          whiteSpace: 'nowrap',
           display: 'flex',
           alignItems: 'center',
           gap: 8,

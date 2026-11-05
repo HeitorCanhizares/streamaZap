@@ -219,6 +219,7 @@ impl RoomModel {
                 .collect(),
             chat: self.chat.iter().cloned().collect(),
             unread: self.unread,
+            me_id: String::new(),
         }
     }
 }

@@ -17,8 +17,16 @@ use crate::CoreError;
 /// Resolução usada quando o monitor/janela não é encontrado na listagem.
 const RESOLUCAO_PADRAO: (u32, u32) = (1920, 1080);
 
+/// `source` do pedido que transmite só o som (sem tela, janela nem câmera).
+pub const SO_AUDIO: &str = "none";
+
 fn sem_audio(c: &AudioChoice) -> bool {
     matches!(c, AudioChoice::Keyword(k) if k == "none")
+}
+
+/// O pedido transmite só o som?
+fn so_audio(req: &ShareRequest) -> bool {
+    req.source == SO_AUDIO
 }
 
 /// Título amigável da fonte; sem achar, o próprio id.
@@ -76,8 +84,11 @@ impl ShareSession {
     }
 
     async fn start_locked(shared: &Arc<Shared>, sessao: &mut ShareSession, req: ShareRequest) -> Result<(), CoreError> {
-        if sessao.screen.is_some() {
+        if sessao.request.is_some() {
             return Err(CoreError::Invalid("já compartilhando".into()));
+        }
+        if so_audio(&req) {
+            return Self::start_audio_only(shared, sessao, req).await;
         }
         let room = shared.current_room().ok_or(CoreError::NoRoom)?;
         let src = parse_source(&req.source)?;
@@ -143,6 +154,24 @@ impl ShareSession {
         Ok(())
     }
 
+    /// Só o som: exige um som escolhido; sem vídeo, uma falha no áudio é falha do pedido.
+    async fn start_audio_only(
+        shared: &Arc<Shared>,
+        sessao: &mut ShareSession,
+        req: ShareRequest,
+    ) -> Result<(), CoreError> {
+        if sem_audio(&req.audio) {
+            return Err(CoreError::Invalid(
+                "para transmitir só o som, escolha o som (todo o PC ou alguns apps)".into(),
+            ));
+        }
+        shared.current_room().ok_or(CoreError::NoRoom)?;
+        let sel = parse_audio(&req.audio)?;
+        Self::start_audio(shared, sessao, false, sel).await?;
+        sessao.request = Some(req);
+        Ok(())
+    }
+
     /// Publica a trilha de áudio e o `AudioPublisher`; em falha remove a trilha.
     async fn start_audio(
         shared: &Arc<Shared>,
@@ -194,30 +223,54 @@ impl ShareSession {
     /// para e reinicia (stop+start). Áudio `set_selection`.
     pub async fn update(shared: &Arc<Shared>, req: ShareRequest) -> Result<(), CoreError> {
         let mut sessao = shared.share.lock().await;
-        let Some(screen) = sessao.screen.as_ref() else {
+        if sessao.request.is_none() {
             return Err(CoreError::Invalid("não está compartilhando".into()));
-        };
+        }
         let mesma_fonte = sessao.request.as_ref().is_some_and(|r| r.source == req.source);
         if !mesma_fonte {
+            // Confere o pedido novo antes de parar o atual: pedido ruim não derruba a transmissão.
+            if so_audio(&req) {
+                if sem_audio(&req.audio) {
+                    return Err(CoreError::Invalid(
+                        "para transmitir só o som, escolha o som (todo o PC ou alguns apps)".into(),
+                    ));
+                }
+            } else {
+                parse_source(&req.source)?;
+            }
+            if !sem_audio(&req.audio) {
+                parse_audio(&req.audio)?;
+            }
             Self::stop_video_audio(shared, &mut sessao).await;
             return Self::start_locked(shared, &mut sessao, req).await;
         }
-        let src = parse_source(&req.source)?;
         let selecao = if sem_audio(&req.audio) {
+            if so_audio(&req) {
+                return Err(CoreError::Invalid(
+                    "para transmitir só o som, escolha o som (todo o PC ou alguns apps)".into(),
+                ));
+            }
             zap_audio::AudioSelection::None
         } else {
             parse_audio(&req.audio)?
         };
-        let ladder = Self::ladder_for(&src, req.preset);
-        screen.publisher.set_ladder(ladder.clone());
-        let track_id = screen.track.id.clone();
-        if let Some(room) = shared.current_room() {
-            room.update_track(&track_id, None, Some(ladder)).await?;
-        }
+        let sintetica = if so_audio(&req) {
+            false
+        } else {
+            let src = parse_source(&req.source)?;
+            let ladder = Self::ladder_for(&src, req.preset);
+            if let Some(screen) = sessao.screen.as_ref() {
+                screen.publisher.set_ladder(ladder.clone());
+                let track_id = screen.track.id.clone();
+                if let Some(room) = shared.current_room() {
+                    room.update_track(&track_id, None, Some(ladder)).await?;
+                }
+            }
+            matches!(src, SourceRef::Synthetic { .. })
+        };
         if let Some((_, a)) = sessao.audio.as_ref() {
             a.set_selection(selecao);
         } else if !sem_audio(&req.audio) {
-            let sintetica = matches!(src, SourceRef::Synthetic { .. });
             if let Err(e) = Self::start_audio(shared, &mut sessao, sintetica, selecao).await {
                 tracing::warn!(erro = %e, "falha ao iniciar o áudio do compartilhamento");
                 shared.state.lock().push_error(format!("Áudio não iniciou: {e}"));
@@ -294,10 +347,27 @@ impl ShareSession {
             let s = shared.settings.read();
             (s.video.camera_id.clone(), s.video.encoder, s.local.interface.clone())
         };
+        // A interface grava o id da lista de fontes (`camera:<id>`); o dispositivo é o resto.
+        let camera_id = camera_id.map(|id| match id.strip_prefix("camera:") {
+            Some(dispositivo) => dispositivo.to_string(),
+            None => id,
+        });
+        // Sem câmera escolhida (ou a escolhida sumiu): a primeira que o Windows lista.
+        let disponiveis = if cfg!(windows) {
+            zap_capture::list_cameras().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let camera_id = match camera_id {
+            Some(id) if id.starts_with("synthetic:") || !cfg!(windows) || disponiveis.iter().any(|c| c.id == id) => {
+                Some(id)
+            }
+            _ => disponiveis.first().map(|c| c.id.clone()),
+        };
         let src = match camera_id {
             Some(id) if id.starts_with("synthetic:") => parse_source(&id)?,
             Some(id) => SourceRef::Camera(id),
-            None if cfg!(windows) => return Err(CoreError::Unsupported("nenhuma câmera configurada".into())),
+            None if cfg!(windows) => return Err(CoreError::Unsupported("nenhuma câmera encontrada".into())),
             None => SourceRef::Synthetic {
                 width: 1280,
                 height: 720,
@@ -362,12 +432,25 @@ impl ShareSession {
     /// "N apps"), `preset`, `encoder` (nome real do pipeline), `layers` ativas, espectadores por
     /// camada, `encode_ms` da camada 0.
     pub fn view(&self) -> Option<ShareView> {
-        let screen = self.screen.as_ref()?;
         let req = self.request.as_ref()?;
         let audio = match &req.audio {
             AudioChoice::Keyword(k) if k == "none" => "Sem som".to_string(),
             AudioChoice::Keyword(_) => "Todo o PC".to_string(),
             AudioChoice::Apps(a) => format!("{} apps", a.len()),
+        };
+        let Some(screen) = self.screen.as_ref() else {
+            // Só o som: sem codificador de vídeo nem camadas.
+            return Some(ShareView {
+                source: req.source.clone(),
+                audio,
+                preset: req.preset,
+                encoder: String::new(),
+                layers: vec![],
+                viewers_per_layer: vec![],
+                encode_ms: 0.0,
+                conversion: vec![],
+                request: Some(req.clone()),
+            });
         };
         let st = screen.publisher.stats();
         Some(ShareView {
@@ -386,6 +469,7 @@ impl ShareSession {
                     converter: c.into(),
                 })
                 .collect(),
+            request: Some(req.clone()),
         })
     }
 }
@@ -416,5 +500,24 @@ mod tests {
     #[test]
     fn view_sem_sessao_e_none() {
         assert!(ShareSession::default().view().is_none());
+    }
+
+    #[test]
+    fn view_so_audio_sem_camadas() {
+        let req = ShareRequest {
+            source: SO_AUDIO.into(),
+            audio: AudioChoice::Keyword("all".into()),
+            preset: Preset::P720p30,
+            encoder: "auto".into(),
+        };
+        let s = ShareSession {
+            request: Some(req.clone()),
+            ..Default::default()
+        };
+        let v = s.view().expect("transmitindo só o som");
+        assert_eq!(v.source, SO_AUDIO);
+        assert_eq!(v.audio, "Todo o PC");
+        assert!(v.layers.is_empty());
+        assert_eq!(v.request, Some(req));
     }
 }

@@ -127,7 +127,7 @@ function Tile({ tile, room, main, onPick }: TileProps): ReactNode {
 
 export function SalaTiles({ room, tiles, mainTile, onPick, meId = '', camOn = false, sharing = false, onToggleCam, onToggleShare }: SalaTilesProps): ReactNode {
   return (
-    <div role="group" aria-label="Transmissões na sala" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
+    <div role="group" aria-label="Transmissões na sala" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
       {tiles.map((t) => (
         <Tile key={t.tile} tile={t} room={room} main={t.tile === mainTile} onPick={onPick} />
       ))}

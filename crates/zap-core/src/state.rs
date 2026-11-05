@@ -151,6 +151,7 @@ mod tests {
             tracks: vec![],
             chat: vec![],
             unread: 0,
+            me_id: String::new(),
         }
     }
 

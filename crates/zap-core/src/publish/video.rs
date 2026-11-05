@@ -10,6 +10,8 @@ use zap_proto::LayerSpec;
 use zap_rate::allocator::Allocator;
 
 use super::viewer::ViewerLink;
+use crate::playout::PlayoutHub;
+use crate::types::{TileId, VideoPacket};
 use crate::CoreError;
 
 /// Estado compartilhado entre a thread de envio, a tarefa do alocador e a API.
@@ -25,6 +27,73 @@ pub struct VideoShared {
     /// Camadas pedidas pelo servidor Online (`camadas.pedidas`); somadas (maior kbps por
     /// camada) ao pedido do alocador a cada tick.
     pub bridge_requests: Mutex<Vec<zap_rate::allocator::LayerRequest>>,
+    /// Prévia local (eu vendo o que transmito): a camada mais leve vai direto para o tile da
+    /// interface, sem passar pela rede.
+    pub local_preview: Mutex<Option<LocalPreview>>,
+}
+
+/// Destino da prévia local de uma trilha.
+pub struct LocalPreview {
+    pub tile: TileId,
+    pub out: Arc<PlayoutHub>,
+    /// Ainda sem keyframe entregue: o decodificador da interface só começa num keyframe.
+    pub waiting_key: bool,
+}
+
+impl VideoShared {
+    /// Camada da prévia local: a mais leve da escada (maior número).
+    pub fn preview_layer(&self) -> Option<u8> {
+        self.ladder.lock().iter().map(|l| l.layer).max()
+    }
+
+    /// Pedidos que não vêm do alocador: os da ponte Online e o da prévia local, unidos.
+    pub fn extra_requests(&self) -> Vec<zap_rate::allocator::LayerRequest> {
+        let ponte = self.bridge_requests.lock().clone();
+        if self.local_preview.lock().is_none() {
+            return ponte;
+        }
+        let previa: Vec<_> = self
+            .preview_layer()
+            .and_then(|camada| {
+                let ladder = self.ladder.lock();
+                ladder
+                    .iter()
+                    .find(|l| l.layer == camada)
+                    .map(|l| zap_rate::allocator::LayerRequest {
+                        layer: l.layer,
+                        kbps: l.kbps,
+                    })
+            })
+            .into_iter()
+            .collect();
+        super::alloc_loop::merge_requests(&ponte, &previa)
+    }
+
+    /// Entrega o quadro à prévia local, se ela pede esta camada. Começa num keyframe.
+    pub fn deliver_preview(&self, f: &EncodedFrame) {
+        let mut previa = self.local_preview.lock();
+        let Some(p) = previa.as_mut() else { return };
+        if self.preview_layer() != Some(f.layer) {
+            return;
+        }
+        if p.waiting_key && !f.keyframe {
+            return;
+        }
+        p.waiting_key = false;
+        p.out.push_now(
+            p.tile,
+            VideoPacket {
+                track: f.track,
+                layer: f.layer,
+                keyframe: f.keyframe,
+                width: f.width,
+                height: f.height,
+                seq: f.seq,
+                capture_us: f.capture_us,
+                data: f.data.clone(),
+            },
+        );
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -69,6 +138,7 @@ impl VideoPublisher {
             upload_kbps: AtomicU32::new(50_000),
             clock,
             bridge_requests: Mutex::new(Vec::new()),
+            local_preview: Mutex::new(None),
         });
         let rx: Receiver<EncodedFrame> = rx;
         let s = shared.clone();
@@ -93,12 +163,44 @@ impl VideoPublisher {
     /// Online: define as camadas/bitrates pedidos pelo servidor (substitui o pedido anterior;
     /// vazio = nenhuma) e aplica no pipeline já (sem esperar o tick de 100 ms).
     pub fn set_bridge_requests(&self, reqs: Vec<zap_rate::allocator::LayerRequest>) {
-        *self.shared.bridge_requests.lock() = reqs.clone();
+        *self.shared.bridge_requests.lock() = reqs;
         // Com espectadores diretos o tick de 100 ms faz a união com o pedido do alocador.
         let diretos = self.shared.viewers.lock().iter().any(|v| !v.state.lock().bridge);
         if !diretos {
-            self.shared.pipeline.set_requests(&reqs);
+            self.shared.pipeline.set_requests(&self.shared.extra_requests());
         }
+    }
+    /// Liga a prévia local no `tile` (substitui a anterior): a camada mais leve passa a ser
+    /// codificada mesmo sem espectador e chega à interface pela `PlayoutHub`, sem rede.
+    pub fn set_local_preview(&self, tile: TileId, out: Arc<PlayoutHub>) {
+        *self.shared.local_preview.lock() = Some(LocalPreview {
+            tile,
+            out,
+            waiting_key: true,
+        });
+        // Liga a camada já (sem esperar o tick) e pede o keyframe para a interface começar.
+        let diretos = self.shared.viewers.lock().iter().any(|v| !v.state.lock().bridge);
+        if !diretos {
+            self.shared.pipeline.set_requests(&self.shared.extra_requests());
+        }
+        if let Some(camada) = self.shared.preview_layer() {
+            self.shared.pipeline.request_keyframe(camada);
+        }
+    }
+    /// Desliga a prévia local, se ela está no `tile`.
+    pub fn clear_local_preview(&self, tile: TileId) {
+        let mut previa = self.shared.local_preview.lock();
+        if previa.as_ref().is_some_and(|p| p.tile == tile) {
+            *previa = None;
+        }
+    }
+    /// A prévia local está no `tile`?
+    pub fn has_local_preview(&self, tile: TileId) -> bool {
+        self.shared
+            .local_preview
+            .lock()
+            .as_ref()
+            .is_some_and(|p| p.tile == tile)
     }
     pub fn request_keyframe(&self, layer: u8) {
         self.shared.pipeline.request_keyframe(layer);

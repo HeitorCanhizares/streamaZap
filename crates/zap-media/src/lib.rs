@@ -30,6 +30,7 @@
 mod audio;
 mod error;
 mod logic;
+mod snapshot;
 mod sonda;
 mod synth_audio;
 mod synth_video;
@@ -41,6 +42,7 @@ mod win_video;
 pub use audio::AudioPipeline;
 pub use error::MediaError;
 pub use logic::{synthetic_frame_size, LayerGate, Samples, SeqCounter};
+pub use snapshot::{downscale_to_rgba, fit_rect, snapshot, RawFormat, RawFrame, SnapshotImage};
 pub use sonda::probe_video_adapters;
 pub use types::{
     ConversionSpec, ConverterKind, EncodedAudio, EncodedFrame, EncoderChoiceSpec, LayerStats, MonitorRef,

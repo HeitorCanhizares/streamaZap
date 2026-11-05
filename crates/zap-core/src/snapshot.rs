@@ -179,6 +179,10 @@ pub struct RoomView {
     pub tracks: Vec<TrackView>,
     pub chat: Vec<crate::types::ChatLine>,
     pub unread: u32,
+    /// Meu id de participante nesta sala (no Online vem do servidor, diferente do `install_id`).
+    /// Vazio (exemplos e testes) não sai no JSON.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub me_id: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -233,6 +237,9 @@ pub struct ShareView {
     /// Conversor de cada camada codificando agora, em ordem de camada.
     #[serde(default)]
     pub conversion: Vec<LayerConversion>,
+    /// O pedido em vigor (fonte, som, qualidade, codificador): a sala abre o seletor com ele.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<crate::types::ShareRequest>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -415,6 +422,7 @@ impl Snapshot {
                     ts: 1767312720000,
                 }],
                 unread: 0,
+                me_id: String::new(),
             }),
             tiles: vec![TileView {
                 tile: 0,
@@ -440,6 +448,7 @@ impl Snapshot {
                     layer: 0,
                     converter: ConverterView::Gpu,
                 }],
+                request: None,
             }),
             errors: Vec::new(),
             newer_protocol: None,

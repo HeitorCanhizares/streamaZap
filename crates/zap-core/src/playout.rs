@@ -117,6 +117,10 @@ impl PlayoutHub {
         let due = clock.lock().play_time(packet.capture_us).unwrap_or(0);
         self.inner.queue.lock().push(due, tile, packet);
     }
+    /// Entrega já, sem relógio de participante (prévia local do que eu transmito).
+    pub fn push_now(&self, tile: TileId, packet: VideoPacket) {
+        self.inner.queue.lock().push(0, tile, packet);
+    }
     pub fn remove_tile(&self, tile: TileId) {
         self.inner.queue.lock().remove_tile(tile);
     }

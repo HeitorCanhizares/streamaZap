@@ -55,10 +55,10 @@ describe('SalaControles', () => {
 
   it('compartilhar reflete sharing', () => {
     const { unmount } = render(<SalaControles {...props({ sharing: true })} />)
-    expect(screen.getByRole('button', { name: 'Parar' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Transmissão' }).getAttribute('aria-pressed')).toBe('true')
     unmount()
     render(<SalaControles {...props({ sharing: false })} />)
-    expect(screen.getByRole('button', { name: 'Compartilhar tela' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Compartilhar' }).getAttribute('aria-pressed')).toBe('false')
   })
 
   it('suavização contém o número', () => {

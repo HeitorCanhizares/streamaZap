@@ -27,7 +27,7 @@ export interface ListaSalasProps {
 
 function estiloFiltro(ativo: boolean): CSSProperties {
   return {
-    height: 36, padding: '0 14px', borderRadius: 999, fontSize: 13, fontWeight: 600,
+    height: 36, padding: '0 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', flex: '0 0 auto',
     border: `1px solid ${ativo ? '#3BF08A' : '#1F332D'}`,
     background: ativo ? 'rgba(59,240,138,0.13)' : 'transparent',
     color: ativo ? '#3BF08A' : '#A3BDB1',
@@ -62,7 +62,7 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
     <section
       aria-label="Salas na rede"
       style={{
-        flex: '1 1 320px', maxWidth: 392, minWidth: 0, display: 'flex', flexDirection: 'column',
+        flex: '1 1 340px', maxWidth: 392, minWidth: 340, display: 'flex', flexDirection: 'column',
         background: '#0F1916', borderRight: '1px solid #1F332D',
       }}
     >
@@ -71,7 +71,7 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
         <span
           style={{
             fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#3BF08A', padding: '3px 8px',
-            borderRadius: 999, background: 'rgba(59,240,138,0.12)',
+            borderRadius: 999, background: 'rgba(59,240,138,0.12)', whiteSpace: 'nowrap', flex: '0 0 auto',
           }}
         >{contagens.todas} salas</span>
         <span style={{ flex: 1 }}></span>
@@ -81,7 +81,7 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
           onClick={props.onCriar}
           style={{
             height: 44, padding: '0 16px', borderRadius: 12, background: '#3BF08A', color: '#03140A', fontWeight: 700,
-            border: 0, display: 'flex', alignItems: 'center', gap: 6,
+            border: 0, display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', flex: '0 0 auto',
           }}
         ><IconeMais size={18} />Nova sala</button>
       </div>
@@ -106,7 +106,7 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
         </div>
       </div>
 
-      <div role="group" aria-label="Filtrar salas" style={{ display: 'flex', gap: 8, padding: '0 20px 14px' }}>
+      <div role="group" aria-label="Filtrar salas" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '0 20px 14px' }}>
         {filtros.map((f) => (
           <button key={f.id} type="button" aria-pressed={filtro === f.id} onClick={() => props.onFiltro(f.id)} style={estiloFiltro(filtro === f.id)}>
             {f.label}

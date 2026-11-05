@@ -22,7 +22,8 @@ fn camada_fps(layer: u8, w: u16, h: u16, fps: u8) -> LayerSpec {
 /// O Windows só deixa uma duplicação do mesmo monitor por processo: em paralelo, o segundo
 /// `DuplicateOutput` dá `E_INVALIDARG` e o teste pulava sem rodar. Os testes do pipeline entram
 /// nesta fila e a vez só é solta depois do pipeline (que para a captura no `Drop`).
-static MONITOR_1: Mutex<()> = Mutex::new(());
+/// Também usada pelo teste da foto do monitor (`snapshot`).
+pub(crate) static MONITOR_1: Mutex<()> = Mutex::new(());
 
 /// Janela animada e a vez no monitor 1. Fica na primeira posição da tupla de `iniciar_com`, então
 /// é solta depois do pipeline e do canal (variáveis caem na ordem inversa da declaração).

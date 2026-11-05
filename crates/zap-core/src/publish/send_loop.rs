@@ -29,6 +29,8 @@ pub(crate) fn run(shared: Arc<VideoShared>, rx: Receiver<EncodedFrame>, rt: toki
         if f.keyframe {
             shared.allocator.lock().on_keyframe(f.layer);
         }
+        // Prévia local (o que eu transmito, na minha tela): direto, sem rede.
+        shared.deliver_preview(&f);
         // Cópia da lista: não segura o lock enquanto roteia.
         let viewers = shared.viewers.lock().clone();
         for v in viewers {
@@ -147,6 +149,7 @@ mod tests {
             upload_kbps: AtomicU32::new(0),
             clock: Clock::new(),
             bridge_requests: Mutex::new(Vec::new()),
+            local_preview: Mutex::new(None),
         }))
     }
 

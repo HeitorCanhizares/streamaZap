@@ -45,7 +45,7 @@ describe('SalaPrincipal', () => {
     const f = montar()
     fireEvent.click(screen.getByText('Sair'))
     expect(f.onLeave).toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: /Compartilhar tela/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Compartilhar$/ }))
     expect(f.onToggleShare).toHaveBeenCalled()
   })
 

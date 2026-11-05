@@ -462,4 +462,4 @@ fn executar(
 }
 
 #[cfg(all(test, windows))]
-mod tests;
+pub(crate) mod tests;

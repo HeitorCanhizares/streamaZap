@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import type { SourceItem } from '../../bridge/types'
 import type { SomModo } from './criarModel'
 
-export interface CriarSomProps { apps: SourceItem[]; sound: SomModo; onSound: (v: SomModo) => void; marcados: string[]; onMarcados: (v: string[]) => void }
+export interface CriarSomProps { apps: SourceItem[]; sound: SomModo; onSound: (v: SomModo) => void; marcados: string[]; onMarcados: (v: string[]) => void; numero?: string }
 
 // Seção 05 "Som" (2-criar-sala.html 147-166).
 
@@ -14,7 +14,7 @@ const MODOS: { id: SomModo; label: string }[] = [
   { id: 'apps', label: 'Só alguns apps' },
 ]
 
-export function CriarSom({ apps, sound, onSound, marcados, onMarcados }: CriarSomProps): ReactNode {
+export function CriarSom({ apps, sound, onSound, marcados, onMarcados, numero = '05' }: CriarSomProps): ReactNode {
   const bloco = { display: 'flex', flexDirection: 'column' as const, gap: 12, padding: 20, borderRadius: 18, background: 'var(--superficie)', border: '1px solid var(--borda)' }
 
   // Alterna o id sem mutar `marcados`: sempre entrega um array novo.
@@ -25,7 +25,7 @@ export function CriarSom({ apps, sound, onSound, marcados, onMarcados }: CriarSo
   return (
     <section style={{ ...bloco, flex: '1 1 320px', minWidth: 0 }}>
       <h2 style={{ margin: 0, display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 14, fontWeight: 600 }}>
-        <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--verde)' }}>05</span>
+        <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--verde)' }}>{numero}</span>
         Som
       </h2>
       <div role="radiogroup" aria-label="Som" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--borda)' }}>

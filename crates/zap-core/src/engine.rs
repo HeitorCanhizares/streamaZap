@@ -182,7 +182,9 @@ impl Shared {
         let view = match self.current_room() {
             Some(sala) => {
                 let model = sala.model();
-                let v = model.lock().to_view();
+                let mut v = model.lock().to_view();
+                // No Online o id de participante vem do servidor (não é o `install_id`).
+                v.me_id = sala.my_id();
                 Some(v)
             }
             None => None,
@@ -373,8 +375,20 @@ impl Core {
     pub fn sources(&self) -> Sources {
         crate::sources::list_sources()
     }
+    /// Miniatura RGBA `w`×`h`. No Windows, foto de verdade da tela, janela ou câmera
+    /// (`zap_media::snapshot`); fonte sintética (e fora do Windows): o degradê de
+    /// `sources::thumbnail`. Bloqueia até a foto chegar (até 1,5 s; câmera até 4 s).
     pub fn thumbnail(&self, src: &SourceRef, w: u32, h: u32) -> Result<Rgba, CoreError> {
-        crate::sources::thumbnail(src, w, h)
+        if matches!(src, SourceRef::Synthetic { .. }) || !cfg!(windows) {
+            return crate::sources::thumbnail(src, w, h);
+        }
+        crate::sources::check_thumbnail_size(w, h)?;
+        let foto = zap_media::snapshot(&crate::sources::to_video_spec(src), w, h)?;
+        Ok(Rgba {
+            width: foto.width,
+            height: foto.height,
+            data: foto.rgba,
+        })
     }
     pub fn snapshot(&self) -> Arc<Snapshot> {
         self.shared.state.lock().snapshot()

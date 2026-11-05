@@ -1,34 +1,41 @@
 // Tarefa criar-04
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { SourceItem, Sources, SceneKind } from '../../bridge/types'
-import { isTauri } from '../../bridge/api'
+import { api, isTauri } from '../../bridge/api'
 import { ScenePreview } from '../../components/ScenePreview'
-import { cenaDaFonte, fonteMeta, type FonteTab } from './criarModel'
+import { cenaDaFonte, fonteMeta, listaDaAba, type FonteTab } from './criarModel'
 
 export type { FonteTab } from './criarModel'
-export interface CriarFontesProps { sources: Sources; tab: FonteTab; onTab: (t: FonteTab) => void; selected: string | null; onSelect: (id: string) => void; cameraCorner: boolean; onCameraCorner: (v: boolean) => void; onRefresh?: () => void }
+// cameraId/onCameraId: câmera escolhida para o canto (id da lista de fontes); sem eles, sem seletor.
+export interface CriarFontesProps { sources: Sources; tab: FonteTab; onTab: (t: FonteTab) => void; selected: string | null; onSelect: (id: string) => void; cameraCorner: boolean; onCameraCorner: (v: boolean) => void; onRefresh?: () => void; cameraId?: string | null; onCameraId?: (id: string) => void; numero?: string; mostrarCanto?: boolean }
 
-// Miniatura fixa do Rust: RGBA 320x180 (ver source_thumbnail no lado Tauri).
+// Miniatura pedida ao Rust: RGBA 320x180 (foto real da fonte; ver source_thumbnail no lado Tauri).
 const THUMB_W = 320
 const THUMB_H = 180
+// A fonte selecionada (tela ou janela) é fotografada de novo a cada 2 s: dá para ver o que vai ao ar.
+const ATUALIZAR_MS = 2000
 
-const LISTA_POR_TAB: Record<FonteTab, (s: Sources) => SourceItem[]> = {
-  telas: (s) => s.screens,
-  janelas: (s) => s.windows,
-  webcam: (s) => s.cameras,
+// Fila única: uma foto por vez (cada foto abre uma captura no Windows).
+let fila: Promise<unknown> = Promise.resolve()
+function naFila<T>(tarefa: () => Promise<T>): Promise<T> {
+  const p = fila.then(tarefa, tarefa)
+  fila = p.catch(() => {})
+  return p
 }
 
 const ABAS: { value: FonteTab; label: string }[] = [
   { value: 'telas', label: 'Telas' },
   { value: 'janelas', label: 'Janelas' },
   { value: 'webcam', label: 'Webcam' },
+  { value: 'audio', label: 'Só som' },
 ]
 
 const MONO = "'JetBrains Mono', monospace"
 
-// Miniatura de uma fonte. No Tauri pede o frame real ao backend; em qualquer falha
-// (ou fora do Tauri) cai na cena SVG de exemplo, para o cartão nunca ficar vazio.
-function Miniatura({ id, cena }: { id: string; cena: SceneKind }): ReactNode {
+// Miniatura de uma fonte. No Tauri pede a foto real ao backend (e, com `atualizar`, de novo a
+// cada 2 s); sem nenhuma foto (falha ou fora do Tauri) mostra a cena SVG de exemplo, para o
+// cartão nunca ficar vazio. Uma falha depois de uma foto boa mantém a última foto.
+function Miniatura({ id, cena, atualizar }: { id: string; cena: SceneKind; atualizar: boolean }): ReactNode {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [ok, setOk] = useState(false)
   const tauri = isTauri()
@@ -36,25 +43,29 @@ function Miniatura({ id, cena }: { id: string; cena: SceneKind }): ReactNode {
   useEffect(() => {
     if (!tauri) return
     let vivo = true
-    ;(async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const pedir = async (): Promise<void> => {
       try {
-        // Import dinamico: so carrega o modulo do Tauri dentro do app.
-        const { invoke } = await import('@tauri-apps/api/core')
-        const rgba = await invoke<number[]>('source_thumbnail', { source: id, w: THUMB_W, h: THUMB_H })
+        const foto = await naFila(() => api.sourceThumbnail(id, THUMB_W, THUMB_H))
         const canvas = canvasRef.current
         const ctx = canvas?.getContext('2d')
-        if (!vivo || !canvas || !ctx) return
-        ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), THUMB_W, THUMB_H), 0, 0)
-        setOk(true)
+        if (vivo && foto && canvas && ctx) {
+          canvas.width = foto.width
+          canvas.height = foto.height
+          ctx.putImageData(new ImageData(new Uint8ClampedArray(foto.rgba), foto.width, foto.height), 0, 0)
+          setOk(true)
+        }
       } catch {
-        // Sem miniatura real: mantém a cena de exemplo.
-        if (vivo) setOk(false)
+        // Sem foto: fica a anterior (ou a cena de exemplo).
       }
-    })()
+      if (vivo && atualizar) timer = setTimeout(() => void pedir(), ATUALIZAR_MS)
+    }
+    void pedir()
     return () => {
       vivo = false
+      if (timer !== undefined) clearTimeout(timer)
     }
-  }, [id, tauri])
+  }, [id, tauri, atualizar])
 
   return (
     <span style={{ display: 'block', position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--bg)' }}>
@@ -78,21 +89,23 @@ function Miniatura({ id, cena }: { id: string; cena: SceneKind }): ReactNode {
 
 function estiloAba(ativo: boolean): CSSProperties {
   return {
-    flex: 1, height: 38, padding: '0 12px', borderRadius: 9, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+    flex: '1 0 auto', height: 38, padding: '0 12px', borderRadius: 9, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
     background: ativo ? '#1A3A2C' : 'transparent',
     color: ativo ? 'var(--verde)' : 'var(--texto-2)',
   }
 }
 
 // Grade de fontes da aba escolhida. Cada cartão é um botão com aria-pressed.
-export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCorner, onCameraCorner, onRefresh }: CriarFontesProps): ReactNode {
-  const itens = LISTA_POR_TAB[tab](sources)
+export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCorner, onCameraCorner, onRefresh, cameraId, onCameraId, numero = '04', mostrarCanto = true }: CriarFontesProps): ReactNode {
+  const itens: SourceItem[] = listaDaAba(sources, tab)
+  // Câmera do canto: a escolhida, ou a primeira da lista.
+  const cameraAtual = cameraId && sources.cameras.some((c) => c.id === cameraId) ? cameraId : (sources.cameras[0]?.id ?? '')
 
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 20, borderRadius: 18, background: 'var(--superficie)', border: '1px solid var(--borda)' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
         <h2 style={{ margin: 0, display: 'flex', alignItems: 'baseline', gap: 10, fontSize: 14, fontWeight: 600 }}>
-          <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--verde)' }}>04</span>O que compartilhar
+          <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--verde)' }}>{numero}</span>O que compartilhar
         </h2>
         <span style={{ flex: 1 }} />
         <div role="tablist" aria-label="Tipo de fonte" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--borda)' }}>
@@ -117,7 +130,18 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
         </button>
       </div>
 
-      {itens.length === 0 ? (
+      {tab === 'audio' ? (
+        <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', borderRadius: 14, border: '1px solid var(--borda)', background: 'var(--bg)' }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: '0 0 28px' }}>
+            <path d="M4 9v6h4l5 4V5L8 9z" />
+            <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" />
+          </svg>
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <span style={{ fontWeight: 600 }}>Só o som vai para a sala</span>
+            <span style={{ fontSize: 13, color: 'var(--texto-2)', lineHeight: 1.4 }}>Ninguém vê sua tela nem sua câmera. Escolha em "Som" o que vai junto: todo o PC ou só alguns apps.</span>
+          </span>
+        </div>
+      ) : itens.length === 0 ? (
         <p style={{ margin: 0, color: 'var(--texto-3)', fontSize: 14 }}>Nada encontrado</p>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
@@ -143,7 +167,8 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
                 }}
               >
                 <span style={{ display: 'block', position: 'relative', borderRadius: 10, overflow: 'hidden' }}>
-                  <Miniatura id={item.id} cena={cenaDaFonte(tab, i)} />
+                  {/* A câmera não é refotografada sozinha: cada foto liga a câmera de novo. */}
+                  <Miniatura id={item.id} cena={cenaDaFonte(tab, i)} atualizar={ativo && tab !== 'webcam'} />
                   {ativo && (
                     <span data-testid="fonte-check" style={{ position: 'absolute', right: 8, top: 8, width: 24, height: 24, borderRadius: '50%', background: '#3BF08A', color: '#03140A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -162,7 +187,7 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
         </div>
       )}
 
-      {tab !== 'webcam' && (
+      {mostrarCanto && (tab === 'telas' || tab === 'janelas') && (
         <button
           type="button"
           role="switch"
@@ -182,6 +207,19 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
             <path d="m16 11 5-3v8l-5-3z" />
           </svg>
         </button>
+      )}
+      {mostrarCanto && (tab === 'telas' || tab === 'janelas') && cameraCorner && onCameraId && sources.cameras.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 4px' }}>
+          <label htmlFor="camera-canto" style={{ fontSize: 13, color: 'var(--texto-2)', whiteSpace: 'nowrap' }}>Câmera</label>
+          <select
+            id="camera-canto"
+            value={cameraAtual}
+            onChange={(e) => onCameraId(e.target.value)}
+            style={{ flex: 1, minWidth: 0, height: 40, padding: '0 10px', borderRadius: 10, border: '1px solid var(--borda-forte)', background: 'var(--bg)', color: 'var(--texto)' }}
+          >
+            {sources.cameras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
       )}
     </section>
   )
