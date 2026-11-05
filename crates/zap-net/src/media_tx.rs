@@ -247,10 +247,14 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn probe_size_limitado() -> Result<(), Erro> {
         let (cli, _srv, _e1, _e2) = par_loopback().await?;
-        let max = cli.max_datagram_size().ok_or("sem datagramas")?;
-        let tx = MediaSender::new(cli, Clock::new());
+        // A descoberta de MTU do QUIC pode mudar o máximo enquanto o teste roda: o tamanho da
+        // sonda vale contra o máximo lido antes ou depois dele (sob carga, ler só antes falhava).
+        let antes = cli.max_datagram_size().ok_or("sem datagramas")?;
+        let tx = MediaSender::new(cli.clone(), Clock::new());
         let n = tx.probe_size().ok_or("sem tamanho de sonda")?;
-        assert!(n <= 1200 && n <= max, "{n} fora do limite ({max})");
+        let depois = cli.max_datagram_size().ok_or("sem datagramas")?;
+        let max = antes.max(depois);
+        assert!(n <= 1200 && n <= max, "{n} fora do limite ({antes}..{depois})");
         Ok(())
     }
 }
