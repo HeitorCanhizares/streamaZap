@@ -326,9 +326,11 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     println!("p95 captura+conversão+codificação camada 0: {soma:.1} ms (meta <= {meta})");
     if st.cpu_threads > 0 {
         println!(
-            "leitura para a CPU média/p95: {:.2} / {:.2} ms; threads: {}",
+            "leitura para a CPU média/p95: {:.2} / {:.2} ms (espera pelo quadro {:.2} / {:.2} ms); threads: {}",
             ms(st.cpu_readback.avg_us),
             ms(st.cpu_readback.p95_us),
+            ms(st.cpu_frame_wait.avg_us),
+            ms(st.cpu_frame_wait.p95_us),
             st.cpu_threads
         );
     }

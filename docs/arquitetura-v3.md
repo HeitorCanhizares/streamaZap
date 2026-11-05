@@ -371,7 +371,7 @@ Ponte com o núcleo:
 | WebCodecs indisponível ou sem hardware em algum PC | Detectar com `VideoDecoder.isConfigSupported`; cair para decodificação por software do próprio WebCodecs |
 | Código Windows sem teste local | `cargo check` em `windows-gnu` em todo commit + testes no CI Windows |
 | QUIC/UDP bloqueado em alguma rede | No Online, ponte pelo servidor; diagnóstico mostra se o UDP passa |
-| PC sem Video Processor (VM, driver básico, Área de Trabalho Remota) ou VP que recusa o formato | Conversão pela CPU automática (`ConversionSpec::Auto`, M2b); testada neste PC com o adaptador básico (WARP) e com `--conversao cpu` na bancada. Medido no fechamento (2026-11-05): 60/30/15 fps pela CPU, p95 somado 11,9 ms na camada 0; a leitura da origem (p95 8,5 ms) ainda passa da meta de 2 ms |
+| PC sem Video Processor (VM, driver básico, Área de Trabalho Remota) ou VP que recusa o formato | Conversão pela CPU automática (`ConversionSpec::Auto`, M2b); testada neste PC com o adaptador básico (WARP) e com `--conversao cpu` na bancada. Medido no fechamento (2026-11-05): 60/30/15 fps pela CPU, p95 somado 11,9 ms na camada 0. A leitura da origem espera a GPU terminar o quadro capturado (espera que o caminho da GPU também tem, dentro da fila); a cópia em si leva ~1 ms (`m2b-conversao-cpu.md` §12) |
 
 ## 13. Fluxo de trabalho com agentes
 

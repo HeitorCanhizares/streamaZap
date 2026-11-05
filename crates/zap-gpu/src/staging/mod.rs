@@ -2,8 +2,9 @@
 //! enquanto a GPU copia. Ver `docs/planos/m2b-conversao-cpu.md` §5.1 b.
 use crate::{GpuDevice, GpuError};
 use std::time::{Duration, Instant};
+use windows::core::BOOL;
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Texture2D, D3D11_MAP, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_FLAG_DO_NOT_WAIT,
+    ID3D11Query, ID3D11Texture2D, D3D11_MAP, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_FLAG_DO_NOT_WAIT,
 };
 use windows::Win32::Graphics::Dxgi::DXGI_ERROR_WAS_STILL_DRAWING;
 
@@ -67,6 +68,39 @@ pub(crate) fn map_sem_bloquear(
                 }
             }
             Err(e) => return Err(os(context, e)),
+        }
+    }
+}
+
+/// Espera uma consulta `D3D11_QUERY_EVENT` sinalizar, sem segurar o lock entre as tentativas e com
+/// a mesma regra de `map_sem_bloquear` (`yield_now` nos primeiros 2 ms, `sleep(1 ms)` depois).
+/// Devolve o tempo desde `inicio` quando sinalizou, ou `None` depois de 100 ms (aí quem chama segue
+/// para o `Map`, que tem o próprio limite).
+pub(crate) fn esperar_evento(
+    dev: &GpuDevice,
+    q: &ID3D11Query,
+    inicio: Instant,
+    lock_wait_us: &mut f64,
+) -> Option<Duration> {
+    let comeco = Instant::now();
+    loop {
+        let mut pronto = BOOL(0);
+        let ok = {
+            let (_guard, espera) = dev.lock();
+            *lock_wait_us += espera.as_secs_f64() * 1e6;
+            crate::timing::ler(dev, q, &mut pronto)
+        };
+        if ok && pronto.as_bool() {
+            return Some(inicio.elapsed());
+        }
+        let decorrido = comeco.elapsed();
+        if decorrido > Duration::from_millis(100) {
+            return None;
+        }
+        if decorrido < Duration::from_millis(2) {
+            std::thread::yield_now();
+        } else {
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 }

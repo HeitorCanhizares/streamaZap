@@ -19,7 +19,7 @@ rodadas M4/M4b/M4c/M2b está na branch `m4-online`, em commits locais (sem push)
 |---|---|---|
 | M0 | ✅ | Plano mestre (`docs/arquitetura-v3.md`), API (`docs/api/`), design (`docs/design/`), hierarquia de agentes (`.claude/`), workspace e CI |
 | M1 | ✅ | `zap-proto` (protocolo 4), `zap-rate` (estimador de banda, balanceamento por espectador, suavização, simulador), `zap-net` (QUIC com prazo por quadro, relatórios, descoberta) |
-| M2 / M2b | ✅ na GTX 1060 (bancada release: camada 0 a 60 fps, p95 somado 6,5 ms na mediana de 5; meta de 8 ms atingida). M2b: conversão NV12 pela CPU de reserva, 60 fps também por ela (p95 somado 11,9 ms, leitura p95 8,5 ms acima da meta de 2 ms) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
+| M2 / M2b | ✅ na GTX 1060 (bancada release: camada 0 a 60 fps, p95 somado 6,5 ms na mediana de 5; meta de 8 ms atingida). M2b: conversão NV12 pela CPU de reserva, 60 fps também por ela (p95 somado 11,9 ms; a leitura lenta era a espera pelo quadro capturado, que o caminho da GPU também tem; a cópia em si fica em ~1 ms) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
 | M3 / M3b | ✅ | `zap-core` (sala Local, publicação, assinatura, playout), app Tauri (`app/src-tauri`), interface React fiel ao design (`app/src`) ligada ao núcleo |
 | M5 | ✅ (falta testar uma release de verdade) | Atualização assinada (instala ao fechar, nunca reinicia numa sala, canais estável/beta), firewall por COM, diagnóstico real, `release-v3.yml`, instalador NSIS que remove o app Python |
 | **M4** | 🟡 **pronto no app** | Modo Online (núcleo, Tauri, telas, modo só direta, sondagem em degraus) com todos os aceites passando (aceite 2: 5 de 5, e 2 de 2 com carga); falta o servidor de produção seguir o contrato novo e um teste entre dois PCs |
@@ -58,9 +58,10 @@ ligado por padrão) e avisa quando a tela fica parada. Números em
 `docs/planos/m4c-estabilizacao.md` (seção 10). Ainda falta:
 - testar a transmissão entre dois PCs (`cd app && npm install && npm run tauri dev`);
 - a **conversão para NV12 pela CPU** (M2b, rodada 4) está feita e medida: o `Auto` cai para a CPU sem
-  Video Processor, e a janela de tamanho ímpar passou a transmitir. Falta ver a leitura da origem
-  (p95 8,5 ms contra a meta de 2) e testar num PC sem Video Processor de verdade (aqui só pelo
-  adaptador básico/`--conversao cpu`);
+  Video Processor, e a janela de tamanho ímpar passou a transmitir. A leitura lenta foi
+  investigada (espera pelo quadro capturado, não a cópia; ver "Investigação da leitura" abaixo).
+  Falta testar num PC sem Video Processor de verdade (aqui só pelo adaptador básico e
+  `--conversao cpu`);
 - rodar a cadeia de dispositivos do `zap-gpu` no CI Windows.
 
 ### 3. Chaves do updater e uma release de teste (M5)
@@ -109,9 +110,23 @@ Conferência do orquestrador (seção 11 do plano): os 10 testes do pipeline de 
 (`win_video::tests`) **pulavam em silêncio quando rodavam em paralelo**, porque o Windows só deixa
 uma duplicação do mesmo monitor por processo. Agora entram numa fila (trava `MONITOR_1`) e rodam
 de verdade (3 de 3, nenhum pulou). Duas execuções a mais da bancada `cpu` (60/30/15 fps; p95
-somado 10,6 e 26,1 ms, a segunda logo depois da compilação) mantêm a mediana das 5 em 11,9 ms. O
-`--software` (sem NVENC) também lê devagar, então a espera da leitura parece ser a GPU terminando
-o quadro capturado, não o NVENC.
+somado 26,1 ms na primeira, logo depois da compilação, e 10,6 ms na segunda) mantêm a mediana das 5
+em 11,9 ms.
+
+**Investigação da leitura** (seção 12 do plano). A leitura lenta não é a cópia, e sim a espera
+pela GPU terminar o quadro capturado (a imagem que o DWM compõe e as cópias da própria captura).
+Com consultas de evento antes e depois da cópia, a espera deu média 2,0 / p95 6,8 ms e a cópia
+de 8,3 MB 1,0 / 1,8 ms. Quando a captura espera a imagem do DWM antes de entregar, a espera da
+leitura cai para p95 0,8 ms. Durante a medida, o driver também desce a GTX 1060 de P0 para P8
+(memória de 4608 para 405 MHz), o que deixa tudo mais lento. O caminho da GPU tem a mesma espera,
+escondida na codificação (lá ela varia de 2 a 9 ms; na CPU fica estável em ~2 ms). A meta de 2 ms
+vinha de um protótipo que lia uma textura parada; agora vale para a cópia, que já a cumpre.
+`ReadbackTiming` ganhou `frame_wait_us`, `PipelineStats` ganhou `cpu_frame_wait` e a bancada mostra
+a espera pelo quadro. Medida final com a tela mais pesada (4,4 a 4,8 Mbps, contra 1,4 antes),
+3 execuções por modo: GPU com p95 somado de 12,3 / 13,7 / 14,0 ms (fora da própria meta de 8,
+também por causa da espera), CPU 20,6 / 21,5 / 23,3 ms, leitura média ~5,2 ms, dos quais ~4,0 são
+espera pelo quadro. Nas mesmas condições, a CPU acrescenta ~8 ms ao p95 (cópia, conversão e
+subida).
 
 ## Atualização da rodada 3 (m4c, 2026-11-04, fechamento)
 
@@ -203,8 +218,7 @@ como no servidor de teste, ele precisa de cinco mudanças. A referência em cód
 ### Próximos passos
 1. Servidor de produção (acima), depois um teste do app com ele entre dois PCs.
 2. CI Windows/Linux com o M4 e a cadeia de dispositivos do `zap-gpu`; conversor em uso no Diagnóstico
-   do app (`LayerStats::converter`); leitura da origem mais rápida no caminho da CPU; entrega de
-   memória ao codificador de software (portão aberto).
+   do app (`LayerStats::converter`); entrega de memória ao codificador de software (portão aberto).
 3. M5: chaves do updater e uma release de teste. M6: paridade e remoção do app Python.
 
 ## Atualização do M4 (2026-11-04, rodada M4b + M2, fechamento no Windows)

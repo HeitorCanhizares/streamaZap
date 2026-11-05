@@ -195,6 +195,12 @@ fn cpu_gera_quadros() {
     let s = p.stats();
     assert_eq!(s.layers[0].converter, Some(ConverterKind::Cpu));
     assert!(s.cpu_readback.p95_us > 0.0, "cpu_readback = {:?}", s.cpu_readback);
+    assert!(
+        s.cpu_frame_wait.p95_us >= 0.0 && s.cpu_frame_wait.avg_us <= s.cpu_readback.avg_us,
+        "cpu_frame_wait = {:?}, cpu_readback = {:?}",
+        s.cpu_frame_wait,
+        s.cpu_readback
+    );
     assert!(s.cpu_threads >= 1);
 }
 

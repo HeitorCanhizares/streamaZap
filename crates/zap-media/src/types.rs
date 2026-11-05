@@ -128,6 +128,9 @@ pub struct PipelineStats {
     pub capture_new_fps: f32,
     /// Leitura da origem para a CPU: do `CopyResource` ao `Map` (µs). Vazio sem camada na CPU.
     pub cpu_readback: StageStats,
+    /// Parte da leitura esperando a GPU terminar o quadro capturado antes da cópia (µs). O caminho
+    /// da GPU tem a mesma espera, mas dentro da fila da GPU (aparece na codificação).
+    pub cpu_frame_wait: StageStats,
     /// Threads da conversão na CPU (0 = nenhuma camada na CPU).
     pub cpu_threads: u32,
 }
@@ -148,5 +151,6 @@ mod tests {
         let ps = PipelineStats::default();
         assert_eq!(ps.cpu_threads, 0);
         assert_eq!(ps.cpu_readback, StageStats::default());
+        assert_eq!(ps.cpu_frame_wait, StageStats::default());
     }
 }

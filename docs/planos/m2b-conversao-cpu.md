@@ -871,3 +871,54 @@ essa espera, mas ela fica escondida na fila da GPU. O protótipo (0,77 ms, seç�
 textura parada, então a meta de 2 ms provavelmente não vale para a captura real. Próximo passo:
 medir com uma query de evento logo antes do `CopyResource`. Ler o quadro anterior (duas stagings
 em rodízio) esconderia a espera, mas somaria um quadro inteiro de atraso, o que é pior no total.
+
+## 12. Investigação da leitura (orquestrador, 2026-11-05)
+
+Pergunta: por que a leitura da origem para a CPU tinha p95 de ~8,5 ms, se o protótipo (seção 2.4)
+media 0,77 ms (p95 1,26)? Saídas brutas na pasta `r4b/` do scratchpad.
+
+1. **Estado de energia da GPU** (`nvidia-smi` a cada 100 ms durante a bancada). O driver começa em
+   P0 (1506 MHz no núcleo, 4608 MHz na memória) e desce para P2, P5 e P8 (607 / 405 MHz) ao longo
+   dos 10 s. Isso acontece tanto em `cpu` quanto em `auto`. Com janela curta (3 s, só em P0), a
+   leitura média caiu de 6,5 para 2,5 ms, mas o p95 continuou em 7 a 9 ms. O clock explica parte
+   da média, não a cauda.
+2. **Leitura em partes** (diagnóstico temporário: consulta de evento + `Flush` antes do
+   `CopyResource` e outra depois). Espera pelo trabalho anterior da GPU: média 2,04 / p50 0,61 /
+   p95 6,80 ms. A cópia: 0,97 / 0,64 / 1,78 ms. Do fim da cópia ao `Map`: ~0,003 ms, então a
+   sondagem não pesa.
+3. **De onde vem a espera** (diagnóstico temporário na captura DXGI: esperar a cópia da imagem do
+   DWM terminar antes de entregar o quadro). A espera na captura deu média 1,9 / p95 5,7 ms, e a
+   espera na leitura caiu para média 0,32 / p95 0,82 ms (leitura total p95 2,08 ms). **A espera é
+   a GPU terminando o quadro capturado** (composição do DWM e cópias da captura), não o NVENC nem
+   a nossa cópia. O caminho da GPU tem a mesma espera, mas dentro da fila da GPU: ela aparece na
+   "codificação" (em `auto`, média de 2 a 9 ms e p95 de 4 a 14 ms entre execuções; em `cpu`, a
+   codificação fica estável em ~2 ms, porque a entrada já chega pronta).
+
+**Mudança.** A espera passa a ser medida separada, de forma permanente e barata: a
+`ReadbackStaging` cria uma consulta de evento (uma por staging), põe `End` + `Flush` antes da cópia,
+espera o evento com a mesma regra do `Map` (`yield_now` nos primeiros 2 ms, `sleep(1 ms)` depois) e
+devolve `ReadbackTiming::frame_wait_us`. O `Map` volta a girar rápido para pegar o fim da cópia.
+`PipelineStats::cpu_frame_wait` leva a medida, e a bancada imprime "espera pelo quadro".
+Os diagnósticos temporários foram removidos.
+
+**Meta revista (item 6).** "Leitura p95 ≤ 2 ms" passa a valer para a **cópia** (leitura menos
+espera pelo quadro): cumprida (p50 0,64 / p95 1,78 ms). O p95 somado do caminho de CPU deve ser
+comparado com o da GPU nas mesmas condições, porque a espera pelo quadro varia com o conteúdo da
+tela e com o estado de energia da GPU.
+
+**Medida final** (bancada release, 1080p60, monitor 1; a tela estava mais pesada que na seção 8:
+4,4 a 4,8 Mbps na camada 0, contra 1,4):
+
+| Modo | Execuções | p95 somado camada 0 (ms) | Leitura média / p95 (ms) | Espera pelo quadro média / p95 (ms) | Codificação camada 0 média / p95 (ms) | CPU do processo |
+|---|---|---|---|---|---|---|
+| `auto` (GPU) | 3 | 14,0 / 13,7 / 12,3 | — | — (dentro da codificação) | 8,77 / 13,61; 5,52 / 13,51; 6,70 / 12,14 | 22% |
+| `cpu` | 3 | 23,3 / 21,5 / 20,6 | 4,65 / 10,66; 5,27 / 10,74; 5,80 / 10,85 | 3,48 / 9,99; 3,97 / 10,56; 4,64 / 9,46 | 5,14 / 6,98; 4,52 / 6,35; 4,34 / 5,08 | 94 a 108% |
+
+60/30/15 fps em todas. Nas mesmas condições, o caminho de CPU acrescenta ~8 ms ao p95 somado
+(mediana 21,5 contra 13,7): a cópia (~1,2 ms de média), a conversão e a subida para o NV12 da
+camada. A espera pelo quadro é igual nos dois caminhos e não depende do conversor.
+
+**O que fica.** Baixar a espera pelo quadro não é trabalho do conversor. Ela depende do DWM e do
+estado de energia da GPU, que o app não controla sem a NVAPI. Se um dia valer a pena, o caminho é
+na captura (por exemplo, uma cópia a menos, de `limpa` para o slot do anel, quando o cursor não
+precisa ser desenhado).

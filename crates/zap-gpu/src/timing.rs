@@ -7,7 +7,7 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_QUERY_TIMESTAMP, D3D11_QUERY_TIMESTAMP_DISJOINT,
 };
 
-fn criar_consulta(dev: &GpuDevice, tipo: D3D11_QUERY) -> Result<ID3D11Query, GpuError> {
+pub(crate) fn criar_consulta(dev: &GpuDevice, tipo: D3D11_QUERY) -> Result<ID3D11Query, GpuError> {
     let desc = D3D11_QUERY_DESC {
         Query: tipo,
         MiscFlags: 0,
@@ -26,7 +26,7 @@ fn criar_consulta(dev: &GpuDevice, tipo: D3D11_QUERY) -> Result<ID3D11Query, Gpu
 
 /// Lê o resultado de uma consulta sem esperar; `true` só se o retorno for exatamente `S_OK`.
 /// Chama o vtable direto porque o wrapper `Result<()>` esconde `S_FALSE` (não pronto).
-fn ler<T>(dev: &GpuDevice, q: &ID3D11Query, out: &mut T) -> bool {
+pub(crate) fn ler<T>(dev: &GpuDevice, q: &ID3D11Query, out: &mut T) -> bool {
     let ctx = dev.context();
     // SAFETY: `out` aponta para um `T` com o tamanho que o driver espera para esta consulta;
     // `q` e `ctx` são objetos vivos do mesmo dispositivo.

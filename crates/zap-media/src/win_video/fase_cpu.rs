@@ -80,6 +80,7 @@ pub(super) fn rodar(
         }
     };
     ctx.leitura_s.push(rt.copy_wait_us);
+    ctx.espera_quadro_s.push(rt.frame_wait_us);
     let opts = BatchOptions {
         threads: ctx.threads,
         on_thread_start: Some(super::prioridade_acima_do_normal),

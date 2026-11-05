@@ -159,6 +159,8 @@ struct Contexto {
     leitura: Option<ReadbackStaging>,
     /// `copy_wait_us` das leituras, em µs.
     leitura_s: Samples,
+    /// `frame_wait_us` das leituras (espera pelo quadro antes da cópia), em µs.
+    espera_quadro_s: Samples,
     /// Threads da conversão na CPU (`zap_gpu::cpu_threads()`).
     threads: usize,
     /// Instante (µs) do último aviso de falha de leitura (no máximo 1 por segundo).
@@ -263,6 +265,7 @@ pub(crate) fn spawn(
         simular_sem_vp,
         leitura: None,
         leitura_s: Samples::new(JANELA_AMOSTRAS),
+        espera_quadro_s: Samples::new(JANELA_AMOSTRAS),
         threads: zap_gpu::cpu_threads(),
         ultimo_aviso_leitura_us: 0,
     };
@@ -440,6 +443,7 @@ fn executar(
             s.capture_new_fps = novos_janela as f32 / secs;
             s.dropped_encode = dropped_encode;
             s.cpu_readback = ctx.leitura_s.stage();
+            s.cpu_frame_wait = ctx.espera_quadro_s.stage();
             s.cpu_threads = if usa_cpu(&camadas) { ctx.threads as u32 } else { 0 };
             s.encoder_name = encoder_name.clone();
             ultima_stats = agora;

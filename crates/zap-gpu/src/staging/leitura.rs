@@ -1,10 +1,11 @@
 //! Staging de leitura persistente.
-use super::{map_sem_bloquear, os, unmap};
+use super::{esperar_evento, map_sem_bloquear, os, unmap};
 use crate::cpu::SrcImage;
 use crate::{GpuDevice, GpuError, PixelFormat, ReadbackTiming, Texture};
 use std::time::Instant;
 use windows::Win32::Graphics::Direct3D11::{
-    ID3D11Texture2D, D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
+    ID3D11Query, ID3D11Texture2D, D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_QUERY_EVENT, D3D11_TEXTURE2D_DESC,
+    D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC,
@@ -23,6 +24,9 @@ pub struct ReadbackStaging {
     pub(crate) width: u32,
     pub(crate) height: u32,
     pub(crate) format: PixelFormat,
+    /// Consulta de evento posta antes da cópia: separa a espera pelo quadro (trabalho anterior da
+    /// GPU) da cópia em si. `None` se o driver não criar a consulta (aí `frame_wait_us` = 0).
+    pub(crate) evento: Option<ID3D11Query>,
 }
 
 impl ReadbackStaging {
@@ -55,11 +59,19 @@ impl ReadbackStaging {
             context: "CreateTexture2D (staging)",
             message: "textura nula após sucesso".to_string(),
         })?;
+        let evento = match crate::timing::criar_consulta(dev, D3D11_QUERY_EVENT) {
+            Ok(q) => Some(q),
+            Err(e) => {
+                tracing::debug!("sem consulta de evento na leitura: {e}");
+                None
+            }
+        };
         Ok(Self {
             tex,
             width,
             height,
             format,
+            evento,
         })
     }
 
@@ -68,7 +80,9 @@ impl ReadbackStaging {
     }
 
     /// Copia `src` (mesmo tamanho e formato; senão `InvalidArgument`) e mapeia para leitura.
-    /// `CopyResource` + `Flush` juntos dentro do lock; depois `map_sem_bloquear` (modo `D3D11_MAP_READ`).
+    /// Dentro do lock: consulta de evento e `Flush` (fecha o lote do trabalho anterior), depois
+    /// `CopyResource` e `Flush`. Fora dele: espera o evento (`frame_wait_us`) e então
+    /// `map_sem_bloquear` (`D3D11_MAP_READ`), que volta a girar rápido e pega o fim da cópia sem atraso.
     pub fn map<'s>(
         &'s mut self,
         dev: &'s GpuDevice,
@@ -94,10 +108,18 @@ impl ReadbackStaging {
             // SAFETY: ambos os recursos são do mesmo dispositivo, com formato/tamanho iguais;
             // o lock do dispositivo está tomado.
             unsafe {
+                if let Some(q) = &self.evento {
+                    dev.context().End(q);
+                    dev.context().Flush();
+                }
                 dev.context().CopyResource(&self.tex, src.raw());
                 dev.context().Flush();
             }
         }
+        let frame_wait_us = match &self.evento {
+            Some(q) => esperar_evento(dev, q, t0, &mut lock_wait).map_or(0.0, |d| d.as_secs_f64() * 1e6),
+            None => 0.0,
+        };
         let (mapped, tentativas) = map_sem_bloquear(dev, &self.tex, D3D11_MAP_READ, "Map (leitura)", &mut lock_wait)?;
         let copy_wait_us = t0.elapsed().as_secs_f64() * 1e6;
         let frame = MappedFrame {
@@ -113,6 +135,7 @@ impl ReadbackStaging {
             frame,
             ReadbackTiming {
                 copy_wait_us,
+                frame_wait_us: frame_wait_us.min(copy_wait_us),
                 lock_wait_us: lock_wait,
                 map_attempts: tentativas,
             },
@@ -215,6 +238,12 @@ mod tests {
         }
         assert!(timing.map_attempts >= 1);
         assert!(timing.copy_wait_us > 0.0);
+        assert!(
+            timing.frame_wait_us >= 0.0 && timing.frame_wait_us <= timing.copy_wait_us,
+            "frame_wait_us = {}, copy_wait_us = {}",
+            timing.frame_wait_us,
+            timing.copy_wait_us
+        );
     }
 
     #[test]

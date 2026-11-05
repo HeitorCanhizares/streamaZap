@@ -65,8 +65,12 @@ pub struct FormatSupport {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ReadbackTiming {
-    /// Do `CopyResource` ao `Map` que deu certo (µs): cópia na GPU + espera.
+    /// Do `CopyResource` ao `Map` que deu certo (µs): espera pelo quadro + cópia na GPU.
     pub copy_wait_us: f64,
+    /// Parte de `copy_wait_us` em que a GPU ainda terminava o trabalho anterior à cópia (µs): na
+    /// captura, a imagem do DWM e as cópias da própria captura. O caminho da GPU também espera
+    /// isso, só que dentro da fila da GPU. 0 sem consulta de evento no driver.
+    pub frame_wait_us: f64,
     /// Soma das esperas pelo lock do dispositivo nas chamadas desta leitura (µs).
     pub lock_wait_us: f64,
     /// Tentativas de `Map`.
