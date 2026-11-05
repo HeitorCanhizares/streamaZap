@@ -1,17 +1,16 @@
 # Estado da v3 (Rust + Tauri)
 
 Atualizado em 2026-11-05, depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
-Diagnóstico e do CI. O trabalho das rodadas M4/M4b/M4c/M2b está na branch `m4-online`, já no
-GitHub e com o CI da v3 verde; `master` e `claude/loving-davinci-le0qac` têm o estado anterior.
+Diagnóstico e do CI. Todo o trabalho (rodadas M4/M4b/M4c/M2b) está no `master`, que é a única
+branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 
 ## Antes de qualquer push no `master`
 
 - **Todo push no `master` publica uma Release do app Python.** O `build.yml` gera o instalador e
   marca como a última Release. Até o M6, ponha `[skip release]` na mensagem do commit do topo do
   push (é a do `head_commit` que conta).
-- **O CI da v3 (`rust.yml`) passa com o M4 pronto** na `m4-online` (Linux, Windows e front-end;
-  ver "CI da v3" abaixo). No `master` ele está vermelho desde o esqueleto do M4: o merge da
-  `m4-online` resolve.
+- **O CI da v3 (`rust.yml`) passa com o M4 pronto** (Linux, Windows e front-end; ver "CI da v3"
+  abaixo). Rode-o antes de mexer no `master` se a mudança for grande: aba Actions, "Run workflow".
 
 ## Resumo
 
@@ -226,8 +225,8 @@ como no servidor de teste, ele precisa de cinco mudanças. A referência em cód
 
 ### Próximos passos
 1. Servidor de produção (acima), depois um teste do app com ele entre dois PCs.
-2. Levar a `m4-online` ao `master` (com `[skip release]` no commit do topo), o que deixa o CI do
-   `master` verde de novo; entrega de memória ao codificador de software (portão aberto).
+2. Entrega de memória ao codificador de software (portão aberto); medir o caminho pela CPU num PC
+   de usuário sem Video Processor.
 3. M5: chaves do updater e uma release de teste. M6: paridade e remoção do app Python.
 
 ## Atualização do M4 (2026-11-04, rodada M4b + M2, fechamento no Windows)
