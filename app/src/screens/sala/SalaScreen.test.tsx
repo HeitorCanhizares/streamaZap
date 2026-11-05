@@ -20,6 +20,7 @@ import { SalaScreen } from './SalaScreen'
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  localStorage.clear()
 })
 
 describe('SalaScreen', () => {
@@ -159,6 +160,28 @@ describe('SalaScreen', () => {
     expect(screen.getAllByTestId('celula-principal')).toHaveLength(2)
     expect(screen.getByRole('img', { name: 'Sua tela' })).toBeTruthy()
     expect(screen.getByText('Sua transmissão está na tela principal')).toBeTruthy()
+  })
+
+  it('ocultar o cartão Você: para a minha miniatura e fica lembrado na próxima sala', () => {
+    const base = mockSnapshot()
+    estado.snap = {
+      ...base,
+      share: { source: 'screen:0', audio: 'none', preset: '720p30', encoder: 'auto', layers: [], viewers_per_layer: [], encode_ms: 1, conversion: [] },
+      room: { ...base.room!, tracks: [...base.room!.tracks, { id: 'minha', owner_id: base.me.install_id, kind: 'screen', title: 'Tela', number: 9 }] },
+    }
+    vi.spyOn(api, 'watch').mockResolvedValue(undefined)
+    const unwatch = vi.spyOn(api, 'unwatch').mockResolvedValue(undefined)
+    const { unmount } = render(<SalaScreen onLeft={() => {}} />)
+    expect(screen.getByRole('img', { name: 'Prévia: sua tela' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar meu cartão' }))
+    expect(screen.queryByRole('img', { name: 'Prévia: sua tela' })).toBeNull()
+    // A minha miniatura deixa de ser assinada (não gasta codificação).
+    expect(unwatch).toHaveBeenCalledTimes(1)
+    unmount()
+    render(<SalaScreen onLeft={() => {}} />)
+    expect(screen.getByRole('button', { name: 'Mostrar meu cartão' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar meu cartão' }))
+    expect(screen.getByRole('img', { name: 'Prévia: sua tela' })).toBeTruthy()
   })
 
   it('painel: Fechar painel remove o aside e o botão Painel do cabeçalho o traz de volta', () => {

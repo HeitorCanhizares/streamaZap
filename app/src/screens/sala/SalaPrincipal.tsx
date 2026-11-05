@@ -18,8 +18,9 @@ export interface SalaPrincipalProps {
   canvasDe: (trackId: string) => HTMLCanvasElement
   /** Há transmissões fora da principal? Muda o texto da tela vazia. */
   temOutras: boolean
-  /** Há a faixa de baixo? O vídeo encolhe para ela caber na janela sem rolar. */
-  temFaixa?: boolean
+  /** Há a faixa de baixo? O vídeo encolhe para ela caber na janela sem rolar. 'botao' = só o botão
+   *  "Mostrar meu cartão" embaixo (ocupa pouco). */
+  temFaixa?: boolean | 'botao'
   share: ShareView | null
   volumeDe: (ownerId: string) => VolumePessoa
   onVolumePessoa: (ownerId: string, v: VolumePessoa) => void
@@ -57,6 +58,7 @@ const MONO = "'JetBrains Mono', monospace"
 // baixo, também a altura de um cartão.
 const RESERVA_SEM_FAIXA = 180
 const RESERVA_COM_FAIXA = 400
+const RESERVA_COM_BOTAO = 250
 
 function IconeX({ size }: { size: number }): ReactNode {
   return (
@@ -224,7 +226,7 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
           width: '100%',
           // 16:9 que cabe na altura da janela: barra de título, cabeçalho e margens (e a faixa de
           // baixo, quando há) ficam de fora. Nunca menor que 480 px de largura.
-          maxWidth: `max(480px, calc((100vh - ${p.temFaixa ? RESERVA_COM_FAIXA : RESERVA_SEM_FAIXA}px) * 16 / 9))`,
+          maxWidth: `max(480px, calc((100vh - ${p.temFaixa === 'botao' ? RESERVA_COM_BOTAO : p.temFaixa ? RESERVA_COM_FAIXA : RESERVA_SEM_FAIXA}px) * 16 / 9))`,
           alignSelf: 'center',
         }}
       >

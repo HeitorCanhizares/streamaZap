@@ -144,6 +144,10 @@ Terceira leva (depois da v3.1.0):
   com a faixa de baixo) e o chat rola sozinho, sem a página crescer com as mensagens; nas
   configurações a coluna fica centrada com até 1280 px. A barra de controles fica compacta (uma
   linha) quando o vídeo tem menos de 700 px de largura (container query em `.zp-palco`).
+- **Ocultar miniaturas** (depois da v3.1.1): o X de qualquer miniatura da faixa (a minha ou a de
+  outra pessoa) a troca por um botão pequeno numa linha embaixo ("Dudu · Janela", "Você"), que a
+  reabre. A de outra pessoa fechada não é recebida (como antes); o cartão Você oculto
+  (`streamazap.voceOculto` no localStorage, lembrado entre salas) para de assinar a minha miniatura.
 
 ## Atualização da rodada 4 (M2b, 2026-11-05, fechamento)
 

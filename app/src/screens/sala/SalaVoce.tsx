@@ -19,6 +19,8 @@ export interface SalaVoceProps {
   onMover?: (trackId: string, lugar: Lugar) => void
   onToggleCam?: () => void
   onToggleShare?: () => void
+  /** Oculta o cartão inteiro (volta pelo botão "Mostrar meu cartão" da faixa). */
+  onOcultar?: () => void
 }
 
 // card(on) do script x-dc
@@ -55,7 +57,7 @@ function IconeCima(): ReactNode {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 15V5M8 9l4-4 4 4M4 19h16" /></svg>
 }
 
-export function SalaVoce({ tela = null, cam = null, lugares = {}, canvasDe, onMover, camOn, sharing, onToggleCam, onToggleShare }: SalaVoceProps): ReactNode {
+export function SalaVoce({ tela = null, cam = null, lugares = {}, canvasDe, onMover, camOn, sharing, onToggleCam, onToggleShare, onOcultar }: SalaVoceProps): ReactNode {
   const lugarDe = (s: Stream | null): Lugar | null => (s ? (lugares[s.trackId] ?? 'faixa') : null)
   const telaAqui = lugarDe(tela) === 'faixa' ? tela : null
   const camAqui = lugarDe(cam) === 'faixa' ? cam : null
@@ -103,6 +105,11 @@ export function SalaVoce({ tela = null, cam = null, lugares = {}, canvasDe, onMo
           {(olhoAberto || escondidas.length > 0) && onMover && (
             <button type="button" className="zp-x" onClick={alternarPrevia} aria-label={rotuloOlho} title={rotuloOlho} aria-pressed={olhoAberto} style={BTN}>
               <IconeOlho aberto={olhoAberto} />
+            </button>
+          )}
+          {onOcultar && (
+            <button type="button" className="zp-x" onClick={onOcultar} aria-label="Ocultar meu cartão" title="Ocultar meu cartão" style={BTN}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
             </button>
           )}
         </span>

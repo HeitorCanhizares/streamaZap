@@ -1,5 +1,6 @@
-// Faixa de baixo da sala: as transmissões que não estão na tela principal (miniaturas, quem
-// compartilha só o som e as fechadas), ao lado do cartão "Você" quando eu estou transmitindo.
+// Faixa de baixo da sala: as transmissões que não estão na tela principal (miniaturas e quem
+// compartilha só o som), ao lado do cartão "Você" quando eu estou transmitindo. Uma miniatura
+// fechada (a minha ou a de outra pessoa) vira um botão pequeno numa linha embaixo, que a reabre.
 import type { CSSProperties, ReactNode } from 'react'
 import type { RoomView } from '../../bridge/types'
 import { Avatar } from '../../components/Avatar'
@@ -18,6 +19,9 @@ export interface SalaTilesProps {
   onMover: (trackId: string, lugar: Lugar) => void
   /** Mostra o cartão "Você" (só quando estou transmitindo: o botão de compartilhar já está nos controles). */
   mostrarVoce?: boolean
+  /** Cartão Você oculto pelo usuário: no lugar dele fica o botão "Mostrar meu cartão". */
+  voceOculto?: boolean
+  onVoceOculto?: (oculto: boolean) => void
   /** Minha tela/janela e minha câmera no ar (o cartão Você mostra as que estão na faixa). */
   minhaTela?: Stream | null
   minhaCam?: Stream | null
@@ -65,35 +69,24 @@ function Equalizador(): ReactNode {
 interface CartaoProps {
   room: RoomView
   stream: Stream
-  fechada: boolean
   canvasDe: (trackId: string) => HTMLCanvasElement
   volume: VolumePessoa
   onVolumePessoa: (ownerId: string, v: VolumePessoa) => void
   onMover: (trackId: string, lugar: Lugar) => void
 }
 
-function Cartao({ room, stream: s, fechada, canvasDe, volume, onVolumePessoa, onMover }: CartaoProps): ReactNode {
+function Cartao({ room, stream: s, canvasDe, volume, onVolumePessoa, onMover }: CartaoProps): ReactNode {
   const pessoa = room.participants.find((x) => x.id === s.ownerId)
   const nome = pessoa?.name ?? 'Alguém'
   const tipo = kindLabel(s.kind)
   const soSom = s.kind === 'audio'
-  const audivel = !fechada && !volume.muted && volume.vol > 0
+  const audivel = !volume.muted && volume.vol > 0
   const muteLabel = (volume.muted ? 'Ativar som de ' : 'Silenciar ') + nome
   const volId = `vol-${s.tile}`
   const aplicar = (v: VolumePessoa) => onVolumePessoa(s.ownerId, v)
 
   let corpo: ReactNode
-  if (fechada) {
-    corpo = (
-      <div className="zp-dots" style={{ ...CENTRO, flexDirection: 'column', gap: 6, color: '#E6F4EC' }}>
-        <span style={{ fontWeight: 600, fontSize: 13 }}>{soSom ? `Som de ${nome} desligado` : `Tela de ${nome} fechada`}</span>
-        <span style={{ fontSize: 11.5, color: '#8BA498' }}>sem receber · economiza banda</span>
-        <button type="button" className="zp-ghost" onClick={() => onMover(s.trackId, 'faixa')} style={{ marginTop: 2, height: 34, padding: '0 14px', borderRadius: 999, border: '1px solid #3BF08A', background: 'transparent', color: '#3BF08A', fontSize: 12.5, fontWeight: 600 }}>
-          {soSom ? 'Ouvir de novo' : 'Reabrir'}
-        </button>
-      </div>
-    )
-  } else if (soSom) {
+  if (soSom) {
     corpo = (
       <div className="zp-dots" style={{ ...CENTRO, flexDirection: 'column', gap: 8, color: '#E6F4EC' }}>
         <Avatar name={nome} color={pessoa?.color ?? '#5CD6FF'} size={44} />
@@ -134,7 +127,7 @@ function Cartao({ room, stream: s, fechada, canvasDe, volume, onVolumePessoa, on
       <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', background: '#0A100E' }}>{corpo}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px 6px 6px' }}>
         <Avatar name={nome} color={pessoa?.color ?? '#5CD6FF'} size={22} />
-        <button type="button" className="zp-dock" onClick={() => aplicar({ ...volume, muted: !volume.muted })} aria-label={muteLabel} title={muteLabel} disabled={fechada} style={small(volume.muted)}>
+        <button type="button" className="zp-dock" onClick={() => aplicar({ ...volume, muted: !volume.muted })} aria-label={muteLabel} title={muteLabel} style={small(volume.muted)}>
           {!volume.muted ? (
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" /><path d="M16.5 8.5a5 5 0 0 1 0 7" /></svg>
           ) : (
@@ -142,33 +135,45 @@ function Cartao({ room, stream: s, fechada, canvasDe, volume, onVolumePessoa, on
           )}
         </button>
         <label htmlFor={volId} style={SR_ONLY}>{`Volume de ${nome}`}</label>
-        <input id={volId} className="zp-range" type="range" min={0} max={100} value={volume.vol} disabled={fechada} style={{ flex: 1, minWidth: 0 }}
+        <input id={volId} className="zp-range" type="range" min={0} max={100} value={volume.vol} style={{ flex: 1, minWidth: 0 }}
           onChange={(e) => aplicar({ vol: Number(e.target.value), muted: false })} />
-        <span style={{ flex: '0 0 38px', textAlign: 'right', fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{fechada ? '—' : volume.muted ? 'mudo' : `${volume.vol}%`}</span>
+        <span style={{ flex: '0 0 38px', textAlign: 'right', fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{volume.muted ? 'mudo' : `${volume.vol}%`}</span>
       </div>
     </div>
   )
+}
+
+const BOTAO_FECHADA: CSSProperties = {
+  height: 34, padding: '0 14px', borderRadius: 999, border: '1px solid #2A443C', background: 'transparent', color: '#A3BDB1',
+  fontSize: 12.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden',
+}
+
+function IconeReabrir(): ReactNode {
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>
 }
 
 export function SalaTiles(p: SalaTilesProps): ReactNode {
   const { room, streams, lugares, mostrarVoce = false } = p
   // Nada para mostrar embaixo: a faixa some (o botão de compartilhar está nos controles).
   if (streams.length === 0 && !mostrarVoce) return null
+  const abertas = streams.filter((s) => lugares[s.trackId] !== 'fechada')
+  const fechadas = streams.filter((s) => lugares[s.trackId] === 'fechada')
+  const voceAberto = mostrarVoce && !p.voceOculto
+  const temBotoes = fechadas.length > 0 || (mostrarVoce && p.voceOculto)
   return (
     <div role="group" aria-label="Transmissões na sala" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
-      {streams.map((s) => (
+      {abertas.map((s) => (
         <Cartao
           key={s.trackId}
           room={room}
           stream={s}
-          fechada={lugares[s.trackId] === 'fechada'}
           canvasDe={p.canvasDe}
           volume={p.volumeDe(s.ownerId)}
           onVolumePessoa={p.onVolumePessoa}
           onMover={p.onMover}
         />
       ))}
-      {mostrarVoce && (
+      {voceAberto && (
         <SalaVoce
           room={room}
           meId={p.meId ?? ''}
@@ -181,7 +186,30 @@ export function SalaTiles(p: SalaTilesProps): ReactNode {
           onMover={p.onMover}
           onToggleCam={p.onToggleCam}
           onToggleShare={p.onToggleShare}
+          onOcultar={p.onVoceOculto ? () => p.onVoceOculto?.(true) : undefined}
         />
+      )}
+      {temBotoes && (
+        // Miniaturas fechadas: um botão pequeno cada, na linha de baixo inteira.
+        <div role="group" aria-label="Miniaturas fechadas" style={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {fechadas.map((s) => {
+            const nome = room.participants.find((x) => x.id === s.ownerId)?.name ?? 'Alguém'
+            const soSom = s.kind === 'audio'
+            const rotulo = soSom ? `Ouvir ${nome} de novo` : `Reabrir ${kindLabel(s.kind).toLowerCase()} de ${nome}`
+            return (
+              <button key={s.trackId} type="button" className="zp-ghost" onClick={() => p.onMover(s.trackId, 'faixa')} aria-label={rotulo} title={`${rotulo} (fechada: sem receber)`} style={BOTAO_FECHADA}>
+                <IconeReabrir />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{`${nome} · ${soSom ? 'só o som' : kindLabel(s.kind)}`}</span>
+              </button>
+            )
+          })}
+          {mostrarVoce && p.voceOculto && (
+            <button type="button" className="zp-ghost" onClick={() => p.onVoceOculto?.(false)} aria-label="Mostrar meu cartão" title="Mostrar meu cartão" style={BOTAO_FECHADA}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+              Você
+            </button>
+          )}
+        </div>
       )}
     </div>
   )

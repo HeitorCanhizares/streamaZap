@@ -23,6 +23,22 @@ import { useAssinaturas, type PedidoStream } from './useAssinaturas'
 
 export interface SalaScreenProps { onLeft: () => void }
 
+const CHAVE_VOCE_OCULTO = 'streamazap.voceOculto'
+function lerVoceOculto(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(CHAVE_VOCE_OCULTO) === '1'
+  } catch {
+    return false
+  }
+}
+function gravarVoceOculto(v: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(CHAVE_VOCE_OCULTO, v ? '1' : '0')
+  } catch {
+    // Sem armazenamento: vale só nesta sala.
+  }
+}
+
 export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const snap = useSnapshot()
   const room = snap.room
@@ -38,6 +54,12 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const [muted, setMuted] = useState(false)
   const [volume, setVolume] = useState(100)
   const [panelOpen, setPanelOpen] = useState(true)
+  // Cartão Você oculto (escolha lembrada entre as salas).
+  const [voceOculto, setVoceOcultoEstado] = useState(() => lerVoceOculto())
+  const setVoceOculto = (v: boolean) => {
+    setVoceOcultoEstado(v)
+    gravarVoceOculto(v)
+  }
   const [painelTx, setPainelTx] = useState(false)
 
   // Meu id nesta sala (no Online vem do servidor); a câmera está ligada se a trilha dela existe.
@@ -53,8 +75,10 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const lugares = lugaresDasStreams(streams, escolhas)
   const celulas = celulasDaPrincipal(streams, lugares)
   const cantos = new Set(celulas.flatMap((c) => (c.pip ? [c.pip.trackId] : [])))
+  // A minha miniatura com o cartão Você oculto não é assinada (não gasta codificação à toa).
   const pedidos: PedidoStream[] = streams
     .filter((s) => lugares[s.trackId] !== 'fechada')
+    .filter((s) => !(s.mine && voceOculto && lugares[s.trackId] === 'faixa'))
     .map((s) => ({
       stream: s,
       lugar: cantos.has(s.trackId) ? 'canto' : lugares[s.trackId] === 'principal' ? 'principal' : 'faixa',
@@ -67,6 +91,9 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const minhasForaDaPrincipal = streams.some((s) => s.mine && lugares[s.trackId] !== 'principal')
   // O cartão "Você" só aparece quando transmito (o botão de compartilhar já está nos controles).
   const mostrarVoce = !!snap.share || temCamera || cameraOn
+  // Embaixo há cartões (ocupam altura) ou só os botões das miniaturas fechadas (ocupam pouco)?
+  const temCartoes = naFaixa.some((s) => lugares[s.trackId] !== 'fechada') || (mostrarVoce && !voceOculto)
+  const temBotoes = naFaixa.some((s) => lugares[s.trackId] === 'fechada') || (mostrarVoce && voceOculto)
 
   // Volume geral: aplica no núcleo sempre que muda (e ao entrar na sala).
   useEffect(() => {
@@ -190,7 +217,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
           tiles={snap.tiles}
           canvasDe={canvasDe}
           temOutras={naFaixa.length > 0 || minhasForaDaPrincipal}
-          temFaixa={naFaixa.length > 0 || mostrarVoce}
+          temFaixa={temCartoes ? true : temBotoes ? 'botao' : false}
           volumeDe={volumeDe}
           onVolumePessoa={onVolumePessoa}
           onMover={onMover}
@@ -223,6 +250,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
               onVolumePessoa={onVolumePessoa}
               onMover={onMover}
               mostrarVoce={mostrarVoce}
+              voceOculto={voceOculto}
+              onVoceOculto={setVoceOculto}
               minhaTela={minhaTela}
               minhaCam={minhaCam}
               meId={meId}

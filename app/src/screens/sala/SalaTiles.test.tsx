@@ -78,15 +78,38 @@ describe('SalaTiles', () => {
     expect(onMover).toHaveBeenCalledWith('t1', 'principal')
   })
 
-  it('fechar e reabrir', () => {
+  it('fechar vira um botão pequeno embaixo, que reabre', () => {
     const { onMover } = montar()
     fireEvent.click(screen.getByLabelText('Fechar tela de Ju'))
     expect(onMover).toHaveBeenCalledWith('t1', 'fechada')
     cleanup()
     const r = montar({ lugares: { t1: 'fechada', t2: 'faixa' } })
-    expect(screen.getByText('Tela de Ju fechada')).toBeTruthy()
-    fireEvent.click(screen.getByText('Reabrir'))
+    // O cartão da Ju sai; fica só o da Rafa e o botão da Ju.
+    expect(screen.getAllByTestId('cartao-faixa')).toHaveLength(1)
+    expect(screen.getByRole('group', { name: 'Miniaturas fechadas' })).toBeTruthy()
+    expect(screen.getByText('Ju · Webcam')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Reabrir webcam de Ju' }))
     expect(r.onMover).toHaveBeenCalledWith('t1', 'faixa')
+  })
+
+  it('só o som fechado: botão para ouvir de novo', () => {
+    const { onMover } = montar({ streams: [t3], lugares: { t3: 'fechada' } })
+    expect(screen.queryAllByTestId('cartao-faixa')).toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Ouvir Dudu de novo' }))
+    expect(onMover).toHaveBeenCalledWith('t3', 'faixa')
+  })
+
+  it('cartão Você: o X oculta e o botão Você traz de volta', () => {
+    const onVoceOculto = vi.fn()
+    montar({ streams: [], mostrarVoce: true, meId: 'me', sharing: true, onVoceOculto })
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar meu cartão' }))
+    expect(onVoceOculto).toHaveBeenCalledWith(true)
+    cleanup()
+    montar({ streams: [], mostrarVoce: true, voceOculto: true, meId: 'me', sharing: true, onVoceOculto })
+    expect(screen.queryByText('Você não está transmitindo')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Câmera' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar meu cartão' }))
+    expect(onVoceOculto).toHaveBeenLastCalledWith(false)
   })
 
   it('o canvas da transmissão vai para o cartão', () => {
