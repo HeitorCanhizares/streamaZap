@@ -87,6 +87,10 @@ fn criar_d3d(
 /// Normalmente `BGRA_SUPPORT | VIDEO_SUPPORT` numa GPU de verdade. Sem suporte a vídeo (driver
 /// básico, máquina virtual, runner do CI) o dispositivo ainda serve para captura, texturas e leitura;
 /// só o `Converter` (Video Processor) fica indisponível (`video()` devolve `Unsupported`).
+///
+/// `Clone` = mesmo dispositivo e mesmo contexto imediato (`AddRef` dos COM), já protegido para
+/// multithread.
+#[derive(Clone)]
 pub struct GpuDevice {
     pub(crate) device: ID3D11Device,
     pub(crate) context: ID3D11DeviceContext,
@@ -228,5 +232,25 @@ mod tests {
         };
         let b = GpuDevice::create_for_adapter(a.adapter().luid);
         assert!(matches!(&b, Ok(d) if d.adapter().name == a.adapter().name));
+    }
+
+    fn assert_clone<T: Clone>() {}
+
+    #[test]
+    fn clone_compartilha_dispositivo() {
+        assert_clone::<GpuDevice>();
+        let Ok(a) = GpuDevice::create_default() else {
+            eprintln!("pulando: sem GPU");
+            return;
+        };
+        let b = a.clone();
+        // O clone só incrementa a contagem de referências COM: mesmos ponteiros.
+        assert_eq!(a.d3d_device().as_raw(), b.d3d_device().as_raw());
+        assert_eq!(a.context().as_raw(), b.context().as_raw());
+        assert_eq!(b.adapter().luid, a.adapter().luid);
+        // O clone continua válido depois que o original some.
+        drop(a);
+        let tex = crate::Texture::new(&b, 64, 64, crate::PixelFormat::Bgra8, false);
+        assert!(tex.is_ok());
     }
 }

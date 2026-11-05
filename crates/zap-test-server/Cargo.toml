@@ -11,6 +11,7 @@ publish = false
 zap-proto.workspace = true
 zap-net.workspace = true
 zap-rate.workspace = true
+zap-sys.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 axum.workspace = true
 quinn.workspace = true

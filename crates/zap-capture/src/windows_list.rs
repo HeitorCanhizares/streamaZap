@@ -82,6 +82,7 @@ unsafe extern "system" fn coleta_janela(hwnd: HWND, data: LPARAM) -> BOOL {
 
 /// Janelas capturáveis (filtradas por `logic::keep_window`).
 pub fn list_windows() -> Result<Vec<WindowInfo>, CaptureError> {
+    zap_gpu::pin_mta();
     let mut hwnds: Vec<HWND> = Vec::new();
     // SAFETY: o ponteiro para `hwnds` fica válido até o fim do EnumWindows (síncrono).
     unsafe {

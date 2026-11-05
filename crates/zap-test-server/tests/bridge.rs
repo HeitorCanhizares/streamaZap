@@ -493,6 +493,125 @@ async fn aceite_camadas_por_espectador() {
     drop(p.cli);
 }
 
+/// Como `receber`, mas com o estimador real: cada quadro vai para `rb.on_video` e cada sonda
+/// (datagrama 0x03) para `rb.on_probe`. Sondas não entram no caminho de quadros.
+fn receber_com_estimador(
+    conn: quinn::Connection,
+    rb: zap_net::report::ReportBuilderHandle,
+    clock: Clock,
+) -> (Recebidos, tokio::task::JoinHandle<()>) {
+    let recebidos: Recebidos = Arc::default();
+    let r = recebidos.clone();
+    let tarefa = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                uni = conn.accept_uni() => {
+                    let Ok(recv) = uni else { break };
+                    let (r, rb, clock) = (r.clone(), rb.clone(), clock.clone());
+                    tokio::spawn(async move {
+                        if let Ok((h, dados, chegada_us)) = read_frame(recv, &clock).await {
+                            rb.lock().on_video(&h, chegada_us, u32::try_from(30 + dados.len()).unwrap_or(u32::MAX));
+                            r.lock().push((Instant::now(), h.layer, h.send_us));
+                        }
+                    });
+                }
+                dg = conn.read_datagram() => {
+                    let Ok(bytes) = dg else { break };
+                    if bytes.first() == Some(&0x03) {
+                        let chegada_us = clock.now_us();
+                        if let Ok(zap_proto::media::Datagram::Probe(h, total)) =
+                            zap_proto::media::decode_datagram(&bytes)
+                        {
+                            rb.lock().on_probe(&h, chegada_us, u32::try_from(total).unwrap_or(u32::MAX));
+                        }
+                    }
+                }
+            }
+        }
+    });
+    (recebidos, tarefa)
+}
+
+/// Loopback sem limite de enlace: as sondas do servidor provam banda de sobra e o estimador real
+/// do espectador o leva à camada 0 (`camada.atual` pelo controle QUIC), sem `banda_kbps` inventada.
+#[tokio::test(flavor = "multi_thread")]
+async fn sondas_levam_espectador_a_camada_0() {
+    let _timer = zap_sys::platform::TimerResolution::high();
+    let h = spawn(Config::default()).await.unwrap();
+    let dono = ServerClient::login(&h.base_url, pedido("P")).await.unwrap();
+    let sala = dono
+        .create_room(CreateRoomRequest {
+            name: "Sondas".into(),
+            access: Access::Open,
+            password: None,
+        })
+        .await
+        .unwrap();
+    let mut p = entrar(&h, dono, &sala).await;
+    let mut v = entrar(&h, ServerClient::login(&h.base_url, pedido("V")).await.unwrap(), &sala).await;
+
+    let (trilha, numero) = publicar(&mut p, "l1", TrackKind::Screen, escada(), None).await;
+    assinar_ws(&mut v, &trilha).await;
+
+    let pedidos: Arc<Mutex<Pedidos>> = Arc::default();
+    let App {
+        conn: p_conn,
+        ctl_rx: p_rx,
+        ..
+    } = p;
+    let ouvinte = ouvir_publicador(p_rx, pedidos.clone());
+    let envio = publicar_quadros(p_conn.clone(), numero, pedidos.clone(), true);
+
+    let App {
+        conn: v_conn,
+        ctl_tx: v_tx,
+        mut ctl_rx,
+        ..
+    } = v;
+    let clock = Clock::new();
+    let rb: zap_net::report::ReportBuilderHandle = Arc::new(Mutex::new(zap_net::report::ReportBuilder::new(true)));
+    let rep = zap_net::report::spawn_reporter(v_tx, rb.clone(), clock.clone());
+    let (quadros, rx) = receber_com_estimador(v_conn.clone(), rb, clock);
+
+    let inicio = Instant::now();
+    let chegou = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            match ctl_rx.recv().await {
+                Ok(Some(ControlMsg::LayerCurrent { layer: 0, .. })) => return,
+                Ok(Some(_)) => {}
+                outro => panic!("controle QUIC terminou esperando camada.atual 0: {outro:?}"),
+            }
+        }
+    })
+    .await;
+    assert!(
+        chegou.is_ok(),
+        "camada.atual 0 não chegou em 20 s com o estimador real; pedidos: {:?}",
+        pedidos.lock().historico
+    );
+    eprintln!("camada.atual 0 em {:?}", inicio.elapsed());
+
+    let desde = Instant::now();
+    let mut viu_camada_0 = false;
+    while desde.elapsed() < Duration::from_secs(5) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if camadas_desde(&quadros, desde).contains(&0) {
+            viu_camada_0 = true;
+            break;
+        }
+    }
+    assert!(
+        viu_camada_0,
+        "depois de camada.atual 0, a camada 0 devia aparecer nos quadros"
+    );
+
+    for t in [envio, ouvinte, rep, rx] {
+        t.abort();
+    }
+    drop(p_conn);
+    drop(p.cli);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn ingresso_de_previa_so_camada_2() {
     let h = spawn(Config::default()).await.unwrap();
@@ -548,11 +667,11 @@ async fn ingresso_de_previa_so_camada_2() {
         let conn = v_conn.clone();
         tokio::spawn(async move {
             let mut n = 0u32;
-            while tokio::time::timeout(Duration::from_secs(5), conn.read_datagram())
-                .await
-                .is_ok_and(|r| r.is_ok())
-            {
-                n += 1;
+            while let Ok(Ok(dg)) = tokio::time::timeout(Duration::from_secs(5), conn.read_datagram()).await {
+                // Sondas (0x03) não são mídia do espectador.
+                if dg.first() != Some(&0x03) {
+                    n += 1;
+                }
             }
             n
         })

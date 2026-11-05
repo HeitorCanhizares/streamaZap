@@ -1,6 +1,7 @@
 //! Backend de hardware: MFT assíncrono com `IMFDXGIDeviceManager`.
 use crate::backend::{SendDevice, WorkerIo};
 use crate::enumerate::Candidate;
+use crate::hw_events::MftEvent;
 use crate::{codec_api, logic, media_types, nal, sample};
 use crate::{EncodeError, EncodedPicture, EncoderConfig, EncoderInfo};
 use bytes::Bytes;
@@ -9,23 +10,20 @@ use std::mem::ManuallyDrop;
 use std::time::{Duration, Instant};
 use windows::core::Interface;
 use windows::Win32::Media::MediaFoundation::{
-    ICodecAPI, IMFDXGIDeviceManager, IMFMediaEventGenerator, IMFSample, IMFTransform, MEError,
-    METransformDrainComplete, METransformHaveOutput, METransformNeedInput, MFCreateDXGIDeviceManager,
-    MFCreateMemoryBuffer, MFCreateSample, MFT_MESSAGE_COMMAND_FLUSH, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING,
-    MFT_MESSAGE_NOTIFY_END_OF_STREAM, MFT_MESSAGE_NOTIFY_START_OF_STREAM, MFT_MESSAGE_SET_D3D_MANAGER,
-    MFT_OUTPUT_DATA_BUFFER, MFT_OUTPUT_STREAM_PROVIDES_SAMPLES, MF_EVENT_FLAG_NO_WAIT, MF_E_NO_EVENTS_AVAILABLE,
+    ICodecAPI, IMFDXGIDeviceManager, IMFSample, IMFTransform, MEError, METransformDrainComplete, METransformHaveOutput,
+    METransformNeedInput, MFCreateDXGIDeviceManager, MFCreateMemoryBuffer, MFCreateSample, MFT_MESSAGE_COMMAND_FLUSH,
+    MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, MFT_MESSAGE_NOTIFY_END_OF_STREAM, MFT_MESSAGE_NOTIFY_START_OF_STREAM,
+    MFT_MESSAGE_SET_D3D_MANAGER, MFT_OUTPUT_DATA_BUFFER, MFT_OUTPUT_STREAM_PROVIDES_SAMPLES,
     MF_E_TRANSFORM_NEED_MORE_INPUT, MF_E_TRANSFORM_STREAM_CHANGE, MF_TRANSFORM_ASYNC_UNLOCK,
 };
 
-/// Teto da espera por um quadro quando o MFT já pediu entrada: não deixa a saída pronta
-/// parada muito tempo atrás do `recv_timeout`.
-const ESPERA_MAX_MS: u64 = 5;
+/// Intervalo máximo sem olhar `stop` quando nada chega.
+const ESPERA_STOP_MS: u64 = 100;
 
 pub(crate) struct HwEncoder {
     info: EncoderInfo,
     mft: IMFTransform,
     codec: ICodecAPI,
-    event_gen: IMFMediaEventGenerator,
     /// Precisa viver tanto quanto o MFT.
     _mgr: IMFDXGIDeviceManager,
     seq_header: Vec<u8>,
@@ -69,6 +67,7 @@ impl HwEncoder {
 
         let codec: ICodecAPI = mft.cast().map_err(|e| EncodeError::os("ICodecAPI", &e))?;
         codec_api::apply_settings(&codec, cfg)?;
+        codec_api::log_readback(&codec);
 
         // SAFETY: o MFT já tem os dois tipos definidos.
         let tipo_saida =
@@ -82,14 +81,11 @@ impl HwEncoder {
             mft.ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0)
                 .map_err(|e| EncodeError::os("START_OF_STREAM", &e))?;
         }
-        let event_gen: IMFMediaEventGenerator =
-            mft.cast().map_err(|e| EncodeError::os("IMFMediaEventGenerator", &e))?;
 
         Ok(Self {
             info: cand.info,
             mft,
             codec,
-            event_gen,
             _mgr: mgr,
             seq_header,
         })
@@ -174,107 +170,60 @@ impl HwEncoder {
         }
     }
 
-    /// Loop de eventos até `io.shared.stop` ou `io.rx` fechar. Veja o plano: NeedInput pega o
-    /// próximo `Job` (espera até 1 intervalo de quadro), HaveOutput vira `EncodedPicture`
-    /// (`encode_us` = agora - instante do submit do quadro; `nal::ensure_params` no keyframe),
-    /// `pending_kbps` aplicado entre quadros (se recusar: reabre o MFT e o próximo sai keyframe).
+    /// Laço principal até `io.shared.stop` ou `io.rx` fechar. Uma thread própria (`EventThread`)
+    /// faz o `GetEvent` bloqueante e entrega os eventos por canal; aqui um `select!` espera ao
+    /// mesmo tempo por evento do MFT e por quadro novo, sem `sleep` nem polling.
+    /// NeedInput soma entrada disponível; HaveOutput vira `EncodedPicture` (`encode_us` = agora -
+    /// instante do submit; `nal::ensure_params` no keyframe). Sem entrada pedida só olhamos os
+    /// eventos (os quadros esperam em `io.rx`). `pending_kbps` é aplicado entre quadros (se o MFT
+    /// recusar: reabre e o próximo sai keyframe). O timeout de 100 ms serve só para ver `stop`.
     pub(crate) fn run(mut self, io: WorkerIo) {
         use std::sync::atomic::Ordering;
-        let mut cfg = io.cfg.clone();
-        let espera = Duration::from_micros((logic::frame_duration_hns(cfg.fps) / 10) as u64)
-            .min(Duration::from_millis(ESPERA_MAX_MS));
-        let mut need_input: u32 = 0;
-        let mut forcar_proximo = false;
-        // (capture_us, instante do submit), na ordem de envio.
-        let mut enviados: VecDeque<(u64, Instant)> = VecDeque::new();
+        let mut evt = match crate::hw_events::EventThread::spawn(&self.mft) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::error!("thread de eventos do MFT não iniciou: {e}");
+                return;
+            }
+        };
+        let mut est = Estado {
+            need_input: 0,
+            enviados: VecDeque::new(),
+            forcar_proximo: false,
+            cfg: io.cfg.clone(),
+        };
+        let espera = Duration::from_millis(ESPERA_STOP_MS);
 
         'principal: while !io.shared.stop.load(Ordering::Acquire) {
-            // Eventos primeiro, sem bloquear (assim `stop` é visto rápido).
-            // SAFETY: gerador de eventos válido.
-            match unsafe { self.event_gen.GetEvent(MF_EVENT_FLAG_NO_WAIT) } {
-                Ok(ev) => {
-                    // SAFETY: evento válido.
-                    let tipo = match unsafe { ev.GetType() } {
-                        Ok(t) => t,
-                        Err(e) => {
-                            tracing::warn!("GetType do evento falhou: {e}");
-                            continue;
+            if est.need_input == 0 {
+                match evt.rx.recv_timeout(espera) {
+                    Ok(ev) => {
+                        if self.tratar_evento(ev, &mut est, &io) == Fluxo::Parar {
+                            break 'principal;
                         }
-                    };
-                    if tipo == METransformNeedInput.0 as u32 {
-                        need_input += 1;
-                    } else if tipo == METransformHaveOutput.0 as u32 {
-                        match self.puxar_saida() {
-                            Ok(Some(saida)) => {
-                                let mut data = saida.data;
-                                if saida.clean_point {
-                                    data = nal::ensure_params(&data, &self.seq_header).0;
-                                }
-                                let has_params = nal::has_sps_pps(&data);
-                                let capture_us = logic::hns_to_us(saida.time_hns);
-                                let pos = enviados.iter().position(|(c, _)| *c == capture_us);
-                                let (capture_us, inicio) = match pos {
-                                    Some(i) => {
-                                        let par = enviados[i];
-                                        // Quadros anteriores sem saída (descartados pelo MFT) saem da fila.
-                                        enviados.drain(..=i);
-                                        par
-                                    }
-                                    None => (capture_us, Instant::now()),
-                                };
-                                let encode_us = u32::try_from(inicio.elapsed().as_micros()).unwrap_or(u32::MAX);
-                                let pic = EncodedPicture {
-                                    data: Bytes::from(data),
-                                    keyframe: saida.clean_point,
-                                    has_params,
-                                    capture_us,
-                                    encode_us,
-                                };
-                                if io.out.send(pic).is_err() {
-                                    break 'principal;
-                                }
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                tracing::error!("falha ao ler a saída do MFT: {e}");
-                                break 'principal;
-                            }
-                        }
-                    } else if tipo == METransformDrainComplete.0 as u32 {
-                        tracing::info!("MFT terminou o drain");
-                        break 'principal;
-                    } else if tipo == MEError.0 as u32 {
-                        // SAFETY: evento válido.
-                        let st = unsafe { ev.GetStatus() };
-                        tracing::error!(status = ?st, "MEError do MFT de hardware");
+                    }
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                        tracing::error!("canal de eventos do MFT fechou");
                         break 'principal;
                     }
-                    continue;
                 }
-                Err(e) if e.code() == MF_E_NO_EVENTS_AVAILABLE => {}
-                Err(e) => {
-                    tracing::error!("GetEvent falhou: {e}");
-                    break 'principal;
-                }
-            }
-
-            if need_input == 0 {
-                std::thread::sleep(Duration::from_millis(1));
                 continue;
             }
 
-            // Bitrate novo entre quadros.
+            // Bitrate novo entre quadros, antes de aceitar outro job.
             let kbps = io.shared.pending_kbps.swap(0, Ordering::AcqRel);
             if kbps != 0 {
-                cfg.kbps = kbps;
+                est.cfg.kbps = kbps;
                 if let Err(e) = codec_api::set_bitrate(&self.codec, kbps) {
                     tracing::warn!("MFT recusou o bitrate em execução ({e}); reabrindo");
-                    match self.reabrir(&cfg) {
+                    match self.reabrir(&est.cfg) {
                         Ok(()) => {
-                            // Depois do FLUSH o MFT pede entrada de novo.
-                            need_input = 0;
-                            enviados.clear();
-                            forcar_proximo = true;
+                            // Depois do FLUSH o MFT pede entrada de novo; eventos velhos não valem.
+                            est.need_input = 0;
+                            est.enviados.clear();
+                            est.forcar_proximo = true;
+                            evt.rx.try_iter().for_each(drop);
                             continue;
                         }
                         Err(e) => {
@@ -285,39 +234,32 @@ impl HwEncoder {
                 }
             }
 
-            match io.rx.recv_timeout(espera) {
-                Ok(job) => {
-                    if job.force_keyframe || forcar_proximo {
-                        codec_api::force_keyframe(&self.codec);
-                        forcar_proximo = false;
-                    }
-                    let amostra = match sample::input_from_texture(&job.nv12, job.capture_us, cfg.fps) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::warn!("quadro descartado, amostra de entrada falhou: {e}");
-                            continue;
-                        }
-                    };
-                    // SAFETY: amostra válida; o MFT assíncrono pediu entrada.
-                    match unsafe { self.mft.ProcessInput(0, &amostra, 0) } {
-                        Ok(()) => {
-                            need_input -= 1;
-                            enviados.push_back((job.capture_us, Instant::now()));
-                            while enviados.len() > 16 {
-                                enviados.pop_front();
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("ProcessInput falhou: {e}");
+            crossbeam_channel::select! {
+                recv(evt.rx) -> ev => match ev {
+                    Ok(ev) => {
+                        if self.tratar_evento(ev, &mut est, &io) == Fluxo::Parar {
                             break 'principal;
                         }
                     }
-                }
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break 'principal,
+                    Err(_) => {
+                        tracing::error!("canal de eventos do MFT fechou");
+                        break 'principal;
+                    }
+                },
+                recv(io.rx) -> job => match job {
+                    Ok(job) => {
+                        if self.enviar_job(job, &mut est) == Fluxo::Parar {
+                            break 'principal;
+                        }
+                    }
+                    Err(_) => break 'principal,
+                },
+                default(espera) => {}
             }
         }
 
+        // A thread de eventos para antes das mensagens finais (destrava o GetEvent).
+        evt.shutdown(&self.mft);
         // SAFETY: mensagens sem ponteiros; erros no encerramento só são logados.
         unsafe {
             if let Err(e) = self.mft.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0) {
@@ -331,6 +273,103 @@ impl HwEncoder {
             }
         }
     }
+
+    /// Trata um evento do MFT. `Parar` encerra o laço.
+    fn tratar_evento(&mut self, ev: MftEvent, est: &mut Estado, io: &WorkerIo) -> Fluxo {
+        let tipo = ev.kind;
+        if tipo == METransformNeedInput.0 as u32 {
+            est.need_input += 1;
+        } else if tipo == METransformHaveOutput.0 as u32 {
+            match self.puxar_saida() {
+                Ok(Some(saida)) => {
+                    let mut data = saida.data;
+                    if saida.clean_point {
+                        data = nal::ensure_params(&data, &self.seq_header).0;
+                    }
+                    let has_params = nal::has_sps_pps(&data);
+                    let capture_us = logic::hns_to_us(saida.time_hns);
+                    let pos = est.enviados.iter().position(|(c, _)| *c == capture_us);
+                    let (capture_us, inicio) = match pos {
+                        Some(i) => {
+                            let par = est.enviados[i];
+                            // Quadros anteriores sem saída (descartados pelo MFT) saem da fila.
+                            est.enviados.drain(..=i);
+                            par
+                        }
+                        None => (capture_us, Instant::now()),
+                    };
+                    let encode_us = u32::try_from(inicio.elapsed().as_micros()).unwrap_or(u32::MAX);
+                    let pic = EncodedPicture {
+                        data: Bytes::from(data),
+                        keyframe: saida.clean_point,
+                        has_params,
+                        capture_us,
+                        encode_us,
+                    };
+                    if io.out.send(pic).is_err() {
+                        return Fluxo::Parar;
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::error!("falha ao ler a saída do MFT: {e}");
+                    return Fluxo::Parar;
+                }
+            }
+        } else if tipo == METransformDrainComplete.0 as u32 {
+            tracing::info!("MFT terminou o drain");
+            return Fluxo::Parar;
+        } else if tipo == MEError.0 as u32 {
+            tracing::error!(status = ev.status, "MEError do MFT de hardware");
+            return Fluxo::Parar;
+        }
+        Fluxo::Continuar
+    }
+
+    /// Entrega um quadro ao MFT (que já pediu entrada).
+    fn enviar_job(&mut self, job: crate::backend::Job, est: &mut Estado) -> Fluxo {
+        if job.force_keyframe || est.forcar_proximo {
+            codec_api::force_keyframe(&self.codec);
+            est.forcar_proximo = false;
+        }
+        let amostra = match sample::input_from_texture(&job.nv12, job.capture_us, est.cfg.fps) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("quadro descartado, amostra de entrada falhou: {e}");
+                return Fluxo::Continuar;
+            }
+        };
+        // SAFETY: amostra válida; o MFT assíncrono pediu entrada.
+        match unsafe { self.mft.ProcessInput(0, &amostra, 0) } {
+            Ok(()) => {
+                est.need_input -= 1;
+                est.enviados.push_back((job.capture_us, Instant::now()));
+                while est.enviados.len() > 16 {
+                    est.enviados.pop_front();
+                }
+                Fluxo::Continuar
+            }
+            Err(e) => {
+                tracing::error!("ProcessInput falhou: {e}");
+                Fluxo::Parar
+            }
+        }
+    }
+}
+
+/// Estado mutável do laço de `run`.
+struct Estado {
+    need_input: u32,
+    /// (capture_us, instante do submit), na ordem de envio.
+    enviados: VecDeque<(u64, Instant)>,
+    forcar_proximo: bool,
+    cfg: EncoderConfig,
+}
+
+#[derive(PartialEq, Eq)]
+enum Fluxo {
+    Continuar,
+    Parar,
 }
 
 #[cfg(all(test, windows))]

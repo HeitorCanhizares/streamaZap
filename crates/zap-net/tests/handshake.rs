@@ -4,6 +4,8 @@
 //! impressão digital dessa identidade (modo Local). Os asserts verificam o resultado de cada
 //! lado: `Ok` com o `participant_id` esperado ou o `Err` do tipo esperado.
 
+mod support;
+
 use std::net::SocketAddr;
 
 use zap_net::{
@@ -65,6 +67,7 @@ fn hello(ticket: Option<&str>) -> Hello {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn aberta() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let p = par(&id).await?;
     let s = sala();
@@ -81,6 +84,7 @@ async fn aberta() -> Res {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn senha_certa() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let p = par(&id).await?;
     let auth = ServerAuth::Password("segredo".into());
@@ -96,6 +100,7 @@ async fn senha_certa() -> Res {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn senha_errada() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let p = par(&id).await?;
     let auth = ServerAuth::Password("segredo".into());
@@ -116,6 +121,7 @@ async fn senha_errada() -> Res {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn senha_ausente() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let p = par(&id).await?;
     let auth = ServerAuth::Password("segredo".into());
@@ -139,6 +145,7 @@ async fn senha_ausente() -> Res {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn ingresso_valido() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let p = par(&id).await?;
     let auth = ServerAuth::Ticket(Box::new(|t| t == "ok"));
@@ -155,6 +162,7 @@ async fn ingresso_valido() -> Res {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn ingresso_invalido() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let p = par(&id).await?;
     let auth = ServerAuth::Ticket(Box::new(|t| t == "ok"));
@@ -175,6 +183,7 @@ async fn ingresso_invalido() -> Res {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn fingerprint_errada_falha_no_tls() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let outra = Identity::generate("zap")?;
     let (servidor, porta) = endpoint::bind_server(&id, 0).await?;
@@ -197,6 +206,7 @@ async fn fingerprint_errada_falha_no_tls() -> Res {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn apos_welcome_controle_funciona() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let p = par(&id).await?;
     // Servidor: depois do aperto de mão, recebe o Ping e responde com Pong de mesmo ts_ms.

@@ -24,20 +24,6 @@ const TAMANHO_ANEL: usize = 4;
 const E_ACCESSDENIED: HRESULT = HRESULT(0x8007_0005u32 as i32);
 const HR_SHARING_VIOLATION: HRESULT = HRESULT(0x8007_0020u32 as i32);
 
-/// Leva o ponteiro do dispositivo para a thread de captura.
-struct SendPtr<T>(*const T);
-
-// SAFETY: `GpuDevice` é Send + Sync (multithread protegido). O contrato de `capture_camera` exige
-// que o chamador mantenha o dispositivo vivo enquanto o handle existir.
-unsafe impl<T> Send for SendPtr<T> {}
-
-impl<T> SendPtr<T> {
-    /// Método (e não acesso ao campo) para a closure capturar o wrapper inteiro, que é Send.
-    fn ptr(&self) -> *const T {
-        self.0
-    }
-}
-
 fn os(context: &'static str, e: &Error) -> CaptureError {
     CaptureError::Os {
         context,
@@ -195,7 +181,8 @@ fn stride_atual(reader: &IMFSourceReader, largura: u32) -> u32 {
 
 /// Captura de câmera por Media Foundation Source Reader, em thread própria.
 ///
-/// O `dev` precisa continuar vivo até o `CaptureHandle` ser descartado.
+/// A captura guarda um clone do `dev` (mesmo dispositivo D3D11), então o chamador não precisa
+/// mantê-lo vivo depois da chamada.
 pub fn capture_camera(
     dev: &GpuDevice,
     id: &str,
@@ -204,13 +191,14 @@ pub fn capture_camera(
     want_fps: u32,
     sink: impl FrameSink,
 ) -> Result<CaptureHandle, CaptureError> {
+    zap_gpu::pin_mta();
     let modos = native_modes(id)?;
     let idx = pick_camera_mode(&modos, want_w, want_h, want_fps).ok_or(CaptureError::CameraNotFound)?;
     let modo = modos[idx];
 
     let stop = Arc::new(AtomicBool::new(false));
     let stop_thread = Arc::clone(&stop);
-    let dev_ptr = SendPtr(dev as *const GpuDevice);
+    let dev_owned = dev.clone();
     let id = id.to_string();
     // Os objetos COM nascem na thread de captura; o resultado da abertura volta por este canal.
     let (tx, rx) = mpsc::sync_channel::<Result<(), CaptureError>>(1);
@@ -218,8 +206,7 @@ pub fn capture_camera(
     let join = std::thread::Builder::new()
         .name("zap-capture-camera".to_string())
         .spawn(move || {
-            // SAFETY: ver `SendPtr`; o chamador mantém o dispositivo vivo durante a captura.
-            let dev = unsafe { &*dev_ptr.ptr() };
+            let dev = &dev_owned;
             let _mf = match MfGuard::new() {
                 Ok(g) => g,
                 Err(e) => {

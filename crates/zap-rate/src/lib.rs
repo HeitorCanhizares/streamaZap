@@ -9,6 +9,7 @@ pub mod allocator;
 pub mod bwe;
 pub mod jitter;
 pub mod ladder;
+pub mod probe;
 pub mod sim;
 pub mod trendline;
 pub mod unwrap;

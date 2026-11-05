@@ -24,19 +24,13 @@ fn saiu(room: &OnlineRoom) -> bool {
     room.left.load(Ordering::SeqCst)
 }
 
-/// A ponte está configurada (`use_relay`) e o servidor oferece uma?
-fn ponte_ativa(room: &OnlineRoom, shared: &Shared) -> bool {
-    let use_relay = shared.settings.read().server.use_relay;
-    use_relay && room.media.lock().bridge.is_some()
-}
-
 /// Pede um ingresso novo (`client.join`), conecta a ponte (`bridge::connect_bridge`), monta a
 /// `PubConn` da ponte (`PubConn::connect_online`) e a guarda em `room.bridge` e no `ConnPool`;
 /// `publish.reattach_all` (ou `attach` das trilhas guardadas) na conexão nova. Usada na entrada
 /// e na reconexão. Sem `use_relay` ou sem `media.bridge`: `Ok(())` sem fazer nada.
 pub(crate) async fn connect_bridge_for(room: &Arc<OnlineRoom>) -> Result<(), CoreError> {
     let shared = room.shared()?;
-    if !ponte_ativa(room, &shared) {
+    if !room.bridge_enabled(&shared) {
         return Ok(());
     }
     let client = room
@@ -102,7 +96,8 @@ async fn reassina_na_ponte(shared: &Arc<Shared>, pc: &Arc<PubConn>) {
 /// canal novo se o antigo fechou) e substitui o modelo (`replace_state`, mantém o chat);
 /// `RoomEvent::Reconnected`; manda `p2p.meus_enderecos` de novo; reassina todas as trilhas
 /// assistidas (`Subscription::update` de cada tile). Sala inexistente/encerrada
-/// (`sala_nao_encontrada`, `sala.encerrada`) → `RoomEvent::Closed`. Sai se `room.left`.
+/// (`sala_nao_encontrada`, `sala.encerrada`) → `RoomEvent::Closed`. Reenvia `assinar` também dos
+/// pedidos de `direct.pending`. Sai se `room.left`.
 pub(crate) async fn watch_ws(room: Arc<OnlineRoom>) {
     // `epoch_rx()` já nasce com o valor atual marcado como visto: só mudanças futuras acordam.
     let mut epoch = room.session.epoch_rx();
@@ -190,6 +185,12 @@ async fn volta_ws(room: &Arc<OnlineRoom>, shared: &Arc<Shared>) -> Result<bool, 
             })
             .await;
     }
+    // Pedidos ainda sem rota direta (`direct.pending`): `watch_pending` regrava e manda `assinar`.
+    // Lista copiada antes dos `await`, para não segurar o lock.
+    let pendentes: Vec<_> = room.direct.pending.lock().values().cloned().collect();
+    for spec in pendentes {
+        let _ = direct::watch_pending(room, spec).await;
+    }
     Ok(true)
 }
 
@@ -219,7 +220,7 @@ pub(crate) async fn watch_bridge(room: Arc<OnlineRoom>) {
             continue;
         }
         // Sem relay não há o que reconectar: esquece a ponte morta (evita girar em falso).
-        if !ponte_ativa(&room, &shared) {
+        if !room.bridge_enabled(&shared) {
             room.bridge.lock().await.take();
             shared.pool.online.lock().take();
             continue;

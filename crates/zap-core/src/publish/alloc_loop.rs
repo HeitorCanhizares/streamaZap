@@ -37,6 +37,26 @@ pub(crate) fn merge_requests(a: &[LayerRequest], b: &[LayerRequest]) -> Vec<Laye
     out
 }
 
+/// `current > ceiling()` e sem `pending` → a camada da escada logo acima de `current`
+/// (`reserve_kbps = 0`, como o `input(id, 0)` do alocador). Link de ponte → `None`.
+pub(crate) fn probe_need(
+    state: &super::viewer::ViewerState,
+    ladder: &[zap_proto::LayerSpec],
+) -> Option<zap_rate::probe::ProbeNeed> {
+    if state.bridge || state.current <= state.ceiling() || state.pending.is_some() {
+        return None;
+    }
+    // Número menor = camada maior: a de cima é a maior numeração abaixo de `current`.
+    let acima = ladder
+        .iter()
+        .filter(|l| l.layer < state.current)
+        .max_by_key(|l| l.layer)?;
+    Some(zap_rate::probe::ProbeNeed {
+        next_kbps: acima.kbps,
+        reserve_kbps: 0,
+    })
+}
+
 /// Um tick: monta `ViewerInput` de cada `ViewerLink` (`state.input(id, 0)`), chama
 /// `allocator.update(now_us, &inputs, Budget::Direct{upload_kbps})`, aplica
 /// `pipeline.set_requests(&out.requests)` e `request_keyframe` para cada camada de
@@ -94,6 +114,30 @@ pub fn run_alloc_tick(shared: &Arc<VideoShared>, rt: &tokio::runtime::Handle) {
         rt.spawn(async move {
             v.announce_layer(&info, "banda").await;
         });
+    }
+
+    // Sondagem: informa a necessidade de cada link e dispara a rajada que o planejador pedir.
+    let escada = shared.ladder.lock().clone();
+    let todos: Vec<_> = shared.viewers.lock().iter().cloned().collect();
+    for link in todos {
+        let Some(prober) = link.prober.as_ref() else {
+            continue;
+        };
+        // O lock do estado cai ao fim deste bloco, antes de `poll`/`spawn`.
+        let (necessidade, banda) = {
+            let st = link.state.lock();
+            if st.bridge {
+                continue;
+            }
+            (probe_need(&st, &escada), st.bandwidth_kbps)
+        };
+        prober.set_need(shared.track, necessidade);
+        if let Some(b) = prober.poll(now, banda) {
+            let p = prober.clone();
+            rt.spawn(async move {
+                let _ = p.run_burst(b).await;
+            });
+        }
     }
 }
 
@@ -283,6 +327,76 @@ mod tests {
     fn merge_requests_pega_maior_kbps_e_ordena() {
         let m = merge_requests(&[rq(2, 100), rq(0, 900)], &[rq(2, 300), rq(1, 50)]);
         assert_eq!(m, vec![rq(0, 900), rq(1, 50), rq(2, 300)]);
+    }
+
+    fn estado(current: u8, ceiling: u8) -> ViewerState {
+        let mut s = ViewerState::new(current);
+        s.requested_max = Some(ceiling);
+        s
+    }
+
+    #[test]
+    fn probe_need_teto() {
+        let n = probe_need(&estado(2, 0), &escada()).map(|n| (n.next_kbps, n.reserve_kbps));
+        assert_eq!(n, Some((1200, 0)));
+        assert!(probe_need(&estado(0, 0), &escada()).is_none());
+        assert!(probe_need(&estado(1, 1), &escada()).is_none());
+    }
+
+    #[test]
+    fn probe_need_pendente_none() {
+        let mut s = estado(2, 0);
+        s.pending = Some(1);
+        assert!(probe_need(&s, &escada()).is_none());
+    }
+
+    #[test]
+    fn probe_need_ponte_none() {
+        assert!(probe_need(&ViewerState::new_bridge(), &escada()).is_none());
+    }
+
+    #[test]
+    fn probe_need_camera_sem_camada_1() {
+        let l: Vec<LayerSpec> = escada().into_iter().filter(|l| l.layer != 1).collect();
+        let n = probe_need(&estado(2, 0), &l).map(|n| n.next_kbps);
+        assert_eq!(n, Some(2500));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tick_dispara_rajada() -> Res {
+        let sh = shared()?;
+        let rt = tokio::runtime::Handle::current();
+        let p = par().await?;
+        let (send, _recv_a) = p.cli.open_bi().await?;
+        let sender = Arc::new(MediaSender::new(p.cli.clone(), Clock::new()));
+        let prober = zap_net::probe::Prober::new(sender.clone());
+        let link = ViewerLink::new_with_prober(
+            1,
+            "x".into(),
+            "t_1".into(),
+            sender,
+            ControlTx::new(send),
+            2,
+            Some(prober),
+        );
+        link.state.lock().bandwidth_kbps = 5000;
+        sh.viewers.lock().push(link);
+
+        // A primeira rajada sai em ~1 s; ela chega ao par como datagramas.
+        let datagrama = tokio::time::timeout(Duration::from_secs(5), async {
+            let leitura = p.srv.read_datagram();
+            tokio::pin!(leitura);
+            loop {
+                run_alloc_tick(&sh, &rt);
+                tokio::select! {
+                    d = &mut leitura => break d,
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                }
+            }
+        })
+        .await;
+        assert!(datagrama.is_ok(), "rajada de sondagem não chegou");
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]

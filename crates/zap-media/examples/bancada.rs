@@ -108,6 +108,10 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     use zap_rate::allocator::LayerRequest;
     use zap_rate::ladder::screen_ladder;
 
+    // Resolução de 1 ms enquanto a bancada roda; sem ela as esperas ficam em ~15,6 ms e distorcem a medição.
+    let timer = zap_sys::platform::TimerResolution::high();
+    let timer_ativo = timer.is_active();
+
     let monitores = zap_capture::list_monitors()?;
     let m = monitores
         .iter()
@@ -122,8 +126,9 @@ fn medir(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         EncoderChoiceSpec::Auto
     };
+    let timer_txt = if timer_ativo { "sim" } else { "não" };
     println!(
-        "{cabecalho}, preset {:?}, {} s, codificador pedido {:?}",
+        "{cabecalho}, preset {:?}, {} s, codificador pedido {:?}, timer 1 ms: {timer_txt}",
         args.preset, args.segundos, encoder
     );
 

@@ -99,9 +99,32 @@ pub struct Shared {
     pub audio_out: AudioOutHandle,
     pub online: Arc<crate::online::OnlineSession>,
     pub stop: AtomicBool,
+    /// Resolução de timer de 1 ms enquanto há sala ativa (ver `set_active_room`).
+    #[allow(dead_code)] // lido pelas tarefas core-01/03
+    pub(crate) timer: Mutex<Option<zap_sys::platform::TimerResolution>>,
 }
 
 impl Shared {
+    /// Troca `room` e pega/solta o timer de 1 ms (`Some` guarda um se não houver; `None` solta).
+    /// Devolve a sala anterior.
+    #[allow(dead_code)] // tarefa core-01 liga os chamadores (core-03)
+    pub(crate) fn set_active_room(&self, room: Option<Arc<ActiveRoom>>) -> Option<Arc<ActiveRoom>> {
+        let tem_sala = room.is_some();
+        // Ordem room -> timer em todo lugar que pegar os dois: a troca e o timer andam juntos.
+        let mut atual = self.room.lock();
+        let anterior = std::mem::replace(&mut *atual, room);
+        let mut timer = self.timer.lock();
+        if tem_sala {
+            // Já com guarda: não cria outro (o sistema conta os `timeBeginPeriod` por processo).
+            if timer.is_none() {
+                *timer = Some(zap_sys::platform::TimerResolution::high());
+            }
+        } else {
+            // Solta o guarda (Drop faz o `timeEndPeriod`).
+            *timer = None;
+        }
+        anterior
+    }
     /// Sala atual (clone do `Arc`).
     pub fn current_room(&self) -> Option<Arc<ActiveRoom>> {
         self.room.lock().clone()
@@ -206,6 +229,8 @@ impl Core {
     /// habilitada (falha de descoberta = só log + `push_error`), `engine_room::pump_room_events`
     /// e `engine_tick::run`. Primeiro snapshot já entregue no fim.
     pub fn start_with(data_dir: PathBuf, ui: Arc<dyn UiSink>, options: CoreOptions) -> Result<Self, CoreError> {
+        // MTA do COM fixado antes de qualquer thread do núcleo tocar em COM.
+        zap_sys::platform::pin_com_mta();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -273,6 +298,7 @@ impl Core {
             audio_out,
             online: crate::online::OnlineSession::new(),
             stop: AtomicBool::new(false),
+            timer: Mutex::new(None),
         });
 
         if options.discovery {
@@ -396,19 +422,38 @@ impl Core {
             shared: shared.clone(),
             runtime: None,
         };
-        runtime.block_on(async {
-            if shared.current_room().is_some() {
-                core_view.leave_room().await;
+        // Thread própria: `block_on` e derrubar um runtime entram em pânico dentro de contexto
+        // assíncrono, e o `Drop` pode rodar de qualquer lugar (inclusive de tarefa tokio).
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let spawned = std::thread::Builder::new()
+            .name("zap-core-shutdown".into())
+            .spawn(move || {
+                runtime.block_on(async {
+                    if shared.current_room().is_some() {
+                        core_view.leave_room().await;
+                    }
+                    // Depois da sala: `leave` ainda precisa do WebSocket e do cliente para avisar o servidor.
+                    shared.online.stop();
+                    shared.pool.close_all().await;
+                    ShareSession::stop(&shared).await;
+                    if let Some(ms) = shared.media_server.lock().await.take() {
+                        ms.shutdown();
+                    }
+                });
+                runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+                let _ = tx.send(());
+            });
+        match spawned {
+            Ok(_) => {
+                if std::thread::panicking() {
+                    // Durante um pânico não vale travar: a thread termina sozinha.
+                    let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+                } else {
+                    let _ = rx.recv();
+                }
             }
-            // Depois da sala: `leave` ainda precisa do WebSocket e do cliente para avisar o servidor.
-            shared.online.stop();
-            shared.pool.close_all().await;
-            ShareSession::stop(&shared).await;
-            if let Some(ms) = shared.media_server.lock().await.take() {
-                ms.shutdown();
-            }
-        });
-        runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+            Err(e) => tracing::warn!("não foi possível criar a thread de encerramento: {e}"),
+        }
     }
 }
 
@@ -518,6 +563,74 @@ mod tests {
         core.shutdown();
         drop(core);
         let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn drop_dentro_de_tarefa_tokio() {
+        let (core, d) = criar(opts()).await;
+        // Solta direto na tarefa assíncrona, sem spawn_blocking.
+        drop(core);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn panico_com_core_vivo_nao_aborta() {
+        let (core, d) = criar(opts()).await;
+        let r = tokio::spawn(async move {
+            let _c = core;
+            panic!("x");
+        })
+        .await;
+        assert!(r.unwrap_err().is_panic());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// Sala Local real (sem montar `ActiveRoom` na mão): `create_room` grava a sala em `shared.room`
+    /// e a devolvemos com `current_room`; `create_room` já chama `set_active_room`.
+    async fn sala_local(core: &Core) -> Arc<ActiveRoom> {
+        core.create_room(CreateRoom {
+            name: "Sala timer".into(),
+            mode: RoomMode::Local,
+            password: None,
+        })
+        .await
+        .expect("criar sala");
+        core.shared.current_room().expect("sala")
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn set_active_room_pega_e_solta_timer() {
+        let (core, d) = criar(opts()).await;
+        let sala = sala_local(&core).await;
+        let shared = core.shared.clone();
+        // `create_room` já passa por `set_active_room`: o timer está pego aqui.
+        assert!(shared.timer.lock().is_some());
+        // Some -> Some: continua com o mesmo guarda (nenhum novo).
+        shared.set_active_room(Some(sala.clone()));
+        assert!(shared.timer.lock().is_some());
+        // None: solta o timer.
+        shared.set_active_room(None);
+        assert!(shared.timer.lock().is_none());
+        // Devolve a sala ao núcleo para o `shutdown` sair da sala de forma limpa.
+        shared.set_active_room(Some(sala));
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn set_active_room_devolve_anterior() {
+        let (core, d) = criar(opts()).await;
+        let sala = sala_local(&core).await;
+        let shared = core.shared.clone();
+        // Devolve a sala que estava guardada.
+        let anterior = shared.set_active_room(None).expect("anterior");
+        assert!(Arc::ptr_eq(&anterior, &sala));
+        // Sem sala antes: devolve None.
+        assert!(shared.set_active_room(Some(sala.clone())).is_none());
+        // Trocar por outra devolve a que saiu.
+        let anterior = shared.set_active_room(None).expect("anterior");
+        assert!(Arc::ptr_eq(&anterior, &sala));
+        shared.set_active_room(Some(sala));
+        encerrar(core, d).await;
     }
 
     #[test]

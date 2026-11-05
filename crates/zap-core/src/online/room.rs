@@ -84,6 +84,11 @@ impl OnlineRoom {
         })
     }
 
+    /// Ponte configurada (`use_relay`) e oferecida pelo servidor (`media.bridge`).
+    pub fn bridge_enabled(&self, shared: &Shared) -> bool {
+        shared.settings.read().server.use_relay && self.media.lock().bridge.is_some()
+    }
+
     /// `Shared` vivo ou `CoreError::Stopped` (o `Core` foi desligado).
     pub(crate) fn shared(&self) -> Result<Arc<Shared>, CoreError> {
         self.shared.upgrade().ok_or(CoreError::Stopped)
@@ -251,6 +256,12 @@ impl OnlineRoom {
             t.abort();
         }
         self.publish.detach_all();
+        // Fecha as conexões diretas e esvazia os pedidos pendentes. Não avisa o servidor: o `sala.sair` já avisa.
+        let conns = std::mem::take(&mut *self.direct.conns.lock());
+        for conn in conns.into_values() {
+            conn.close();
+        }
+        self.direct.pending.lock().clear();
         if let Some(b) = self.bridge.lock().await.take() {
             b.close();
         }
@@ -460,6 +471,32 @@ mod tests {
         sala.leave().await;
         assert!(sala.left.load(Ordering::SeqCst));
         assert!(sala.tasks.lock().is_empty());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn leave_limpa_pending_e_conns() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (core, d) = novo_core(srv.base_url.clone()).await;
+        let sala = OnlineRoom::create(&core.shared, req("Sala", None)).await.unwrap();
+        let track: zap_proto::Track = serde_json::from_value(serde_json::json!({
+            "id": "t1", "participante_id": "p2", "numero": 1, "tipo": "tela", "titulo": "t"
+        }))
+        .unwrap();
+        sala.direct.pending.lock().insert(
+            7,
+            crate::subscribe::WatchSpec {
+                track,
+                audio_track: None,
+                tile: 7,
+                size: zap_proto::TileSize::Main,
+                max_layer: None,
+            },
+        );
+        assert!(!sala.direct.pending.lock().is_empty());
+        sala.leave().await;
+        assert!(sala.direct.pending.lock().is_empty());
+        assert!(sala.direct.conns.lock().is_empty());
         encerrar(core, d).await;
     }
 }

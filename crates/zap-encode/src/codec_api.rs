@@ -8,7 +8,7 @@ use windows::Win32::Media::MediaFoundation::{
     CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode, CODECAPI_AVEncMPVDefaultBPictureCount,
     CODECAPI_AVEncMPVGOPSize, CODECAPI_AVEncVideoForceKeyFrame, CODECAPI_AVLowLatencyMode, ICodecAPI,
 };
-use windows::Win32::System::Variant::{VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_BOOL, VT_UI4};
+use windows::Win32::System::Variant::{VariantClear, VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_BOOL, VT_UI4};
 
 /// Monta um `VARIANT` do tipo `VT_UI4` com o valor `v`. Não aloca nada (tipo escalar), então
 /// não há o que liberar com `VariantClear`; os campos ficam em `ManuallyDrop` só por exigência
@@ -121,6 +121,32 @@ pub(crate) fn force_keyframe(api: &ICodecAPI) -> bool {
     }
 }
 
+/// Lê de volta `AVEncCommonRateControlMode` e `AVEncCommonMeanBitRate` (`ICodecAPI::GetValue`) e
+/// loga com `tracing::info!`. Nunca falha; valor ilegível vira `None` no log.
+pub(crate) fn log_readback(api: &ICodecAPI) {
+    let modo = get_u32(api, &CODECAPI_AVEncCommonRateControlMode);
+    let bitrate_bps = get_u32(api, &CODECAPI_AVEncCommonMeanBitRate);
+    tracing::info!(modo = ?modo, bitrate_bps = ?bitrate_bps, "ICodecAPI readback");
+}
+
+/// `GetValue` esperando `VT_UI4`. Qualquer erro ou tipo diferente vira `None`.
+fn get_u32(api: &ICodecAPI, key: &GUID) -> Option<u32> {
+    // SAFETY: `key` é referência viva durante a chamada.
+    let mut v = unsafe { api.GetValue(key) }.ok()?;
+    // SAFETY: o campo `ulVal` só é lido depois de conferir `vt == VT_UI4`; o tipo é escalar.
+    let r = unsafe {
+        let interno = &v.Anonymous.Anonymous;
+        if interno.vt == VT_UI4 {
+            Some(interno.Anonymous.ulVal)
+        } else {
+            None
+        }
+    };
+    // SAFETY: `v` é um VARIANT válido devolvido pelo MFT; limpar libera o que ele tiver alocado.
+    let _ = unsafe { VariantClear(&mut v) };
+    r
+}
+
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
@@ -164,5 +190,24 @@ mod tests {
             choice: EncoderChoice::Auto,
         };
         apply_settings(&api, &cfg).expect("apply_settings");
+    }
+
+    #[test]
+    fn log_readback_nao_entra_em_panico() {
+        let Ok(_mf) = MfGuard::acquire() else {
+            eprintln!("pulando: MFStartup indisponível");
+            return;
+        };
+        let candidatos = match enumerate::enumerate(false) {
+            Ok(c) if !c.is_empty() => c,
+            _ => {
+                eprintln!("pulando: nenhum MFT de software");
+                return;
+            }
+        };
+        // SAFETY: ativador válido vindo da enumeração.
+        let mft: IMFTransform = unsafe { candidatos[0].activate.ActivateObject() }.expect("ativar MFT");
+        let api = mft.cast::<ICodecAPI>().expect("ICodecAPI");
+        log_readback(&api);
     }
 }

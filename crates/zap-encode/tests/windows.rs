@@ -2,6 +2,8 @@
 #![cfg(windows)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod support;
+
 use std::time::{Duration, Instant};
 
 use zap_encode::{logic, nal, EncodedPicture, EncoderChoice, EncoderConfig, H264Encoder};
@@ -49,22 +51,8 @@ fn preparar() -> Option<(GpuDevice, Vec<zap_encode::EncoderInfo>)> {
     }
 }
 
-/// Quadro NV12 de cor sólida que muda com `i`. O anel reaproveita as texturas; o handle COM
-/// é clonado porque `submit` consome a `Texture`.
-fn frame(dev: &GpuDevice, ring: &mut TextureRing, conv: &mut Converter, i: u32) -> Texture {
-    let src = Texture::new(dev, W, H, PixelFormat::Bgra8, false).expect("textura BGRA");
-    let px = [
-        (i.wrapping_mul(7) % 256) as u8,
-        (i.wrapping_mul(13) % 256) as u8,
-        (i.wrapping_mul(29) % 256) as u8,
-        255,
-    ];
-    let dados: Vec<u8> = px.iter().copied().cycle().take((W * H * 4) as usize).collect();
-    zap_gpu::upload(dev, &src, &dados, W * 4).expect("upload");
-    let dst = ring.next();
-    conv.convert(dev, &src, dst).expect("conversão");
-    Texture::from_raw(dst.raw().clone(), PixelFormat::Nv12, W, H)
-}
+/// Gera o quadro `i` já em NV12 (ver `support`).
+type Gerador = fn(&GpuDevice, &mut TextureRing, &mut Converter, u32) -> Texture;
 
 struct Sessao {
     saidas: Vec<EncodedPicture>,
@@ -81,6 +69,7 @@ fn executar(
     n: u32,
     bitrate_em: Option<u32>,
     forcar_em: Option<u32>,
+    gerador: Gerador,
 ) -> Option<Sessao> {
     let (tx, rx) = crossbeam_channel::unbounded();
     let enc = match H264Encoder::new(dev, cfg(choice), tx) {
@@ -98,7 +87,7 @@ fn executar(
         if bitrate_em == Some(i) {
             enc.set_bitrate(2000);
         }
-        let tex = frame(dev, &mut ring, &mut conv, i);
+        let tex = gerador(dev, &mut ring, &mut conv, i);
         enc.submit(tex, base_us + u64::from(i) * PASSO_US, forcar_em == Some(i));
         std::thread::sleep(Duration::from_millis(33));
         saidas.extend(rx.try_iter());
@@ -122,7 +111,7 @@ fn executar(
 #[test]
 fn primeiro_quadro_e_keyframe_com_sps_pps() {
     let Some((dev, _)) = preparar() else { return };
-    let Some(s) = executar(&dev, EncoderChoice::Auto, 60, None, None) else {
+    let Some(s) = executar(&dev, EncoderChoice::Auto, 60, None, None, support::frame_ruido) else {
         return;
     };
     assert!(
@@ -141,7 +130,7 @@ fn primeiro_quadro_e_keyframe_com_sps_pps() {
 #[test]
 fn set_bitrate_no_meio_nao_gera_keyframe() {
     let Some((dev, _)) = preparar() else { return };
-    let Some(s) = executar(&dev, EncoderChoice::Auto, 60, Some(30), None) else {
+    let Some(s) = executar(&dev, EncoderChoice::Auto, 60, Some(30), None, support::frame_ruido) else {
         return;
     };
     assert!(s.saidas.len() >= 55, "saídas: {}", s.saidas.len());
@@ -159,7 +148,7 @@ fn set_bitrate_no_meio_nao_gera_keyframe() {
 #[test]
 fn force_keyframe_no_30() {
     let Some((dev, _)) = preparar() else { return };
-    let Some(s) = executar(&dev, EncoderChoice::Auto, 60, None, Some(30)) else {
+    let Some(s) = executar(&dev, EncoderChoice::Auto, 60, None, Some(30), support::frame_ruido) else {
         return;
     };
     assert!(s.saidas.len() >= 55, "saídas: {}", s.saidas.len());
@@ -172,14 +161,9 @@ fn force_keyframe_no_30() {
     assert!(p.keyframe, "quadro 30 deveria ser keyframe");
 }
 
-#[test]
-fn tamanho_medio_nao_chave() {
-    let Some((dev, _)) = preparar() else { return };
-    let Some(s) = executar(&dev, EncoderChoice::Auto, 60, None, None) else {
-        return;
-    };
-    assert!(s.saidas.len() >= 55, "saídas: {}", s.saidas.len());
-    let corte = s.base_us + 10 * PASSO_US;
+/// Média de tamanho dos quadros não-chave a partir do quadro `a_partir`.
+fn media_nao_chave(s: &Sessao, a_partir: u32) -> f64 {
+    let corte = s.base_us + u64::from(a_partir) * PASSO_US;
     let tamanhos: Vec<f64> = s
         .saidas
         .iter()
@@ -187,12 +171,52 @@ fn tamanho_medio_nao_chave() {
         .map(|p| p.data.len() as f64)
         .collect();
     assert!(!tamanhos.is_empty(), "sem quadros não-chave");
-    let media = tamanhos.iter().sum::<f64>() / tamanhos.len() as f64;
+    tamanhos.iter().sum::<f64>() / tamanhos.len() as f64
+}
+
+/// Compara a média (ruído) com a faixa ±50% de 4000 kbps a 30 fps. Pula se o codificador pedido
+/// não existe ou não abre.
+fn checar_media(choice: EncoderChoice) {
+    let Some((dev, lista)) = preparar() else { return };
+    if choice == EncoderChoice::Software && !lista.iter().any(|e| !e.hardware) {
+        eprintln!("pulando: sem codificador de software");
+        return;
+    }
+    let Some(s) = executar(&dev, choice, 60, None, None, support::frame_ruido) else {
+        return;
+    };
+    assert!(s.saidas.len() >= 55, "saídas: {}", s.saidas.len());
+    let media = media_nao_chave(&s, 10);
     let esperado = f64::from(logic::expected_frame_bytes(4000, 30));
+    eprintln!("tamanho médio ({choice:?}, hw={}): {media:.0} bytes", s.hardware);
     assert!(
         media >= esperado * 0.5 && media <= esperado * 1.5,
         "média {media} fora de ±50% de {esperado}"
     );
+}
+
+#[test]
+fn tamanho_medio_nao_chave() {
+    checar_media(EncoderChoice::Auto);
+}
+
+#[test]
+fn tamanho_medio_nao_chave_software() {
+    checar_media(EncoderChoice::Software);
+}
+
+/// Conteúdo estático (cor sólida) não pode gastar mais que 1.5x do orçamento por quadro.
+#[test]
+fn conteudo_estatico_nao_passa_do_orcamento() {
+    let Some((dev, _)) = preparar() else { return };
+    let Some(s) = executar(&dev, EncoderChoice::Auto, 60, None, None, support::frame_estatico) else {
+        return;
+    };
+    assert!(s.saidas.len() >= 55, "saídas: {}", s.saidas.len());
+    let media = media_nao_chave(&s, 10);
+    let teto = 1.5 * f64::from(logic::expected_frame_bytes(4000, 30));
+    eprintln!("tamanho médio estático (hw={}): {media:.0} bytes", s.hardware);
+    assert!(media <= teto, "média {media} acima de {teto}");
 }
 
 #[test]
@@ -202,7 +226,7 @@ fn software_funciona() {
         eprintln!("pulando: sem codificador de software");
         return;
     }
-    let Some(s) = executar(&dev, EncoderChoice::Software, 30, None, None) else {
+    let Some(s) = executar(&dev, EncoderChoice::Software, 30, None, None, support::frame_ruido) else {
         return;
     };
     assert!(!s.hardware);

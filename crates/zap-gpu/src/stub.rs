@@ -1,6 +1,7 @@
 //! Stub para plataformas sem D3D11: tudo devolve `GpuError::Unsupported`.
 use crate::{AdapterInfo, GpuError, PixelFormat};
 
+#[derive(Clone)]
 pub struct GpuDevice {
     adapter: AdapterInfo,
 }
@@ -103,6 +104,9 @@ pub fn upload(_dev: &GpuDevice, _tex: &Texture, _data: &[u8], _stride: u32) -> R
 }
 
 /// No stub não faz nada.
+pub fn pin_mta() {}
+
+/// No stub não faz nada.
 pub struct ComGuard;
 
 impl ComGuard {
@@ -180,5 +184,20 @@ mod tests {
     #[test]
     fn com_guard_new_ok() {
         assert!(ComGuard::new().is_ok());
+    }
+
+    #[test]
+    fn clone_do_dispositivo_falso() {
+        let dev = dispositivo_falso();
+        let copia = dev.clone();
+        assert_eq!(copia.adapter().name, "stub");
+    }
+
+    #[test]
+    fn pin_mta_vazio() {
+        // No stub não faz nada: só garante que chamar várias vezes não entra em pânico.
+        pin_mta();
+        pin_mta();
+        pin_mta();
     }
 }

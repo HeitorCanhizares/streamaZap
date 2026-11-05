@@ -49,12 +49,12 @@ pub(crate) async fn join_online(shared: &Arc<Shared>, code: String, password: Op
 /// Acabamento comum: guarda a sala, sobe o servidor de mídia (se a rota direta vale) e
 /// atualiza a interface. Se o servidor de mídia falhar, a sala sai e o campo volta a `None`.
 async fn guarda_sala(shared: &Arc<Shared>, room: Arc<OnlineRoom>) -> Result<(), CoreError> {
-    *shared.room.lock() = Some(Arc::new(ActiveRoom::Online(room.clone())));
+    shared.set_active_room(Some(Arc::new(ActiveRoom::Online(room.clone()))));
     // Depois de guardar a sala, para o `set_auth` enxergá-la.
     let direta = room.media.lock().direct_allowed;
     if direta {
         if let Err(e) = shared.ensure_media_server().await {
-            *shared.room.lock() = None;
+            shared.set_active_room(None);
             room.leave().await;
             return Err(e);
         }

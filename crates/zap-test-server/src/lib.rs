@@ -9,6 +9,7 @@
 //! | `ws` / `signaling` / `tracks` | WebSocket de sinalização | `docs/api/mensagens.md` |
 //! | `bridge` / `media` | Ponte QUIC `zap/4` | `docs/api/midia.md` |
 //! | `relay` / `routing` / `ticker` | Alocador de camadas por espectador | `docs/api/balanceamento.md` |
+//! | `probe` | Necessidade de sondagem por espectador (a ponte sonda a banda) | `docs/api/balanceamento.md` §4 |
 //! | `state` / `rooms` / `util` | Estado em memória | |
 //!
 //! Decisões de projeto do servidor de teste:
@@ -28,6 +29,7 @@
 pub mod bridge;
 pub mod media;
 pub mod notify;
+pub mod probe;
 pub mod relay;
 pub mod rest;
 pub mod rest_rooms;
@@ -95,6 +97,8 @@ pub struct Handle {
     /// Estado compartilhado (testes podem inspecionar).
     pub hub: Arc<Hub>,
     pub(crate) tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Timer de 1 ms enquanto o servidor viver (ritmo das sondas e do ticker no Windows).
+    pub(crate) _timer: zap_sys::platform::TimerResolution,
 }
 
 impl Drop for Handle {
@@ -107,6 +111,7 @@ impl Drop for Handle {
 
 /// Sobe REST+WS em `127.0.0.1:0`, a ponte QUIC em `127.0.0.1:0` e o ticker de 100 ms.
 pub async fn spawn(config: Config) -> Result<Handle, TestServerError> {
+    let timer = zap_sys::platform::TimerResolution::high();
     let hub = Arc::new(Hub::new(config));
     let identity = zap_net::tls::Identity::generate("zap-test-server")?;
     let cert_fingerprint = identity.fingerprint();
@@ -135,6 +140,7 @@ pub async fn spawn(config: Config) -> Result<Handle, TestServerError> {
         cert_fingerprint,
         hub,
         tasks: vec![bridge_task, keeper, http_task, ticker_task],
+        _timer: timer,
     })
 }
 

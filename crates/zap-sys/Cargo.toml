@@ -17,6 +17,7 @@ if-addrs.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Media",
     "Win32_NetworkManagement_WindowsFirewall",
     "Win32_Networking_NetworkListManager",
     "Win32_Security",

@@ -7,6 +7,8 @@ use parking_lot::Mutex;
 use zap_proto::TrackKind;
 
 use crate::engine::Core;
+use crate::online::direct;
+use crate::room::ActiveRoom;
 use crate::subscribe::{Subscription, WatchSpec};
 use crate::types::*;
 use crate::CoreError;
@@ -55,6 +57,38 @@ impl Core {
                 .cloned();
             (track, audio)
         };
+
+        // Online sem ponte: só rota direta. O pedido fica pendente e o tile aparece quando a
+        // assinatura nascer (não mexe no UiState aqui).
+        if let ActiveRoom::Online(r) = &*room {
+            if !r.bridge_enabled(&shared) {
+                let antiga = shared.subs.lock().remove(&tile);
+                if let Some(old) = antiga {
+                    let sh = shared.clone();
+                    shared.rt.spawn(async move { old.stop(&sh).await });
+                }
+                // Mesmo padrão do caminho normal: um `unwatch` ou `watch` posterior invalida esta geração.
+                let chave = (Arc::as_ptr(&shared) as usize, tile);
+                generations().lock().insert(chave, next_generation());
+                let spec = WatchSpec {
+                    track,
+                    audio_track,
+                    tile,
+                    size,
+                    max_layer,
+                };
+                let r = r.clone();
+                let sh = shared.clone();
+                shared.rt.spawn(async move {
+                    if let Err(e) = direct::watch_pending(&r, spec).await {
+                        direct::unwatch_pending(&r, tile).await;
+                        sh.state.lock().push_error(e.to_string());
+                        sh.notifier.touch();
+                    }
+                });
+                return Ok(());
+            }
+        }
 
         // Mesma trilha no tile: só atualiza; outra trilha: tira a antiga.
         let antiga = {
@@ -138,6 +172,15 @@ impl Core {
         }
         shared.state.lock().remove_tile(tile);
         shared.notifier.touch();
+        // Sala Online: tira também o pedido pendente (rota direta ainda não pronta).
+        if let Some(room) = shared.current_room() {
+            if let ActiveRoom::Online(r) = &*room {
+                let r = r.clone();
+                shared.rt.spawn(async move {
+                    direct::unwatch_pending(&r, tile).await;
+                });
+            }
+        }
     }
 }
 
@@ -268,6 +311,87 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(core.shared.subs.lock().is_empty());
         assert!(core.shared.state.lock().tiles().is_empty());
+        encerrar(core, d).await;
+    }
+
+    /// Monta uma sala Online sem ponte (nem WebSocket) e a instala como sala atual.
+    fn sala_online(core: &Core) -> Arc<crate::online::OnlineRoom> {
+        use zap_net::online::JoinMedia;
+        use zap_proto::{Access, Participant, Role, Room, RoomCode};
+        let room = Room {
+            id: "s_1".into(),
+            code: None,
+            name: "O".into(),
+            owner_id: "p_1".into(),
+            access: Access::Open,
+            mode: RoomMode::Online,
+            created_at: "2026-01-01T00:00:00Z".into(),
+        };
+        let owner = Participant {
+            id: "p_1".into(),
+            name: "Ana".into(),
+            color: "#ff0000".into(),
+            role: Role::Member,
+            joined_at: "2026-01-01T00:00:00Z".into(),
+            app_version: "1.0.0".into(),
+            protocol: 1,
+            latency_ms: None,
+            watching: None,
+        };
+        let r = crate::online::OnlineRoom::new(
+            &core.shared,
+            crate::room::RoomModel::new(room, owner),
+            "p1".into(),
+            RoomCode::from_entropy([1, 2, 3, 4]),
+            None,
+            JoinMedia {
+                bridge: None,
+                direct_allowed: true,
+            },
+            String::new(),
+        );
+        *core.shared.room.lock() = Some(Arc::new(ActiveRoom::Online(r.clone())));
+        r
+    }
+
+    // Limitação: sem WebSocket em unitário, `watch_pending` falha e o tile sai de `pending` logo
+    // depois; por isso confere-se o caminho pendente (sem erro síncrono, `subs` vazio, UiState
+    // intocido, erro de conexão publicado), e não a permanência do tile em `pending`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn watch_sem_ponte_fica_pendente() {
+        let (core, d) = novo();
+        let r = sala_online(&core);
+        r.model
+            .lock()
+            .upsert_track(trilha("t_v", "outro", 3, TrackKind::Screen));
+        core.watch("t_v", 7, TileSize::Main, None).expect("watch");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(core.shared.subs.lock().is_empty());
+        assert!(core.shared.state.lock().tiles().is_empty());
+        // Sem WebSocket o pedido falha e é desfeito.
+        assert!(r.direct.pending.lock().is_empty());
+        assert!(!core.shared.state.lock().snapshot().errors.is_empty());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn unwatch_remove_pendente() {
+        let (core, d) = novo();
+        let r = sala_online(&core);
+        let track = trilha("t_v", "outro", 3, TrackKind::Screen);
+        r.direct.pending.lock().insert(
+            7,
+            WatchSpec {
+                track,
+                audio_track: None,
+                tile: 7,
+                size: TileSize::Main,
+                max_layer: None,
+            },
+        );
+        core.unwatch(7);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(r.direct.pending.lock().is_empty());
         encerrar(core, d).await;
     }
 }

@@ -132,10 +132,6 @@ async fn aceite_online_sala_com_senha_chat_e_midia() {
     let ok_v = sink_v
         .wait_for(Duration::from_secs(10), |s| s.video_count(1) >= 30)
         .await;
-    if !ok_v {
-        println!("DIAG V: {:#?}", v.snapshot());
-        println!("DIAG P: {:#?}", p.snapshot());
-    }
     assert!(ok_v, "V recebeu poucos pacotes: {}", sink_v.video_count(1));
     {
         let vs = sink_v.videos.lock();

@@ -13,6 +13,7 @@ pub mod handshake;
 pub mod media_rx;
 pub mod media_tx;
 pub mod online;
+pub mod probe;
 pub mod report;
 pub mod tls;
 

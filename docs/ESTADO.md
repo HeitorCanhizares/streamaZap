@@ -1,16 +1,16 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-04, ao pausar o trabalho. O código está no `master` (e igual na branch
-`claude/loving-davinci-le0qac`).
+Atualizado em 2026-11-04, no fechamento da rodada M4b + M2. O trabalho desta rodada está na branch
+`m4-online` (sem commit ainda); `master` e `claude/loving-davinci-le0qac` têm o estado anterior.
 
 ## Antes de qualquer push no `master`
 
 - **Todo push no `master` publica uma Release do app Python.** O `build.yml` gera o instalador e
   marca como a última Release. Até o M6, ponha `[skip release]` na mensagem do commit do topo do
   push (é a do `head_commit` que conta).
-- **O CI da v3 (`rust.yml`) falha no `master`** enquanto o M4 tiver `todo!`: compila, mas o clippy
-  acusa código Online ainda não ligado e os testes que tocam o modo Online entram em pânico. O
-  `cargo test -p zap-test-server` e os crates que não tocam o Online passam.
+- **O CI da v3 (`rust.yml`) ainda não foi conferido com o M4 pronto.** Não há mais `todo!`, mas o
+  `cargo test --workspace` tem falhas abertas (ver "Atualização do M4") e o clippy do alvo
+  `windows-gnu` não foi rodado (o fechamento usou o alvo nativo MSVC).
 
 ## Resumo
 
@@ -18,10 +18,10 @@ Atualizado em 2026-11-04, ao pausar o trabalho. O código está no `master` (e i
 |---|---|---|
 | M0 | ✅ | Plano mestre (`docs/arquitetura-v3.md`), API (`docs/api/`), design (`docs/design/`), hierarquia de agentes (`.claude/`), workspace e CI |
 | M1 | ✅ | `zap-proto` (protocolo 4), `zap-rate` (estimador de banda, balanceamento por espectador, suavização, simulador), `zap-net` (QUIC com prazo por quadro, relatórios, descoberta) |
-| M2 | ✅ (falta validar na GPU real) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
+| M2 | 🟡 (rodou numa GTX 1060; bancada fora da meta) | `zap-gpu`, `zap-capture`, `zap-encode`, `zap-audio`, `zap-media`: captura DXGI/WGC/câmera, NV12 na GPU, H.264 por Media Foundation, áudio por app, Opus, pipelines |
 | M3 / M3b | ✅ | `zap-core` (sala Local, publicação, assinatura, playout), app Tauri (`app/src-tauri`), interface React fiel ao design (`app/src`) ligada ao núcleo |
 | M5 | ✅ (falta testar uma release de verdade) | Atualização assinada (instala ao fechar, nunca reinicia numa sala, canais estável/beta), firewall por COM, diagnóstico real, `release-v3.yml`, instalador NSIS que remove o app Python |
-| **M4** | ⏸️ **pela metade** | Modo Online: contrato, cliente da API e servidor de teste prontos; servidor de produção no ar; sessão Online no núcleo, comandos do Tauri e telas incompletos |
+| **M4** | 🟡 **quase** | Modo Online implementado (núcleo, Tauri, telas, modo só direta, sondagem); falta o aceite 2 (camadas por enlace) e o servidor de produção sondar |
 | M6 | ⏳ | Paridade e remoção do app Python |
 
 O app Python (`streamazap/`) continua intacto e é o que as Releases atuais publicam.
@@ -30,63 +30,35 @@ O app Python (`streamazap/`) continua intacto e é o que as Releases atuais publ
 
 ### 1. Modo Online (M4), no app
 
-O servidor de produção e o de teste estão prontos; falta o lado do app. São 33 tarefas, com a
-especificação completa em **`docs/planos/m4-tarefas-pendentes.json`**.
+Implementado: núcleo, comandos do Tauri e telas (sem `todo!` no repositório). O que falta está em
+"Atualização do M4" abaixo; a especificação das tarefas, com `estado` e `nota` das três que a
+rodada M4b fechou ou deixou abertas, continua em `docs/planos/m4-tarefas-pendentes.json`.
 
-**a) Núcleo (`core-online`, 21 tarefas).** `todo!` por arquivo, em `crates/zap-core/src/`:
+**Canais (mantido do contrato).** `camadas.pedidas`, `keyframe.pedir` e `camada.atual` chegam só
+pelo controle QUIC da ponte (`docs/api/mensagens.md`, "Canal de cada mensagem"), não pelo
+WebSocket; os leitores de controle da ponte (`online/publish_bridge.rs`, `subscribe/pool.rs`)
+entregam essas mensagens ao tratamento de `room_events`.
 
-| Arquivo | `todo!` | Tarefa | O que é |
-|---|---|---|---|
-| `online/session.rs` | 5 | 05 | conexão, login, ping, `start`/`restart`/`stop` |
-| `online/session_run.rs` | 1 | 06 | laço de fundo: login, ping de 5 s, leitura do WebSocket, reconexão |
-| `online/bridge.rs` | 1 | 07 | conexão QUIC com a ponte usando o ingresso |
-| `subscribe/pool.rs` | 2 | 19 | conexão de assinatura pela ponte/direta |
-| `online/direct.rs` | 3 | 13 | rota direta (`p2p.*`) com queda para a ponte |
-| `online/room_events.rs` | 1 | 10 | despacho das mensagens para a sala |
-| `online/reconnect.rs` | 3 | 11 | reconexão do WebSocket e da ponte |
-| `online/room.rs` | 5 | 08 | sala Online: criar, entrar, chat, sair |
-| `online/preview.rs` | 2 | 14 | prévia na lista (camada 2, sem áudio) |
-| `online/entry.rs` | 11 | 15 | pontos de entrada do `Core` e ganchos de teste |
-
-Sem `todo!`, mas ainda por fazer: **18** (ligar a sessão Online ao ciclo de vida do `Core`, em
-`engine.rs` e `engine_room.rs`); **20** a **26** (harness e testes de aceite em
-`crates/zap-core/tests/`: aceites 1 a 4, prévia e reconexão); **27** (fechamento: fmt, clippy,
-testes, `windows-gnu`).
-
-**Mudança de desenho obrigatória.** O núcleo foi planejado esperando `camadas.pedidas`,
-`keyframe.pedir` e `camada.atual` pelo WebSocket. Pelo contrato (`docs/api/mensagens.md`, "Canal de
-cada mensagem"), o servidor de produção e o de teste mandam essas três **só pelo controle QUIC da
-ponte**. O leitor de controle da ponte (publicador: `online/publish_bridge.rs`; espectador:
-`subscribe/pool.rs`) precisa entregá-las ao mesmo tratamento de `room_events`. As tarefas 10, 19 e
-22 têm uma nota sobre isso no JSON, e o topo de `online/mod.rs` já descreve os canais certos.
-
-**b) Comandos do Tauri (`tauri-online`, 3 tarefas).** `server_test`, `room_preview` e
-`room_preview_stop` em `app/src-tauri/src/commands/online.rs` (3 `todo!`); `api.ts`, mock e tipos
-na interface (`snapshot.server`); fechamento da frente.
-
-**c) Telas (`ui-online`, 9 tarefas).** Status do servidor na barra (online / conectando /
-desconectado / não configurado); "Entrar com código" (`ZAP-XXXX`) na lista de salas; prévia real
-em baixa resolução; "Testar conexão" e o interruptor de ponte em Configurações; teste de
-integração no mock. Arquivos com marcação pendente: `bridge/useRoomPreview.ts`,
-`bridge/serverModel.ts`, `screens/config/useServerTest.ts`, `screens/diag/diagServidor.ts`,
-`screens/salas/EntrarCodigo.tsx`.
-
-**d) Endereço do servidor.** O de produção é `https://streamazap.heitorcanhizares.net:7443`, **sem
-`/v1`**: o cliente (`ServerClient`) acrescenta `/v1` sozinho, e com `/v1` no endereço as chamadas
-dão 404. Hoje `settings.server.address` vem vazio (`crates/zap-core/src/settings.rs`); falta
-decidir se o servidor de produção vira o padrão. O servidor não exige senha por enquanto
-(`requer_senha: false`); a senha do servidor ainda está para ser decidida.
+**Endereço do servidor.** O de produção é `https://streamazap.heitorcanhizares.net:7443`, **sem
+`/v1`**: o `ServerClient` acrescenta `/v1` sozinho. Só `Core::start` grava
+`settings::PRODUCTION_SERVER` na primeira execução; `CoreOptions::default()` tem
+`default_server: None`, então nenhum teste fala com o servidor de produção. O servidor não exige
+senha por enquanto (`requer_senha: false`).
 
 ### 2. Teste num PC com GPU (M2)
 
-A captura DXGI/WGC, a conversão NV12 e o H.264 por hardware nunca rodaram de verdade: o CI não tem
-GPU com vídeo. Passos: `cd app && npm install && npm run tauri dev`; criar sala, entrar de outro PC
-(Radmin/LAN), compartilhar tela e câmera. E a bancada de mídia
-(`cargo run -p zap-media --example bancada -- --monitor 1 --preset 1080p60 --segundos 10`).
-
-Também falta a **conversão para NV12 pela CPU**: sem ela, um PC sem Video Processor não consegue
-transmitir. E falta conferir no CI Windows a cadeia de dispositivos do `zap-gpu` (GPU com vídeo →
-GPU sem vídeo → qualquer adaptador, inclusive o "Basic Render Driver"), feita na pausa anterior.
+Feito neste PC (Windows 10, GTX 1060, NVENC): captura DXGI, conversão NV12 e H.264 por hardware
+rodam; os testes de `zap-capture`, `zap-gpu` e `zap-media` passam, a violação de acesso do
+`zap-capture` e da bancada foi resolvida (MTA preso, `GpuDevice: Clone`) e a bancada release não
+caiu. **Mas a bancada não bate a meta**: com movimento na tela, 25,9 fps na camada 0 e p95 somado
+de 72 ms (meta 8 ms), com quadros descartados (números em `docs/planos/m4b-pendencias.md`, seção 8).
+Com a tela parada a duplicação entrega ~0,5 quadro/s e a bancada mede espera (os 2,9 fps / 703 ms
+registrados antes): a bancada precisa gerar movimento sozinha. Falta investigar por que conversão
+(~12 ms) e codificação (~21 ms) estão tão altas numa GTX 1060 (contenção do contexto D3D11 entre
+conversor e codificador, relógio da GPU, três sessões NVENC). Ainda falta
+testar a transmissão entre dois PCs (`cd app && npm install && npm run tauri dev`), a **conversão
+para NV12 pela CPU** (sem ela, um PC sem Video Processor não transmite) e a cadeia de dispositivos
+do `zap-gpu` no CI Windows.
 
 ### 3. Chaves do updater e uma release de teste (M5)
 
@@ -101,22 +73,51 @@ Paridade com o app Python, remoção de `streamazap/` e, **antes da primeira rel
 `build.yml` de publicar o Python no `master`; senão a "última release" volta a ser a do Python e o
 updater da v3 não acha o `latest.json`.
 
-## Atualização do M4 (2026-11-04, fechamento no Windows)
+## Atualização do M4 (2026-11-04, rodada M4b + M2, fechamento no Windows)
 
-O núcleo Online, os comandos do Tauri e as telas estão implementados: não há `todo!(` em
-`crates/zap-core` nem em `app/src-tauri`. Clippy `-D warnings`, `cargo fmt`, `cargo check
---workspace --all-targets`, `npm run check` e `vitest` (666 testes) passam. Os aceites 1 e 3, a
-prévia e a reconexão passam. A tabela de `todo!` acima está desatualizada (histórica).
+Sem `todo!(` em `crates/zap-core` nem em `app/src-tauri`. Passam: `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -- -D warnings`, `cargo check --workspace --all-targets`,
+`npm run check` e `vitest` (83 arquivos, 666 testes). Passam 3 vezes seguidas os aceites 1, 3, 4
+(3 funções, o modo só direta existe e o `#[ignore]` saiu), prévia, reconexão e
+`aceite_camadas_local`. Entraram nesta rodada: sondagem (`zap-rate::probe`,
+`Bwe::on_probe_cluster`, `zap-net::Prober`, ponte do servidor de teste e publicador), modo só
+direta, `Drop` do `Core` seguro, timer de 1 ms com sala ativa, MTA preso no COM, captura com
+`GpuDevice` próprio.
 
-Faltam para fechar o M4 (detalhes em `docs/planos/m4-online.md`, "Estado do fechamento"):
-1. **Aceite 2** (camadas por enlace): precisa de sondagem de verdade no `Bwe` e no servidor de
-   teste; hoje todos os espectadores ficam na camada 2.
-2. **Aceite 4, cenário C**: o modo "só direta" (sem ponte) não existe; implementar ou cortar da
-   spec. A segunda metade está `#[ignore]`.
-3. Falhas que parecem ser do ambiente, fora do M4: `zap-encode` (`tamanho_medio_nao_chave`),
-   `zap-net` (`rede_ruim_3mbps_fonte_6mbps`) e uma violação de acesso intermitente em
-   `zap-capture --lib` quando roda junto dos demais testes.
-4. Conferir `vite build`, o clippy do alvo `windows-gnu` no CI e o binário no X virtual.
+`cargo test --workspace --no-fail-fast` deixou **4 falhas**:
+1. **`zap-core --test online_aceite_2` (aceite 2, camadas por enlace)**: passou 1 de 4 execuções.
+   Nas outras, A (enlace de 4 Mbps) fica na camada 2 (esperado 1) ou as camadas oscilam nos 3 s de
+   estabilidade (A=2, B=0, C=2). Bug de produto na sondagem (carência, intervalo ou adoção da taxa
+   do grupo), não do teste. É o que impede fechar o M4 (`core-online-22` e `-27`).
+2. **`zap-encode --test windows tamanho_medio_nao_chave_software`**: 42199 B contra o esperado
+   8333..24999 B. O MFT de software (Microsoft H.264) passa de 2,5× o nominal com ruído; o de
+   hardware passa. Falta um limite próprio para o software ou um controle de taxa melhor.
+3. **`zap-media --lib win_video::tests::desligar_camada_para_de_emitir`**: instável sob carga
+   (passou isolado). A duplicação de tela só entrega quadros quando a tela muda e o teste exige
+   quadros em 1 s. Os testes `win_video` pulam sem GPU com Video Processor ou sem monitor.
+4. **`zap-core --lib engine::tests::set_active_room_pega_e_solta_timer`**: teste desatualizado
+   (`create_room` já pega o timer). **Corrigido** nesta rodada; passa.
+
+Também aberto: a **bancada** fora da meta (ver seção 2 acima); `vite build`, clippy do alvo
+`windows-gnu` e o binário no X virtual não foram rodados.
+
+### O que o servidor de produção precisa mudar
+
+O servidor de produção (repositório privado) segue o contrato antigo. Para o app novo funcionar
+como no servidor de teste:
+1. **Sondar quem assiste pela ponte** (`docs/api/balanceamento.md` §4 e `docs/api/midia.md`):
+   rajadas de sondas de 200 ms para cada espectador abaixo do teto, alvo `1,5 × (kbps da camada
+   seguinte + reserva)`, a cada 5 s e dobrando até 60 s na falha, medidas pelo `relatorio.sondas`
+   (`[cluster, seq, envio_us, chegada_us, bytes]`). Sem isso quem assiste pela ponte de produção
+   fica preso na camada 2. A referência em código é `zap-rate::probe` e `zap-net::probe`, usada
+   pela ponte do `zap-test-server`.
+2. **Tolerar 5 s de queda da ponte** (`docs/api/midia.md`): quando a conexão QUIC de um
+   participante cai, esperar 5 s antes de tirar as trilhas e as assinaturas dele da sala; a nova
+   conexão do mesmo participante nesse prazo substitui a antiga e nada é removido (referência:
+   `TOLERANCIA_QUEDA` em `zap-test-server/src/bridge.rs`). O app reconecta a ponte sem perder
+   a sala.
+3. Conferir que `camadas.pedidas`, `keyframe.pedir` e `camada.atual` seguem só pelo controle QUIC
+   da ponte, e que o `relatorio` sai quando houve chegadas, sondas ou perdas.
 
 ## O que está pronto no M4
 
@@ -137,13 +138,12 @@ Faltam para fechar o M4 (detalhes em `docs/planos/m4-online.md`, "Estado do fech
 
 ## Como continuar o M4
 
-- Para continuar com a hierarquia de agentes: rode o workflow salvo `zap-marco` com
-  `args: {marco: "M4 (continuação)", plano: "docs/planos/m4-online.md", frentes: [...], tarefas: <conteúdo do JSON acima>}`
-  (frentes `core-online` → `tauri-online` → `ui-online`, travas `zap-core`, `streamazap`, `app-ui`).
-  O workflow pula a decomposição dessas frentes e só implementa; dependências de tarefas que já
-  saíram do JSON (as `zt-*` do servidor de teste) contam como prontas.
-- Trabalhando direto: siga a ordem das dependências (05 → 06 → 07 → 19 → 13 → 10 → 11 → 08 → 14 →
-  15 → 18 → testes 20–26 → 27); cada tarefa do JSON tem spec, arquivos e testes.
+1. Estabilizar o aceite 2 (`docs/planos/m4b-pendencias.md`, seção 9; `Bwe`, `Prober` e a ponte do
+   servidor de teste).
+2. Decidir o limite do teste de tamanho do codificador de software e o teste `win_video` instável.
+3. Bancada: gerar movimento na tela durante a medição e investigar conversão/codificação lentas e
+   quadros descartados (contenção do D3D11, relógio da GPU, sessões NVENC).
+4. Depois disso, o fechamento (`core-online-27`) e o servidor de produção (acima).
 - Disco: o `target/` já passou de 25 GB numa sessão. O perfil de desenvolvimento gera bem menos
   agora, e o `CLAUDE.md` manda rodar `cargo clean` se encher.
 
@@ -153,7 +153,7 @@ Faltam para fechar o M4 (detalhes em `docs/planos/m4-online.md`, "Estado do fech
   os testes de aceite no simulador de rede e os de sala com mídia sintética), e
   `cargo check/clippy --target x86_64-pc-windows-gnu` (o código do Windows compila e os testes
   linkam com MinGW). Front-end: `tsc`, ~600 testes vitest, `vite build`. Isso valia antes do M4;
-  com os `todo!` do M4, o clippy e os testes do workspace falham (ver o topo).
+  o fechamento atual foi no Windows (ver "Atualização do M4").
 - **Windows (aqui, sem GPU de vídeo)**: `zap-test-server` com fmt, clippy `-D warnings` e todos
   os testes; `zap-net` (`online::types`).
 - **App de verdade**: o binário Tauri abre num X virtual e mostra a interface com dados do núcleo

@@ -32,7 +32,7 @@ impl Core {
                     return crate::online::entry::create_online(&shared, req).await;
                 }
                 let room = OwnerRoom::start(shared.room_ctx(), req).await?;
-                *shared.room.lock() = Some(Arc::new(ActiveRoom::Owner(room.clone())));
+                shared.set_active_room(Some(Arc::new(ActiveRoom::Owner(room.clone()))));
                 // Depois de guardar a sala, para o `set_auth` enxergá-la.
                 shared.ensure_media_server().await?;
                 let discovery = shared.discovery.lock().clone();
@@ -120,7 +120,7 @@ impl Core {
                     }
                 };
                 let room = MemberRoom::join(shared.room_ctx(), addr, fingerprint, password, Some(room_id)).await?;
-                *shared.room.lock() = Some(Arc::new(ActiveRoom::Member(room)));
+                shared.set_active_room(Some(Arc::new(ActiveRoom::Member(room))));
                 shared.ensure_media_server().await?;
                 shared.refresh_room_view();
                 shared.notifier.flush();
@@ -146,7 +146,7 @@ impl Core {
                     return Err(CoreError::AlreadyInRoom);
                 }
                 let room = MemberRoom::join(shared.room_ctx(), addr, fingerprint, password, None).await?;
-                *shared.room.lock() = Some(Arc::new(ActiveRoom::Member(room)));
+                shared.set_active_room(Some(Arc::new(ActiveRoom::Member(room))));
                 shared.ensure_media_server().await?;
                 shared.refresh_room_view();
                 shared.notifier.flush();
@@ -224,7 +224,7 @@ fn endereco_do_anuncio(an: &RoomAnnouncement, origem: IpAddr) -> IpAddr {
 /// Encerra tudo da sala atual SEM chamar `room.leave()`; devolve a sala para quem quiser sair
 /// dela (o `leave_room`). Quando a sala já fechou (`Closed`) basta descartar o retorno.
 async fn clear_room(shared: &Arc<Shared>) -> Option<Arc<ActiveRoom>> {
-    let sala = shared.room.lock().take();
+    let sala = shared.set_active_room(None);
     ShareSession::stop(shared).await;
     let subs: Vec<_> = shared.subs.lock().drain().map(|(_, s)| s).collect();
     for s in subs {
@@ -554,6 +554,16 @@ mod tests {
             sink.wait_for(Duration::from_secs(1), |s| !s.chats.lock().is_empty())
                 .await
         );
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sala_local_pega_e_solta_timer() {
+        let (core, _s, d) = novo();
+        core.create_room(req()).await.expect("criar");
+        assert!(core.shared.timer.lock().is_some());
+        core.leave_room().await;
+        assert!(core.shared.timer.lock().is_none());
         encerrar(core, d).await;
     }
 }

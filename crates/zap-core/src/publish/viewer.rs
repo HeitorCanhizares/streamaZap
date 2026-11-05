@@ -132,9 +132,32 @@ pub struct ViewerLink {
     pub sender: Arc<MediaSender>,
     pub ctrl: ControlTx,
     pub state: Mutex<ViewerState>,
+    /// Sondagem do espectador (uma por conexão, compartilhada pelos links de vídeo dela).
+    /// `None` em áudio e ponte.
+    pub prober: Option<Arc<zap_net::probe::Prober>>,
 }
 
 impl ViewerLink {
+    /// Igual a `new`, com sondagem (decisão: `new` mantém a assinatura para não mexer nos 8 chamadores).
+    pub fn new_with_prober(
+        id: u64,
+        label: String,
+        track_id: String,
+        sender: Arc<MediaSender>,
+        ctrl: ControlTx,
+        cheapest: u8,
+        prober: Option<Arc<zap_net::probe::Prober>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            id,
+            label,
+            track_id,
+            sender,
+            ctrl,
+            state: Mutex::new(ViewerState::new(cheapest)),
+            prober,
+        })
+    }
     pub fn new(
         id: u64,
         label: String,
@@ -150,6 +173,7 @@ impl ViewerLink {
             sender,
             ctrl,
             state: Mutex::new(ViewerState::new(cheapest)),
+            prober: None,
         })
     }
     /// `camada.atual` para o espectador (`motivo`: "inicio" | "banda" | "teto" | "tamanho" | "publicador").

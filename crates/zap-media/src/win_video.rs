@@ -169,6 +169,8 @@ fn prioridade_acima_do_normal() {
 
 /// Cria `GpuDevice` (para monitor, `create_for_adapter(luid do monitor)`), inicia a captura da
 /// fonte e a thread de vídeo "zap-video" (prioridade ABOVE_NORMAL).
+/// Cada captura recebe o próprio clone do `GpuDevice` (AddRef dos objetos COM), então o `dev`
+/// movido para a thread `zap-video` não deixa ponteiro pendurado.
 pub(crate) fn spawn(
     cfg: VideoPipelineConfig,
     shared: Arc<Shared>,
@@ -377,7 +379,8 @@ fn executar(
         }
     }
 
-    // Ordem de encerramento: captura, codificadores, e só então o dispositivo.
+    // Ordem de encerramento: captura, codificadores, e só então o dispositivo. O `dev` desta
+    // thread é só mais uma referência: a captura tem a sua.
     drop(handle);
     for cam in camadas.iter_mut() {
         cam.soltar();

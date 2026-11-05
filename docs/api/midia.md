@@ -97,8 +97,10 @@ Perdas são cobertas pelo FEC do Opus (pacote seguinte) e pelo PLC do decodifica
 | 8 | 4 | `envio_us` |
 | 12 | … | zeros até o tamanho do datagrama |
 
-Quem envia pode mandar rajadas de 200 ms na taxa que quer testar (ver
-[`balanceamento.md`](balanceamento.md#sondagem)). Quem recebe só registra a chegada e reporta.
+Quem roda o alocador para um espectador (a ponte, ou o publicador no Local/direto) manda rajadas
+de 200 ms para ele; quando e em que taxa está em [`balanceamento.md`](balanceamento.md#4-sondagem).
+Quem recebe registra a chegada (vai em `relatorio.sondas`) e o app mede a taxa do grupo para a
+própria `banda_kbps`.
 
 ## Relatório do receptor (`relatorio`)
 
@@ -135,7 +137,10 @@ Como isso divide o trabalho:
   ao publicador, que roda o mesmo estimador do lado dele. O servidor **não precisa** implementar
   estimador de banda. O `relatorio` do servidor só sai quando houve chegadas, sondas ou perdas, e
   não traz `banda_kbps` nem `estado`.
-- **Sondas**: a ponte não manda sondas para quem assiste. O estimador do app sobe a banda sozinho.
+- **Sondas**: a ponte manda sondas para quem assiste abaixo do teto
+  ([`balanceamento.md`](balanceamento.md#4-sondagem)); é o único jeito de a `banda_kbps` de quem
+  recebe uma camada barata subir até a camada seguinte. O publicador não sonda a própria subida
+  pela ponte (no modo ponte ele codifica o que `camadas.pedidas` manda).
 
 ## Ponte (servidor) — o que repassar
 

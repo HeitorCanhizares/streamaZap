@@ -170,6 +170,14 @@ fn registrar(
         p.quic_ctl = Some(saida.clone());
         p.quic_room = Some(room_id.to_string());
         p.quic_port = Some(conn.remote_address().port());
+        // Sonda só para quem publica; a prévia não manda mídia.
+        p.prober = if preview {
+            None
+        } else {
+            Some(zap_net::probe::Prober::new(std::sync::Arc::new(
+                zap_net::media_tx::MediaSender::new(conn.clone(), hub.clock.clone()),
+            )))
+        };
         let num = p.num;
 
         if let Some(sala) = inner.rooms.get_mut(room_id) {
@@ -217,6 +225,7 @@ fn desregistrar(hub: &Arc<Hub>, who: &str, room_id: &str, conn: &quinn::Connecti
             p.quic = None;
             p.quic_ctl = None;
             p.quic_room = None;
+            p.prober = None;
         }
         atual
     };
@@ -716,5 +725,35 @@ mod tests {
         let conn = conectar(addr, &fp).await;
         let erro = connect_handshake(&conn, ola("qualquer"), None).await.err().unwrap();
         assert!(matches!(&erro, NetError::Rejected(c) if c == "proibido"), "{erro:?}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn registrar_cria_prober_e_desregistrar_tira() {
+        let p = ponte().await;
+        let tem_prober = |p: &Ponte| p.hub.inner.lock().participants[&p.bia].prober.is_some();
+
+        // Espectador não-prévia: a sonda nasce ao registrar a conexão.
+        let conn = conectar(p.addr, &p.fp).await;
+        let _c = connect_handshake(&conn, ola(&p.ingresso), None).await.unwrap();
+        assert!(ate(|| tem_prober(&p)).await, "a sonda devia existir após registrar");
+
+        // Fechar a conexão tira a sonda (até 3 s).
+        conn.close(0u32.into(), b"tchau");
+        let fim = Instant::now() + Duration::from_secs(3);
+        loop {
+            if !tem_prober(&p) {
+                break;
+            }
+            assert!(Instant::now() < fim, "a sonda devia sair ao fechar a conexão");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        // Ingresso de prévia: registra, mas não publica, então não há sonda.
+        let codigo = p.hub.list_rooms(&p.ana)[0].code.clone();
+        let ingresso_previa = p.hub.preview_room(&p.bia, &codigo).unwrap().ticket;
+        let conn2 = conectar(p.addr, &p.fp).await;
+        let _c2 = connect_handshake(&conn2, ola(&ingresso_previa), None).await.unwrap();
+        assert!(ate(|| p.hub.inner.lock().participants[&p.bia].quic_ctl.is_some()).await);
+        assert!(!tem_prober(&p), "prévia não deve ter sonda");
     }
 }

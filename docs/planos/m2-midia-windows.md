@@ -295,3 +295,11 @@ na camada 0 e o exemplo `bancada` exigem PC real com GPU.
   `sleep(1 ms)`; trocar por `GetEvent` bloqueante + `QueueEvent` para acordar no `stop`.
 - O roundtrip do Opus mede SNR com complexidade 4 (o pré-filtro de pitch do CELT, ligado a partir
   da 5, deixa resíduo num tom puro); produção usa 8.
+
+### Primeira rodada numa GPU real (2026-11-04, GTX 1060, NVENC)
+Diagnóstico e correções em `docs/planos/m4b-pendencias.md` (§2.3–2.5, frentes `gpu`, `captura`,
+`encode`, `media`): `zap-capture --lib` caía (MTA do COM morrendo com fábrica WinRT em uso); a
+bancada caía em release (ponteiro do `GpuDevice` pendurado nas três capturas); os timers do
+Windows (15,6 ms) derrubavam fps e latência; `tamanho_medio_nao_chave` media cor sólida. O laço do
+MFT de hardware passa a ter thread de eventos (item "A seguir" acima). Números da bancada depois
+das correções: seção 8 daquele plano (a frente `media` também os copia aqui).

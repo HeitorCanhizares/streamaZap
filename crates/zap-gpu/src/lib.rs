@@ -25,7 +25,7 @@ pub use error::GpuError;
 pub use types::{AdapterInfo, PixelFormat, Vendor};
 
 #[cfg(windows)]
-pub use com::ComGuard;
+pub use com::{pin_mta, ComGuard};
 #[cfg(windows)]
 pub use converter::Converter;
 #[cfg(windows)]
@@ -36,4 +36,4 @@ pub use readback::{read_back, upload};
 pub use texture::{Texture, TextureRing};
 
 #[cfg(not(windows))]
-pub use stub::{read_back, upload, ComGuard, Converter, GpuDevice, Texture, TextureRing};
+pub use stub::{pin_mta, read_back, upload, ComGuard, Converter, GpuDevice, Texture, TextureRing};

@@ -61,7 +61,6 @@ const VALIDADE_TOKEN_MS: u64 = 86_400_000;
 const TOLERANCIA_RENOVACAO_MS: u64 = 300_000;
 
 /// Quem está logado.
-#[derive(Debug)]
 pub struct ParticipantData {
     pub id: String,
     /// Número u64 usado como id do espectador no `Allocator`.
@@ -92,6 +91,8 @@ pub struct ParticipantData {
     /// Porta UDP de origem vista na conexão QUIC (`GET /v1/diagnostico`).
     pub quic_port: Option<u16>,
     pub public_ip: String,
+    /// Sondagem de banda da conexão QUIC atual (`None` sem conexão ou na prévia).
+    pub prober: Option<std::sync::Arc<zap_net::probe::Prober>>,
 }
 
 /// Ingresso emitido por `entrar`/`previa`.
@@ -239,6 +240,7 @@ impl Hub {
                         quic_room: None,
                         quic_port: None,
                         public_ip: remote_ip.to_string(),
+                        prober: None,
                     },
                 );
                 id

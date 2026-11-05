@@ -12,6 +12,7 @@ mod firewall_api;
 #[cfg(windows)]
 mod firewall_com;
 pub mod net;
+pub mod platform;
 pub mod vpn;
 
 pub use firewall::{Acao, Coleta, Direcao, FirewallStatus, PerfilBruto, RegraBruta, RegraResumo, Resultado};

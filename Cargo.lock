@@ -6337,6 +6337,7 @@ dependencies = [
  "zap-gpu",
  "zap-proto",
  "zap-rate",
+ "zap-sys",
 ]
 
 [[package]]
@@ -6365,6 +6366,7 @@ dependencies = [
  "webpki-roots 1.0.11",
  "zap-proto",
  "zap-rate",
+ "zap-sys",
 ]
 
 [[package]]
@@ -6424,6 +6426,7 @@ dependencies = [
  "zap-net",
  "zap-proto",
  "zap-rate",
+ "zap-sys",
 ]
 
 [[package]]

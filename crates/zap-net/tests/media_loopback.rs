@@ -3,6 +3,8 @@
 //! Um publicador envia 300 quadros de vídeo a 60 fps e áudio a 50/s por ~5 s; o receptor
 //! devolve relatórios a cada ~100 ms. Margens largas: sem asserts de latência fina.
 
+mod support;
+
 use std::{
     net::SocketAddr,
     sync::Arc,
@@ -65,6 +67,7 @@ fn payload_video(seq: u32) -> Vec<u8> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn loopback_300_quadros_e_audio() -> Res {
+    let _timer = support::timer();
     // Par QUIC: o cliente publica, o servidor recebe.
     let id = Identity::generate("zap")?;
     let (servidor, porta) = endpoint::bind_server(&id, 0).await?;

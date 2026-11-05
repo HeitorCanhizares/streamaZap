@@ -79,11 +79,65 @@ Camada sem ninguém = fora da lista = o publicador para de codificar (GPU livre)
 
 ## 4. Sondagem
 
-Para subir alguém de camada sem arriscar travar a imagem, quem envia para aquele espectador
-pode mandar **sondas** (datagramas `0x03`) por 200 ms na taxa `kbps(próxima camada) − kbps(atual)`,
-no máximo uma rajada a cada 5 s por espectador. Se o próximo relatório vier com `estado = normal`
-e `banda_kbps` suficiente, a subida segue o passo 3. Servidores podem não implementar sondas: o
-estimador do app sobe sozinho (8%/s) quando a conexão está folgada, só que mais devagar.
+**Por que existe.** O estimador do app só mede o que chega. Quem recebe pouco vídeo (camada 2,
+tela parada) fica com `banda_kbps` perto de 2× o que recebe: o estimador não sobe a estimativa
+quando a vazão está abaixo da metade dela (fonte limitada). Sem sondas, quem começa na camada 2
+**nunca** sai dela. Por isso quem envia para o espectador manda **sondas** (datagramas `0x03`,
+formato em [`midia.md`](midia.md#sonda-datagrama)) e o app adota a taxa que mediu.
+
+**Quem sonda.** Quem roda o alocador para aquele espectador: a ponte (Online com ponte); o
+publicador (Local e Online direto). Um espectador = uma conexão QUIC = um estado de sondagem
+(se ele recebe várias trilhas pela mesma conexão, as sondas são uma só).
+
+**Quando** (avaliado a cada passo de 100 ms, por espectador `e`):
+1. Existe trilha `T` que `e` recebe com `atual(e,T) > teto(e,T)` (há camada melhor permitida) e
+   sem troca pendente. `c(T)` = a camada existente logo acima de `atual(e,T)` (camera sem camada 1:
+   de 2 vai para 0). Se houver mais de uma trilha assim, vale a de menor `kbps(c)`.
+2. Já chegou relatório de `e` com `banda_kbps > 0`.
+3. Passou 1 s desde que a condição 1 começou a valer (ou mudou de `c`), e passou `intervalo(e)`
+   desde o fim da última rajada para `e`. `intervalo(e)` começa em 5 s.
+4. Nenhuma rajada para `e` está em andamento ou esperando resultado.
+
+**Quanto.** A rajada dura **200 ms**. Durante ela, a taxa total que chega a `e` (o que já vai para
+ele + as sondas) deve ser
+
+```
+alvo(e)  = 1,5 × (kbps(c) + reserva(e))          -- reserva = §3: áudio + vídeo das outras trilhas
+sonda(e) = alvo(e) − enviado(e)                   -- não sonda se sonda(e) < 100 kbps
+```
+
+`enviado(e)` é a taxa que já sai para `e`, medida no último 1 s (bytes UDP da conexão; no
+`quinn`, `Connection::stats().udp_tx.bytes`). Sem essa medida, use o piso `0,5 × kbps(atual)`.
+
+Por que 1,5: a camada `c` só sobe com `banda × 0,9 − reserva ≥ 1,15 × kbps(c)`, ou seja,
+`banda ≥ 1,28 × kbps(c) + 1,11 × reserva`; o app adota 0,95 × a taxa medida, então a rajada
+precisa chegar a `≥ 1,35 × kbps(c) + 1,17 × reserva`. O 1,5 deixa ~10% para erro de medida.
+Exemplo (escada 1080p60, sem áudio): da 2 para a 1, `alvo = 1,5 × 2500 = 3750 kbps`
+(sonda ≈ 3750 − 400 = 3350); da 1 para a 0, `alvo = 12000` (sonda ≈ 9500).
+
+**Como enviar.** Datagramas de `min(1200, maior datagrama da conexão)` bytes. Ritmo por crédito,
+não por relógio fixo: a cada tique (alvo 5 ms; vale o tempo real decorrido),
+`crédito += sonda(e) × dt` e saem `⌊crédito / tamanho⌋` datagramas. Todos com o mesmo `cluster`
+(u16, +1 por rajada na conexão, dá a volta) e `seq` de 0 em diante.
+
+**Resultado.** Sucesso se, até 1 s depois do fim da rajada, chegar relatório de `e` com
+`banda_kbps × 0,9 − reserva ≥ 1,15 × kbps(c)`: `intervalo(e)` volta a 5 s e a subida segue o passo 3
+(histerese de 3 s). Senão, falhou (a rota não aguenta): `intervalo(e) = min(2 × intervalo(e), 60 s)`.
+Mudar `atual(e,T)`, `c(T)` ou o teto (novo `assinar`) volta `intervalo(e)` a 5 s.
+
+**O que o app faz ao receber** (a ponte e o publicador não precisam implementar, só saber):
+- agrupa as sondas pelo `cluster`; o grupo fecha quando chega outro `cluster` ou 50 ms sem sonda;
+- taxa do grupo = bytes de **todos** os pacotes (vídeo, áudio e sonda) que chegaram depois da
+  primeira sonda e até a última, divididos pelo tempo entre as duas; o grupo só vale com ≥ 5
+  sondas e ≥ 100 ms;
+- se a perda (`relatorio.perda`) está ≤ 10%: `banda_kbps = max(banda_kbps, 0,95 × taxa do grupo)`,
+  já no próximo relatório;
+- enquanto chegam sondas e até 300 ms depois da última, o atraso que a própria rajada cria não
+  derruba a estimativa nem vira `estado = sobrecarga`, e quadros descartados por quem envia não
+  contam como descarte (a fila é da sonda; se a rota não aguenta, a taxa medida já diz isso).
+
+Uma rajada acima da capacidade custa algumas perdas de áudio e quadros atrasados por ~200 ms; o
+`intervalo(e)` crescente (5 → 60 s) limita isso a quem de fato não aguenta a camada seguinte.
 
 ## 5. Exemplos
 
@@ -114,3 +168,9 @@ Um servidor que implemente só isto já fica compatível:
 2. Seguir o passo 3 com os números acima (ou mais conservador).
 3. Mandar `camadas.pedidas` ao publicador e `camada.atual` ao espectador.
 4. Trocar de camada só em keyframe.
+5. Sondar (§4) quem está abaixo do teto. Sem isso o servidor funciona, mas ninguém que assiste
+   pela ponte sai da camada em que começou (a 2).
+
+A implementação de referência das sondas está em `crates/zap-rate/src/probe.rs` (decisão e ritmo,
+sem I/O) e `crates/zap-net/src/probe.rs` (envio); o servidor de teste (`crates/zap-test-server`) as
+usa na ponte.

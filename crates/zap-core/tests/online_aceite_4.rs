@@ -215,21 +215,7 @@ async fn sem_use_relay_so_direta() {
         .await;
     assert!(!chegou, "chegou vídeo sem ponte e sem candidatos");
 
-    encerrar(c).await;
-}
-
-/// Segunda metade do cenário C: com candidatos injetados o vídeo chega pela direta.
-/// Hoje falha (0 pacotes, rota `Relay`): sem `use_relay` a ponte nunca é montada
-/// (`connect_bridge_for`), então o `watch` de V morre em `ConnPool::get_or_connect`
-/// ("ponte indisponível") e não fica em `shared.subs`; `direct::on_candidates` ignora a trilha
-/// (não assistida) e `direct::tentar_direta` exige `room.bridge` (usa `bridge.router` e
-/// `bridge.direct`). Falta no produto o modo "só direta".
-#[ignore = "bloqueado: a rota direta depende da PubConn da ponte, que não existe sem use_relay"]
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn sem_use_relay_direta_com_candidatos() {
-    let srv = servidor().await;
-    let c = montar(&srv, false).await;
-
+    // Com candidatos injetados, o vídeo chega pela direta (sem ponte).
     injetar_candidatos_reais(&c).await;
     let ok = c
         .sink_v

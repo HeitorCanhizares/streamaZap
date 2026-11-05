@@ -40,7 +40,12 @@ impl Hub {
     /// - `KeyframeNeeded(c)` → `keyframe.pedir {trilha_id, camada: c}` ao publicador.
     ///
     /// Também chama `sweep(120_000)` uma vez por segundo.
+    ///
+    /// Depois disso alimenta o `Prober` de cada participante com a necessidade de sondagem
+    /// (`probe::need_for`) e, se o planejador mandar, dispara a rajada numa tarefa tokio,
+    /// fora do lock.
     pub fn tick_all(&self) {
+        let mut rajadas = Vec::new();
         {
             let mut guard = self.inner.lock();
             let inner = &mut *guard;
@@ -63,6 +68,29 @@ impl Hub {
             for c in coletas {
                 enviar_eventos(inner, c);
             }
+            // Sondagem: `participants` e `rooms` são campos disjuntos, então o empréstimo vale.
+            for p in inner.participants.values() {
+                let (Some(prober), Some(room_id)) = (&p.prober, &p.room_id) else {
+                    continue;
+                };
+                let Some(sala) = inner.rooms.get(room_id) else {
+                    continue;
+                };
+                for t in sala.tracks.iter().filter(|t| t.kind != TrackKind::Audio) {
+                    prober.set_need(t.number, crate::probe::need_for(t, p.num));
+                }
+                if let Some(b) = prober.poll(now_us, crate::probe::bandwidth_of(sala, p.num)) {
+                    rajadas.push((prober.clone(), b));
+                }
+            }
+        }
+
+        // Fora do lock: a rajada é assíncrona. Sem prober não há rajada, então `spawn` nunca
+        // roda nos testes síncronos.
+        for (prober, b) in rajadas {
+            tokio::spawn(async move {
+                let _ = prober.run_burst(b).await;
+            });
         }
 
         // Fora do lock: `sweep` trava sozinho.
@@ -283,6 +311,25 @@ mod tests {
         assert!(!drenar(&mut rqa)
             .iter()
             .any(|m| matches!(m, ControlMsg::LayersRequested { .. })));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn tick_com_espectador_acima_do_teto_sem_prober_nao_entra_em_panico() {
+        let (hub, _rqa, _rqb, _rwb) = cenario();
+        {
+            let mut inner = hub.inner.lock();
+            for sala in inner.rooms.values_mut() {
+                for t in sala.tracks.iter_mut() {
+                    for v in t.relay.viewers.values_mut() {
+                        v.current = 2;
+                        v.size = TileSize::Main;
+                    }
+                }
+            }
+        }
+        for _ in 0..5 {
+            hub.tick_all();
+        }
     }
 
     #[test]

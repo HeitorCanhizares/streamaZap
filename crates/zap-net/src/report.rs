@@ -7,6 +7,7 @@ use zap_proto::media::{AudioHeader, ProbeHeader, VideoHeader};
 use zap_proto::{DelayState, Report};
 use zap_rate::{
     bwe::{Bwe, BweConfig},
+    probe::ProbeMeter,
     unwrap::TimeUnwrapper,
     window::LossMeter,
 };
@@ -24,6 +25,8 @@ pub struct ReportBuilder {
     pub(crate) lost: Vec<(u16, u8, u32)>,
     pub(crate) bwe: Option<Bwe>,
     pub(crate) loss: LossMeter,
+    /// Mede os grupos de sondas (usado só quando `bwe` é `Some`).
+    pub(crate) probe_meter: ProbeMeter,
     pub(crate) buffer_ms: Option<u32>,
     /// Um único desembrulhador de tempo para vídeo, áudio e sonda (mesmo relógio do emissor).
     unwrap: TimeUnwrapper,
@@ -53,6 +56,7 @@ impl ReportBuilder {
                 })
             }),
             loss: LossMeter::new(2_000_000),
+            probe_meter: ProbeMeter::new(),
             buffer_ms: None,
             unwrap: TimeUnwrapper::new(),
             last_arrival_us: 0,
@@ -60,12 +64,13 @@ impl ReportBuilder {
         }
     }
 
-    /// Alimenta o estimador de banda com um pacote (vídeo, áudio ou sonda).
+    /// Alimenta o estimador de banda com um pacote de mídia (vídeo ou áudio) e o medidor de sondas.
     fn feed_bwe(&mut self, send_us: u32, arrival_us: u64, bytes: u32) {
         let send = self.unwrap.unwrap(send_us);
         self.last_arrival_us = arrival_us;
         if let Some(bwe) = self.bwe.as_mut() {
             bwe.on_packet(send, arrival_us, bytes);
+            self.probe_meter.on_media(arrival_us, bytes);
         }
     }
 
@@ -99,7 +104,15 @@ impl ReportBuilder {
     pub fn on_probe(&mut self, h: &ProbeHeader, arrival_us: u64, bytes: u32) {
         self.probes.push((h.cluster, h.seq, h.send_us, arrival_us, bytes));
         // Sondas medem banda, mas não entram na conta de perda.
-        self.feed_bwe(h.send_us, arrival_us, bytes);
+        let send = self.unwrap.unwrap(h.send_us);
+        self.last_arrival_us = arrival_us;
+        if let Some(bwe) = self.bwe.as_mut() {
+            bwe.on_probe_packet(send, arrival_us, bytes);
+            // Grupo anterior que fechou por troca de cluster.
+            if let Some(r) = self.probe_meter.on_probe(h.cluster, arrival_us, bytes) {
+                bwe.on_probe_cluster(arrival_us, r.kbps);
+            }
+        }
     }
     /// Quadro de vídeo que não chegou (descartado pelo emissor por prazo): vai em `perdidos`, não
     /// na `perda`.
@@ -118,6 +131,9 @@ impl ReportBuilder {
         let loss = self.loss.fraction(now);
         if let Some(bwe) = self.bwe.as_mut() {
             bwe.on_loss_fraction(now, loss);
+            if let Some(r) = self.probe_meter.poll(now) {
+                bwe.on_probe_cluster(now, r.kbps);
+            }
             bwe.update(now);
         }
         Report {
@@ -255,5 +271,69 @@ mod tests {
     fn is_overuse_false_no_inicio() {
         assert!(!ReportBuilder::new(true).is_overuse());
         assert!(!ReportBuilder::new(false).is_overuse());
+    }
+
+    #[test]
+    fn sonda_sobe_banda() {
+        let mut r = ReportBuilder::new(true);
+        // Vídeo de 400 kbps por 2 s: 1200 B a cada 24 ms, atraso de rede constante de 10 ms.
+        let mut t = 0u64;
+        let mut seq = 0u32;
+        while t < 2_000_000 {
+            r.on_video(&vh(seq, t as u32), t + 10_000, 1200);
+            seq += 1;
+            t += 24_000;
+        }
+        // Rajada de ~3350 kbps: 70 sondas de 1200 B a cada ~2,86 ms (~200 ms).
+        let inicio = t;
+        let mut fim = inicio;
+        for i in 0..70u32 {
+            let s = inicio + u64::from(i) * 2_850;
+            r.on_probe(&ph(i, s as u32), s + 10_000, 1200);
+            fim = s + 10_000;
+        }
+        let rep = r.take(fim + 60_000);
+        assert!(rep.bandwidth_kbps >= Some(3195), "banda = {:?}", rep.bandwidth_kbps);
+    }
+
+    #[test]
+    fn sonda_nao_vira_sobrecarga() {
+        let mut r = ReportBuilder::new(true);
+        let mut t = 0u64;
+        let mut seq = 0u32;
+        while t < 1_000_000 {
+            r.on_video(&vh(seq, t as u32), t + 10_000, 1200);
+            seq += 1;
+            t += 24_000;
+        }
+        let mut proximo_take = t + 100_000;
+        for i in 0..70u32 {
+            let s = t + u64::from(i) * 2_850;
+            // Atraso de chegada crescente durante as sondas.
+            let chegada = s + 10_000 + u64::from(i) * 400;
+            r.on_probe(&ph(i, s as u32), chegada, 1200);
+            while proximo_take <= chegada {
+                let rep = r.take(proximo_take);
+                assert_ne!(rep.state, Some(DelayState::Overuse));
+                proximo_take += 100_000;
+            }
+        }
+        for k in 1..=5u64 {
+            let rep = r.take(t + 200_000 + k * 100_000);
+            assert_ne!(rep.state, Some(DelayState::Overuse));
+        }
+    }
+
+    #[test]
+    fn ponte_ignora_sondas_no_estimador() {
+        let mut r = ReportBuilder::new(false);
+        for i in 0..70u32 {
+            let s = u64::from(i) * 2_850;
+            r.on_probe(&ph(i, s as u32), s + 10_000, 1200);
+        }
+        let rep = r.take(400_000);
+        assert_eq!(rep.bandwidth_kbps, None);
+        assert_eq!(rep.probes.len(), 70);
+        assert_eq!(rep.loss, 0.0);
     }
 }

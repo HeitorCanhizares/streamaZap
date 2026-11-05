@@ -1,6 +1,7 @@
 //! Passos 1 e 2 do algoritmo: rodízio max-min de subida de camadas (função pura).
 #![allow(unused_variables, dead_code)]
 
+use super::MARGEM_SUBIDA;
 use zap_proto::LayerSpec;
 
 #[derive(Debug, Clone, Copy)]
@@ -48,7 +49,7 @@ pub fn fill(layers: &[LayerSpec], viewers: &[FillViewer], upload_budget_kbps: Op
                 continue;
             }
             // Banda não comporta a próxima camada com folga de 15%.
-            if disponivel[e] < 1.15 * f64::from(cam.kbps) {
+            if disponivel[e] < MARGEM_SUBIDA * f64::from(cam.kbps) {
                 continue;
             }
             // Modo direto: o upload do publicador é dividido entre todos os espectadores.

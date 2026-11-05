@@ -24,6 +24,7 @@ parking_lot.workspace = true
 windows = { workspace = true, features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
+zap-sys.workspace = true
 
 [lints]
 workspace = true

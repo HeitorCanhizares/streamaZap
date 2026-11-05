@@ -65,6 +65,19 @@ impl MediaSender {
         self.enviar_datagrama(buf)
     }
 
+    /// Bytes UDP enviados pela conexão, acumulado (alimenta o planejador de sondas).
+    pub fn sent_bytes(&self) -> u64 {
+        self.conn.stats().udp_tx.bytes
+    }
+
+    /// Tamanho das sondas: o do datagrama máximo, limitado a `TAMANHO_SONDA`. `None` quando a
+    /// conexão não suporta datagrama.
+    pub fn probe_size(&self) -> Option<usize> {
+        self.conn
+            .max_datagram_size()
+            .map(|m| m.min(zap_rate::probe::TAMANHO_SONDA))
+    }
+
     /// Tamanho máximo de datagrama aceito pela conexão. Sem suporte a datagrama é erro.
     fn limite_datagrama(&self) -> Result<usize, NetError> {
         self.conn
@@ -190,6 +203,29 @@ mod tests {
         let buf = recebe(&srv).await?;
         assert!(buf.len() <= max, "{} > {max}", buf.len());
         assert!(matches!(decode_datagram(&buf)?, Datagram::Probe(_, _)));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sent_bytes_cresce() -> Result<(), Erro> {
+        let (cli, _srv, _e1, _e2) = par_loopback().await?;
+        let tx = MediaSender::new(cli, Clock::new());
+        let antes = tx.sent_bytes();
+        for seq in 0..10 {
+            tx.send_probe(1, seq, 1000)?;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(tx.sent_bytes() > antes + 5000);
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn probe_size_limitado() -> Result<(), Erro> {
+        let (cli, _srv, _e1, _e2) = par_loopback().await?;
+        let max = cli.max_datagram_size().ok_or("sem datagramas")?;
+        let tx = MediaSender::new(cli, Clock::new());
+        let n = tx.probe_size().ok_or("sem tamanho de sonda")?;
+        assert!(n <= 1200 && n <= max, "{n} fora do limite ({max})");
         Ok(())
     }
 }

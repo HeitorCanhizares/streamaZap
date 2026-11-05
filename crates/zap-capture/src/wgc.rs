@@ -15,7 +15,7 @@ use windows::Win32::Graphics::Dxgi::IDXGIDevice;
 use windows::Win32::System::WinRT::Direct3D11::{CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess};
 use windows::Win32::System::WinRT::Graphics::Capture::IGraphicsCaptureItemInterop;
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
-use zap_gpu::{now_us, ComGuard, GpuDevice, PixelFormat, Texture, TextureRing};
+use zap_gpu::{now_us, pin_mta, ComGuard, GpuDevice, PixelFormat, Texture, TextureRing};
 
 /// Texturas do anel de entrega (o consumidor tem folga de 2 quadros).
 const TAMANHO_ANEL: usize = 3;
@@ -25,6 +25,7 @@ const FORMATO: DirectXPixelFormat = DirectXPixelFormat::B8G8R8A8UIntNormalized;
 
 /// `true` se `GraphicsCaptureSession::IsSupported()`.
 pub fn wgc_supported() -> bool {
+    pin_mta();
     GraphicsCaptureSession::IsSupported().unwrap_or(false)
 }
 
@@ -38,8 +39,7 @@ fn os_err(context: &'static str, e: windows::core::Error) -> CaptureError {
 /// Leva um valor para outra thread (a do pool de quadros ou a de captura).
 struct SendWrap<T>(T);
 
-// SAFETY: usado só com o ponteiro do `GpuDevice` (Send + Sync, multithread protegido, mantido
-// vivo pelo chamador até o handle cair) e com objetos WinRT agile (device/pool/sessão/item).
+// SAFETY: usado só com objetos WinRT agile (o IDirect3DDevice do handler).
 unsafe impl<T> Send for SendWrap<T> {}
 
 impl<T> SendWrap<T> {
@@ -59,8 +59,9 @@ struct Estado<S: FrameSink> {
 
 /// Captura de janela por Windows.Graphics.Capture.
 ///
-/// O `dev` precisa continuar vivo até o `CaptureHandle` ser descartado.
+/// A captura guarda um clone do `GpuDevice`, então o `dev` do chamador pode ser solto antes do handle.
 pub fn capture_window(dev: &GpuDevice, hwnd: isize, sink: impl FrameSink) -> Result<CaptureHandle, CaptureError> {
+    pin_mta();
     // SAFETY: IsWindow aceita qualquer valor de HWND.
     if !unsafe { IsWindow(Some(HWND(hwnd as _))) }.as_bool() {
         return Err(CaptureError::WindowNotFound);
@@ -68,15 +69,12 @@ pub fn capture_window(dev: &GpuDevice, hwnd: isize, sink: impl FrameSink) -> Res
 
     let stop = Arc::new(AtomicBool::new(false));
     let stop_thread = Arc::clone(&stop);
-    let dev_ptr = SendWrap(dev as *const GpuDevice);
+    let dev_owned = dev.clone();
     let (tx, rx) = mpsc::sync_channel::<Result<(), CaptureError>>(1);
 
     let join = std::thread::Builder::new()
         .name("zap-capture-wgc".to_string())
         .spawn(move || {
-            let dev_ptr = dev_ptr;
-            // SAFETY: ver `SendWrap`; o chamador mantém o dispositivo vivo durante a captura.
-            let dev: &GpuDevice = unsafe { &**dev_ptr.get() };
             let _com = match ComGuard::new() {
                 Ok(g) => g,
                 Err(e) => {
@@ -84,7 +82,7 @@ pub fn capture_window(dev: &GpuDevice, hwnd: isize, sink: impl FrameSink) -> Res
                     return;
                 }
             };
-            let sessao = match iniciar(dev, hwnd, sink) {
+            let sessao = match iniciar(&dev_owned, hwnd, sink) {
                 Ok(s) => {
                     let _ = tx.send(Ok(()));
                     s
@@ -177,14 +175,14 @@ fn iniciar<S: FrameSink>(dev: &GpuDevice, hwnd: isize, sink: S) -> Result<Sessao
     // Windows 10 antigo não tem a borda opcional: ignora o erro.
     let _ = session.SetIsBorderRequired(false);
 
-    // Ponteiro do dispositivo e dispositivo WinRT para o handler (roda em thread do pool).
-    let ctx = SendWrap((dev as *const GpuDevice, device));
+    // Clone do dispositivo e dispositivo WinRT para o handler (roda em thread do pool).
+    let dev_arc = Arc::new(dev.clone());
+    let ctx = SendWrap((dev_arc, device));
     let estado_quadro = Arc::clone(&estado);
     let handler = TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new(move |pool, _| {
         let Some(pool) = pool.as_ref() else { return Ok(()) };
-        let (dev_ptr, device) = ctx.get();
-        // SAFETY: ver `SendWrap`; o dispositivo vive mais que o handle, e o handler é removido antes.
-        let dev: &GpuDevice = unsafe { &**dev_ptr };
+        let (dev_arc, device) = ctx.get();
+        let dev: &GpuDevice = dev_arc;
         let Ok(mut est) = estado_quadro.lock() else {
             return Ok(());
         };

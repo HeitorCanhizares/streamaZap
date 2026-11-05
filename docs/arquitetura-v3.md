@@ -41,6 +41,8 @@ Metas mensuráveis (PC médio com GPU dedicada, 1080p60, rede local):
 | Áudio | WASAPI *process loopback* (por app) + **Opus** 48 kHz 20 ms (FEC ligado) + saída WASAPI via `cpal` | Mesmo recurso de hoje, sem GIL na thread de áudio | — |
 | Câmera | **Media Foundation Source Reader** → NV12 na GPU → mesmo codificador | Mesmo pipeline da tela; a câmera vira só mais uma trilha | `getUserMedia` no WebView (no Windows 10 a câmera é exclusiva de um processo) |
 | Atualização | **tauri-plugin-updater** com assinatura ed25519 + `latest.json` nas Releases | Confere assinatura (hoje só SHA-256 do mesmo lugar), instalação por usuário sem UAC, nunca reinicia no meio de uma sala | Updater próprio |
+| Timers no Windows | **Resolução de 1 ms (`timeBeginPeriod(1)`) enquanto houver sala ativa** (`zap-sys::platform`) | Sem isso as esperas do tokio/quinn, `Condvar`/`recv_timeout` andam em passos de 15,6 ms: um `interval` de 16,7 ms vira 31 ms (fonte a 32 fps), ACK atrasado infla o RTT e o emissor descarta quadros que a rede carregaria (medido no M4b) | Deixar o padrão do sistema; laços com espera ativa |
+| COM no Windows | **MTA preso pelo processo inteiro** (`CoIncrementMTAUsage` uma vez) | Se a última thread que fez `CoInitializeEx` sai, o MTA morre junto com objetos (fábricas WinRT em cache) que outras threads ainda usam: violação de acesso (medido no M4b em `zap-capture`) | `CoInitialize`/`CoUninitialize` por thread sem mais nada |
 
 Protocolo novo: **versão 4** (incompatível com o app Python, que é o 3). A tela "Diagnóstico" e
 a descoberta mostram a versão de cada um, como hoje.
@@ -203,8 +205,14 @@ Ajustes decididos no fechamento do M1 (provados no simulador e no teste de rede 
 - **Descarte do emissor é sinal**: com ≥ 3 buracos de `seq` de vídeo por segundo, a estimativa vai
   para 0,95 × a vazão que chega. Sem isso, a fila fica no emissor (admissão/prazo), o receptor
   não vê atraso e a estimativa subiria até o dobro do que a rota aguenta.
-5. **Sondagem**: para saber se cabe uma camada maior sem arriscar, o Publisher envia rajadas de
-   enchimento (datagramas de padding) de 200 ms na taxa alvo; o relatório do receptor mede.
+5. **Sondagem**: para saber se cabe uma camada maior sem arriscar, quem roda o alocador daquele
+   espectador (a ponte no Online com ponte; o publicador no Local e no direto) envia rajadas de
+   enchimento (datagramas `0x03`) de 200 ms para que chegue `1,5 × kbps(próxima camada)`; o
+   receptor mede a taxa de chegada do grupo e adota `max(estimativa, 0,95 × taxa)`. A própria
+   fila da rajada não conta como sobrecarga (300 ms de carência). Sem sondas a estimativa de quem
+   recebe uma camada barata fica presa em ~2× a vazão (regra de fonte limitada) e ninguém sobe
+   da camada 2. Regras e números: `docs/api/balanceamento.md` §4 (decisão do M4b,
+   `docs/planos/m4b-pendencias.md`).
 
 ### 6.2 Alocador de camadas (`Allocator`): o "balanceamento por pessoa"
 
@@ -280,7 +288,8 @@ por camada, tempo de captura/conversão/codificação (média e p95).
   alcança B, B conecta em A.
 - **Online**: sinalização e lista de salas pelo servidor (REST + WebSocket); mídia direta P2P
   quando possível (endereços trocados pela sinalização, tentativa em paralelo por 3 s) e **ponte
-  pelo servidor** quando a direta falha (configurável). O contrato do servidor está em `docs/api/`.
+  pelo servidor** quando a direta falha (configurável: com `use_relay = false` o app não conecta
+  na ponte e a trilha espera a rota direta). O contrato do servidor está em `docs/api/`.
 
 ## 8. Atualização
 

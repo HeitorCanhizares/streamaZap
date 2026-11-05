@@ -29,6 +29,8 @@ pub(crate) async fn serve_viewer(
     label: String,
 ) {
     let sender = Arc::new(MediaSender::new(conn.clone(), server.clock.clone()));
+    // Uma sondagem por conexão, compartilhada pelos links de vídeo dela.
+    let prober = zap_net::probe::Prober::new(sender.clone());
     let mut links: HashMap<String, (Arc<ViewerLink>, PublishedTrack)> = HashMap::new();
 
     // Fim de stream, erro de leitura ou conexão fechada encerram o laço do mesmo jeito.
@@ -41,13 +43,13 @@ pub(crate) async fn serve_viewer(
                 audio,
             } => {
                 assinar(
-                    &server, &sender, &tx, &label, &mut links, track_id, size, max_layer, audio,
+                    &server, &sender, &prober, &tx, &label, &mut links, track_id, size, max_layer, audio,
                 )
                 .await;
             }
             ControlMsg::Unsubscribe { track_id } => {
                 if let Some((link, track)) = links.remove(&track_id) {
-                    remove_link(&link, &track);
+                    remove_link(&link, &track, &prober);
                 }
             }
             ControlMsg::KeyframeRequest { track_id, .. } => {
@@ -69,13 +71,17 @@ pub(crate) async fn serve_viewer(
 
     // Sem isso o publicador continuaria enviando para uma conexão morta.
     for (link, track) in links.values() {
-        remove_link(link, track);
+        remove_link(link, track, &prober);
     }
 }
 
-fn remove_link(link: &ViewerLink, track: &PublishedTrack) {
+/// Tira o link do publicador; no vídeo também zera a sondagem da trilha.
+fn remove_link(link: &ViewerLink, track: &PublishedTrack, prober: &zap_net::probe::Prober) {
     match track {
-        PublishedTrack::Video(p) => p.remove_viewer(link.id),
+        PublishedTrack::Video(p) => {
+            p.remove_viewer(link.id);
+            prober.clear_track(p.track);
+        }
         PublishedTrack::Audio(p) => p.remove_viewer(link.id),
     }
 }
@@ -109,6 +115,7 @@ fn novo_link(
 async fn assinar(
     server: &MediaServer,
     sender: &Arc<MediaSender>,
+    prober: &Arc<zap_net::probe::Prober>,
     tx: &ControlTx,
     label: &str,
     links: &mut HashMap<String, (Arc<ViewerLink>, PublishedTrack)>,
@@ -140,14 +147,17 @@ async fn assinar(
             },
             PublishedTrack::Audio(_) => (0, None),
         };
+        // Só o vídeo ganha sondagem (compartilhada pela conexão); áudio fica sem.
+        let sondagem = matches!(track, PublishedTrack::Video(_)).then(|| prober.clone());
         // Cria sem registrar ainda: o "inicio" precisa sair antes de qualquer decisão do alocador.
-        let link = ViewerLink::new(
+        let link = ViewerLink::new_with_prober(
             server.next_viewer.fetch_add(1, Ordering::Relaxed),
             label.to_owned(),
             track_id.clone(),
             sender.clone(),
             tx.clone(),
             cheapest,
+            sondagem,
         );
         link.state.lock().apply_subscribe(size, max_layer, audio);
         if let Some(info) = info {
@@ -188,7 +198,7 @@ async fn assinar(
                 .collect();
             for id in ids {
                 if let Some((link, t)) = links.remove(&id) {
-                    remove_link(&link, &t);
+                    remove_link(&link, &t, prober);
                 }
             }
         }
@@ -458,6 +468,50 @@ mod tests {
         while c.eventos.try_recv().is_ok() {}
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(c.eventos.try_recv().is_err(), "ainda chegam quadros");
+        encerra(&c);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn link_de_video_tem_prober_e_audio_nao() {
+        let c = cenario().await;
+        c.tx.send(&assinar("v1", TileSize::Main, Some(true))).await.unwrap();
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        while (c.video.shared.viewers.lock().is_empty() || c.audio.viewers.lock().is_empty())
+            && tokio::time::Instant::now() < fim
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let v = c.video.shared.viewers.lock()[0].clone();
+        let a = c.audio.viewers.lock()[0].clone();
+        assert!(v.prober.is_some());
+        assert!(a.prober.is_none());
+        // Segundo vídeo da mesma conexão compartilha o mesmo Arc.
+        let video2 = VideoPublisher::start(
+            VideoPipelineConfig {
+                track: 3,
+                source: VideoSourceSpec::Synthetic {
+                    width: 1280,
+                    height: 720,
+                },
+                ladder: screen_ladder(Preset::P720p30, 1280, 720),
+                encoder: EncoderChoiceSpec::Auto,
+            },
+            tokio::runtime::Handle::current(),
+            c.server.clock.clone(),
+        )
+        .unwrap();
+        c.server
+            .tracks
+            .lock()
+            .insert("v2".into(), PublishedTrack::Video(video2.clone()));
+        c.tx.send(&assinar("v2", TileSize::Main, Some(false))).await.unwrap();
+        let fim = tokio::time::Instant::now() + Duration::from_secs(3);
+        while video2.shared.viewers.lock().is_empty() && tokio::time::Instant::now() < fim {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let v2 = video2.shared.viewers.lock()[0].clone();
+        assert!(Arc::ptr_eq(v.prober.as_ref().unwrap(), v2.prober.as_ref().unwrap()));
+        video2.stop();
         encerra(&c);
     }
 

@@ -65,9 +65,14 @@ Binário e biblioteca para testes (`zap_test_server::spawn(config) -> Handle { b
 - Criar sala Online; entrar por código (`ZAP-XXXX`) ou da lista; sair.
 - Mídia: conexão QUIC com a ponte usando o `ingresso`; publicação manda só as camadas de
   `camadas.pedidas`; assinatura usa `midia.rota`.
-- Rota direta (se `use_relay` e o servidor permitir): `p2p.meus_enderecos` ao entrar; ao receber
-  `p2p.candidatos`, tenta conectar em paralelo por 3 s; sucesso → `midia.direta_ok` e a trilha
-  passa a vir direto (publicador roda o alocador em `Budget::Direct` para esse espectador).
+- Rota direta (se o servidor permitir, `midia.direta_permitida`): `p2p.meus_enderecos` ao entrar;
+  ao receber `p2p.candidatos`, tenta conectar em paralelo por 3 s; sucesso → `midia.direta_ok` e a
+  trilha passa a vir direto (publicador roda o alocador em `Budget::Direct` para esse espectador).
+  `use_relay` só decide o que acontece quando a direta não existe ou falha: `true` = a mídia vai
+  pela ponte; `false` = **só direta** (sem conexão com a ponte; o `assinar` vai pelo WebSocket e a
+  trilha espera a rota direta). É o que a interface promete ("Usar o servidor como ponte quando a
+  conexão direta com alguém falhar") e o que `rest.md` diz de `ponte: false`. Detalhes do modo só
+  direta e do resto que ficou aberto: `docs/planos/m4b-pendencias.md`.
 - Prévia na lista: ingresso de prévia, assina camada 2 sem áudio da trilha principal.
 - Reconexão do WS e do QUIC com backoff; ao voltar, `sala.entrar` + reassinar.
 
@@ -83,46 +88,24 @@ Binário e biblioteca para testes (`zap_test_server::spawn(config) -> Handle { b
 
 ## Estado do fechamento (revisor)
 
-**Atualização (2026-11-04, Windows 10, MSVC): o M4 ainda NÃO está fechado, mas quase.**
+**Atualização (2026-11-04, Windows 10, MSVC, rodada M4b): o M4 fecha, exceto o aceite 2.**
 
 Pronto:
-- Núcleo `core-online`: sem `todo!` em `crates/zap-core` nem em `app/src-tauri`. Tarefas 04 a 15,
-  18, 19, 20, 21, 23, 25 e 26 aprovadas ou corrigidas. A 21 (aceite 1) passa; prévia (25) e
-  reconexão (26) passam; o servidor de teste agora tolera 5 s de queda da ponte antes de tirar as
-  trilhas do participante (`TOLERANCIA_QUEDA` em `zap-test-server/src/bridge.rs`).
-- `tauri-online` 01 a 03 e `ui-online` 02, 03, 04, 05, 07, 08, 11, 12, 15 aprovadas.
-- Fechamento: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D warnings`
-  ok (corrigidos 5 "doc list item without indentation" em `bridge.rs`, `room_events.rs`,
-  `session.rs` e o campo `Feed::track` sem uso em `publish_bridge.rs`); `cargo check --workspace
-  --all-targets` ok; `app`: `npm run check` ok, `npx vitest run` 666 testes ok (ajustado
-  `DiagScreen.test.tsx`: o mock agora traz `server` online, então o teste fixa `server: undefined`
-  para o caso "não configurado").
-- `cargo test --workspace`: passam `zap-core` (366 de unidade e os aceites 1, 3, prévia,
-  reconexão e o harness), `zap-test-server`, `zap-rate`, `streamazap` (44) e o resto.
+- Núcleo `core-online`, comandos do Tauri e telas: sem `todo!` em `crates/zap-core` nem em
+  `app/src-tauri`. Aceites 1, 3, 4 (as 3 funções, sem `#[ignore]`), prévia, reconexão e o novo
+  `aceite_camadas_local` passam 3 vezes seguidas.
+- **core-online-24** concluída: modo só direta (`watch` pendente, assinatura na conexão direta).
+- Sondagem implementada (`zap-rate::probe`, `Bwe::on_probe_cluster`, `zap-net::Prober`, ponte do
+  servidor de teste e publicador Local/direto) e `Drop` do `Core` seguro dentro do runtime.
+- Fechamento: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` e
+  `cargo check --workspace --all-targets` ok; `npm run check` ok e `vitest` com 666 testes ok.
 
 Falta:
-- **core-online-22 (aceite 2, camadas por enlace)**: `aceite_online_camadas_por_enlace` falha.
-  Bug de produto, não de teste: em modo ponte nenhum espectador sai da camada 2 porque o `Bwe`
-  (`zap-rate/src/bwe.rs`) em estado Normal só cresce se `vazao >= 0,5 * alvo` (limita a ~2x a
-  vazão) e ninguém manda sondas ao espectador. Tarefa nova recomendada: (1) `Bwe::on_probe_cluster`
-  adotando 0,95 da taxa medida no grupo de sondas; (2) `zap-net/report.rs` agrupa sondas por
-  cluster; (3) `zap-test-server` (relay/ticker/bridge) e publicador em `Budget::Direct/Local`
-  mandam sonda de 200 ms a cada 5 s (`1,3*kbps(próxima) - kbps(atual)`); (4) corrigir a taxa da
-  sonda em `docs/api/balanceamento.md` §4.
-- **core-online-24 (aceite 4, rota direta)**: cenários A (direta funciona) e B (falha e fica na
-  ponte) e a primeira metade do C passam. `sem_use_relay_direta_com_candidatos` está `#[ignore]`:
-  o modo "só direta" (`use_relay=false`) não existe sem ponte (`subscribe/pool.rs` devolve "ponte
-  indisponível"; `online/direct.rs` exige `room.bridge`). Ou vira tarefa de produto (watch
-  pendente sem ponte, `on_candidates` reconhecendo trilha pendente, `Router` próprio para a PubConn
-  direta, queda volta a pendente), ou corta-se a segunda metade do C da spec (os documentos
-  divergem: `m4-online.md` diz "se `use_relay`", `arquitetura-v3.md` 7.2 diz "configurável").
-- **core-online-27**: pulada por dependência; é este fechamento, que só termina quando 22 e 24
-  forem resolvidas.
-- Testes que falham neste PC e **não são do M4** (nenhum arquivo do M4 toca neles; conferir antes
-  de culpar o M4): `zap-encode --test windows tamanho_medio_nao_chave` (codificador de software do
-  Media Foundation, média de 270 B contra 16666), `zap-net --test impaired
-  rede_ruim_3mbps_fonte_6mbps` (banda média 2032 kbps fora de 2200..3600; sensível a carga da
-  máquina) e `zap-capture --lib` com `STATUS_ACCESS_VIOLATION` quando roda junto dos demais (passa
-  sozinho, 33 testes).
+- **core-online-22 (aceite 2)**: `aceite_online_camadas_por_enlace` passou 1 de 4 execuções. Nas
+  outras o espectador A (enlace de 4 Mbps) fica na camada 2 (esperado: 1) ou as camadas oscilam
+  nos 3 s de estabilidade (B na 0, A e C na 2). Passou sozinho uma vez, então depende de tempo.
+- **core-online-27**: só termina quando a 22 passar.
+- Instáveis ou falhas fora do M4 em `cargo test --workspace`: ver "Atualização do M4" em
+  `docs/ESTADO.md`.
 - Não rodados: `vite build`, clippy do alvo `windows-gnu` (substituído por `cargo check` nativo),
   xvfb do binário. O endereço padrão do servidor continua sendo gravado só por `Core::start`.

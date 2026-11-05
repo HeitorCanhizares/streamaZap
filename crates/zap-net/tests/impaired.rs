@@ -63,6 +63,7 @@ fn hello() -> Hello {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rede_ruim_3mbps_fonte_6mbps() -> Res {
+    let _timer = support::timer();
     let id = Identity::generate("zap")?;
     let (servidor, porta) = endpoint::bind_server(&id, 0).await?;
     let addr_srv: SocketAddr = format!("127.0.0.1:{porta}").parse()?;

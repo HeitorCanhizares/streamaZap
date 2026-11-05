@@ -9,6 +9,11 @@ use hysteresis::Hysteresis;
 use std::collections::HashMap;
 use zap_proto::{DelayState, LayerSpec};
 
+/// disponível = banda × FOLGA_BANDA − reserva (balanceamento.md §3).
+pub const FOLGA_BANDA: f64 = 0.9;
+/// A camada c sobe com disponível ≥ MARGEM_SUBIDA × kbps(c).
+pub const MARGEM_SUBIDA: f64 = 1.15;
+
 #[derive(Debug, Clone)]
 pub struct ViewerInput {
     pub id: u64,
@@ -121,7 +126,7 @@ impl Allocator {
 
         let available: Vec<f64> = viewers
             .iter()
-            .map(|v| f64::from(v.bandwidth_kbps) * 0.9 - f64::from(v.reserved_kbps))
+            .map(|v| f64::from(v.bandwidth_kbps) * FOLGA_BANDA - f64::from(v.reserved_kbps))
             .collect();
         let fill_in: Vec<FillViewer> = viewers
             .iter()
@@ -133,7 +138,7 @@ impl Allocator {
             .collect();
         let upload = match budget {
             Budget::Relay => None,
-            Budget::Direct { upload_kbps } => Some(f64::from(upload_kbps) * 0.9),
+            Budget::Direct { upload_kbps } => Some(f64::from(upload_kbps) * FOLGA_BANDA),
         };
         let alvo = fill(&self.layers, &fill_in, upload);
 
@@ -190,7 +195,7 @@ impl Allocator {
             .iter()
             .filter_map(|&(l, m)| {
                 let nominal = f64::from(self.kbps_of(l)?);
-                let kbps = (m / 1.15).clamp(0.5 * nominal, nominal).round() as u32;
+                let kbps = (m / MARGEM_SUBIDA).clamp(0.5 * nominal, nominal).round() as u32;
                 Some(LayerRequest { layer: l, kbps })
             })
             .collect();
@@ -273,6 +278,13 @@ mod tests {
             t += 100_000;
         }
         out
+    }
+
+    #[test]
+    fn constantes_do_contrato() {
+        // Valores fixados por balanceamento.md §3; mudar aqui muda o comportamento do alocador.
+        assert!((FOLGA_BANDA - 0.9).abs() < f64::EPSILON);
+        assert!((MARGEM_SUBIDA - 1.15).abs() < f64::EPSILON);
     }
 
     #[test]

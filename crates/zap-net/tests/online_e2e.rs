@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Fluxo completo do modo Online contra um servidor axum local: info -> login -> criar sala ->
 //! entrar -> WebSocket -> trocar mensagens. Usa só a API pública `zap_net::online::*`.
+mod support;
+
 use axum::{
     extract::{ws::Message, ws::WebSocketUpgrade, Path, Query},
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
@@ -150,6 +152,7 @@ fn pedido() -> LoginRequest {
 
 #[tokio::test]
 async fn fluxo_completo_info_login_sala_ws() {
+    let _timer = support::timer();
     let base = sobe(app()).await;
 
     let info = ServerClient::info(&base).await.unwrap();
@@ -192,6 +195,7 @@ async fn fluxo_completo_info_login_sala_ws() {
 
 #[test]
 fn cliente_e_send_sync() {
+    let _timer = support::timer();
     fn exige<T: Send + Sync + Clone>() {}
     exige::<ServerClient>();
 }

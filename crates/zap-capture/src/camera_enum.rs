@@ -107,6 +107,8 @@ fn enum_activates() -> Result<Vec<IMFActivate>, CaptureError> {
 /// Câmeras de vídeo (`MFEnumDeviceSources`, `MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID`).
 /// Lista vazia não é erro.
 pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
+    // MTA preso: MFShutdown/COM de outra thread não derrubam a plataforma
+    zap_gpu::pin_mta();
     let _mf = MfGuard::new()?;
     let ativacoes = enum_activates()?;
     let mut out = Vec::with_capacity(ativacoes.len());
@@ -127,6 +129,8 @@ pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
 // Usada por camera.rs (capture-11); até lá fica sem chamador.
 #[allow(dead_code)]
 pub(crate) fn native_modes(id: &str) -> Result<Vec<CameraMode>, CaptureError> {
+    // MTA preso: MFShutdown/COM de outra thread não derrubam a plataforma
+    zap_gpu::pin_mta();
     let _mf = MfGuard::new()?;
     let ativacoes = enum_activates()?;
     let ativacao = ativacoes

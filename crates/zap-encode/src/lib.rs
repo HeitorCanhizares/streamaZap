@@ -19,6 +19,8 @@ mod enumerate;
 #[cfg(windows)]
 mod hw;
 #[cfg(windows)]
+mod hw_events;
+#[cfg(windows)]
 mod media_types;
 #[cfg(windows)]
 mod mf;

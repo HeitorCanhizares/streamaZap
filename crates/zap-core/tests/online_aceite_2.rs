@@ -102,24 +102,6 @@ async fn corpo() {
                 .is_some_and(|s| [0, 1, 2].iter().all(|l| s.layers.contains(l)))
     })
     .await;
-    if !ok {
-        for (n, x, s) in [("A", &a, &sa), ("B", &b, &sb), ("C", &c, &sc)] {
-            println!("DIAG {n}: pacotes={} tiles={:#?}", s.video_count(1), x.snapshot().tiles);
-        }
-        println!("DIAG P share: {:#?}", p.snapshot().share);
-        println!("DIAG proxy (enviados, descartados): {:?}", proxy.stats());
-        // O que o alocador da ponte vê de cada espectador (banda do último relatório).
-        for sala in srv.hub.inner.lock().rooms.values() {
-            for t in &sala.tracks {
-                for v in t.relay.viewers.values() {
-                    println!(
-                        "DIAG ponte {}: banda_kbps={} estado={:?} atual={} pendente={:?}",
-                        v.participant_id, v.bandwidth_kbps, v.state, v.current, v.pending
-                    );
-                }
-            }
-        }
-    }
     // Falhas viram mensagem e o pânico só vem depois de desligar os Cores: soltar um `Core`
     // dentro do runtime (no desenrolar do pânico) aborta o processo e esconde a mensagem.
     let falha = if !ok {

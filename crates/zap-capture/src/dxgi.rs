@@ -15,24 +15,10 @@ const ESPERA_MS: u32 = 100;
 const RETENTATIVA: Duration = Duration::from_millis(100);
 const RETENTATIVAS_MAX: u32 = 10;
 
-/// Leva o ponteiro do dispositivo para a thread de captura.
-struct SendPtr<T>(*const T);
-
-// SAFETY: o dispositivo (`GpuDevice`) é Send + Sync e protegido para multithread. O contrato de
-// `capture_monitor` exige que o chamador mantenha o dispositivo vivo enquanto o handle existir.
-unsafe impl<T> Send for SendPtr<T> {}
-
-impl<T> SendPtr<T> {
-    /// Método (e não acesso ao campo) para a closure capturar o wrapper inteiro, que é Send.
-    fn ptr(&self) -> *const T {
-        self.0
-    }
-}
-
 /// Captura de monitor por DXGI Desktop Duplication, em thread própria.
 ///
-/// O `dev` precisa continuar vivo até o `CaptureHandle` ser descartado: a thread o usa para
-/// recriar a duplicação e as texturas.
+/// A captura guarda um clone do dispositivo (`GpuDevice` é Send + Sync), que a thread usa para
+/// recriar a duplicação e as texturas. Por isso o `dev` do chamador pode ser descartado logo depois.
 pub fn capture_monitor(
     dev: &GpuDevice,
     monitor: &MonitorInfo,
@@ -46,14 +32,13 @@ pub fn capture_monitor(
 
     let stop = Arc::new(AtomicBool::new(false));
     let stop_thread = Arc::clone(&stop);
-    let dev_ptr = SendPtr(dev as *const GpuDevice);
+    let dev_owned = dev.clone();
     let monitor = monitor.clone();
 
     let join = std::thread::Builder::new()
         .name("zap-capture-dxgi".to_string())
         .spawn(move || {
-            // SAFETY: ver `SendPtr`; o chamador mantém o dispositivo vivo durante a captura.
-            let dev = unsafe { &*dev_ptr.ptr() };
+            let dev = &dev_owned;
             let _com = match ComGuard::new() {
                 Ok(g) => g,
                 Err(e) => {
