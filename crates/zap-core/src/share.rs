@@ -148,6 +148,7 @@ impl ShareSession {
                 layers: ladder.clone(),
                 audio: None,
                 address: Some(ms.address(interface.as_deref(), loopback)),
+                camera_layout: None,
             })
             .await?;
         let encoder = EncoderPref::parse(&req.encoder).unwrap_or_default().to_spec();
@@ -228,6 +229,7 @@ impl ShareSession {
                     kbps: 96,
                 }),
                 address: Some(ms.address(interface.as_deref(), loopback)),
+                camera_layout: None,
             })
             .await?;
         let fonte = if sintetica {
@@ -389,6 +391,7 @@ impl ShareSession {
                 layers: ladder.clone(),
                 audio: None,
                 address: Some(ms.address(interface.as_deref(), shared.options.include_loopback)),
+                camera_layout: None,
             })
             .await?;
         let publisher = match VideoPublisher::start(

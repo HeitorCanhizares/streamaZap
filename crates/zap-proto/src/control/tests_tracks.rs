@@ -24,6 +24,7 @@ fn trilha_publicar_minima() {
             layers,
             audio,
             address,
+            camera_layout,
         } => {
             assert_eq!(local_id, "l1");
             assert_eq!(*kind, TrackKind::Screen);
@@ -32,12 +33,14 @@ fn trilha_publicar_minima() {
             assert_eq!(layers[0].kbps, 8000);
             assert!(audio.is_none());
             assert!(address.is_none());
+            assert!(camera_layout.is_none());
         }
         outro => panic!("esperava trilha.publicar, veio {outro:?}"),
     }
     let v = saida(&msg);
     assert_eq!(v["t"], "trilha.publicar");
     assert!(v.get("audio").is_none());
+    assert!(v.get("camera").is_none(), "camera não deve sair quando é None");
     assert!(v.get("endereco").is_none());
 }
 
@@ -108,10 +111,12 @@ fn trilha_atualizar_titulo() {
             track_id,
             title,
             layers,
+            camera_layout,
         } => {
             assert_eq!(track_id, "t1");
             assert_eq!(title.as_deref(), Some("Tela 2"));
             assert!(layers.is_none());
+            assert!(camera_layout.is_none());
         }
         outro => panic!("esperava trilha.atualizar, veio {outro:?}"),
     }
@@ -423,4 +428,54 @@ fn conexao_reversa() {
         outro => panic!("esperava conexao.reversa, veio {outro:?}"),
     }
     assert_eq!(saida(&msg)["t"], "conexao.reversa");
+}
+
+#[test]
+fn trilha_publicar_camera_no_canto() {
+    let msg = roundtrip(
+        r#"{"t":"trilha.publicar","local_id":"c1","tipo":"camera","titulo":"Câmera","camadas":[{"camada":0,"largura":1280,"altura":720,"fps":30,"kbps":1500}],"camera":{"modo":"canto","canto":"sup_esq"}}"#,
+    );
+    match &msg {
+        ControlMsg::TrackPublish { camera_layout, .. } => assert_eq!(
+            *camera_layout,
+            Some(CameraLayout::Corner {
+                corner: Corner::TopLeft
+            })
+        ),
+        outro => panic!("esperava trilha.publicar, veio {outro:?}"),
+    }
+}
+
+#[test]
+fn trilha_atualizar_so_o_jeito_da_camera() {
+    let msg = roundtrip(r#"{"t":"trilha.atualizar","trilha_id":"t9","camera":{"modo":"solta"}}"#);
+    match &msg {
+        ControlMsg::TrackUpdate {
+            title,
+            layers,
+            camera_layout,
+            ..
+        } => {
+            assert!(title.is_none());
+            assert!(layers.is_none());
+            assert_eq!(*camera_layout, Some(CameraLayout::Free));
+        }
+        outro => panic!("esperava trilha.atualizar, veio {outro:?}"),
+    }
+}
+
+#[test]
+fn trilha_publicada_repassa_o_jeito_da_camera() {
+    let msg = roundtrip(
+        r#"{"t":"trilha.publicada","trilha":{"id":"t3","participante_id":"p1","numero":3,"tipo":"camera","titulo":"Câmera","camadas":[],"camera":{"modo":"canto","canto":"inf_esq"}}}"#,
+    );
+    match &msg {
+        ControlMsg::TrackPublished { track, .. } => assert_eq!(
+            track.camera_layout,
+            Some(CameraLayout::Corner {
+                corner: Corner::BottomLeft
+            })
+        ),
+        outro => panic!("esperava trilha.publicada, veio {outro:?}"),
+    }
 }

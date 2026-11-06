@@ -53,6 +53,7 @@ impl Hub {
                 title,
                 layers,
                 audio,
+                camera_layout,
                 ..
             } => {
                 let mut inner = self.inner.lock();
@@ -100,6 +101,11 @@ impl Hub {
                     title: title.clone(),
                     layers: camadas.clone(),
                     audio: audio.clone(),
+                    camera_layout: if *kind == TrackKind::Camera {
+                        *camera_layout
+                    } else {
+                        None
+                    },
                     relay: TrackRelay::new(camadas),
                 });
                 let Some(view) = inner
@@ -132,6 +138,7 @@ impl Hub {
                 track_id,
                 title,
                 layers,
+                camera_layout,
             } => {
                 let mut inner = self.inner.lock();
                 let Some(sala_id) = inner.participants.get(who).and_then(|p| p.ws_room.clone()) else {
@@ -151,6 +158,9 @@ impl Hub {
                 };
                 if let Some(t) = title {
                     trilha.title = t.clone();
+                }
+                if camera_layout.is_some() && trilha.kind == TrackKind::Camera {
+                    trilha.camera_layout = *camera_layout;
                 }
                 if let Some(l) = layers {
                     let mut camadas = l.clone();
@@ -253,6 +263,7 @@ mod tests {
             protocol: 4,
             app_version: "3.0.0".into(),
             server_password: None,
+            account_token: None,
         };
         hub.login(pedido, "203.0.113.7").unwrap().participant_id
     }
@@ -314,6 +325,7 @@ mod tests {
             layers: camadas,
             audio: None,
             address: None,
+            camera_layout: None,
         }
     }
 
@@ -411,6 +423,7 @@ mod tests {
             track_id: id.clone(),
             title: Some(t.into()),
             layers: None,
+            camera_layout: None,
         };
         hub.handle_track_message(&beto, &upd("x"));
         assert_eq!(codigo(&drenar(&mut rb)[0]), Some("proibido"));

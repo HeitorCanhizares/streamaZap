@@ -187,7 +187,7 @@ impl OwnerRoom {
                 _ => return Err(CoreError::TrackNotFound),
             }
             model
-                .update_track(track_id, title, layers)
+                .update_track(track_id, title, layers, None)
                 .ok_or(CoreError::TrackNotFound)?
         };
         self.send_all(vec![Outgoing {

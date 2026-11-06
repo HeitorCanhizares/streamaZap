@@ -268,6 +268,7 @@ mod tests {
                 protocol: zap_proto::PROTOCOL_VERSION,
                 app_version: "teste".into(),
                 server_password: None,
+                account_token: None,
             },
         )
         .await

@@ -18,6 +18,8 @@ Usado pelo botão **Testar conexão** e antes de toda sessão.
   "protocolo_max": 4,
   "regiao": "sa-east",
   "requer_senha": true,
+  "requer_conta": true,
+  "conta": { "provedor": "supabase", "url": "https://abcd1234.supabase.co" },
   "ponte": true,
   "quic": { "porta": 7443, "alpn": "zap/4" },
   "limites": { "participantes_por_sala": 16, "trilhas_video_por_sala": 8, "bitrate_max_kbps": 12000 },
@@ -26,6 +28,12 @@ Usado pelo botão **Testar conexão** e antes de toda sessão.
 ```
 
 `ponte: false` = o servidor só faz sinalização (a mídia precisa ir direta).
+
+- `requer_conta` (ausente = `false`): sem `acesso_conta` válido, `POST /sessoes` responde
+  `conta_necessaria`.
+- `conta` (ausente = o servidor não confere contas): onde o app faz login. Servidor com `conta` e
+  sem `requer_conta` aceita a conta se vier (vale para o plano), mas não exige. Servidor próprio sem
+  `conta`: o app nem mostra login.
 
 ## `POST /v1/sessoes`
 
@@ -39,20 +47,48 @@ Pedido:
   "instalacao_id": "9f1c…",
   "protocolo": 4,
   "versao_app": "3.0.0",
-  "senha_servidor": "…"
+  "senha_servidor": "…",
+  "acesso_conta": "eyJhbGciOiJFUzI1NiIs…"
 }
 ```
 - `instalacao_id`: UUID fixo da instalação (o mesmo participante reconectando é reconhecido).
 - `senha_servidor`: só se `requer_senha`.
+- `acesso_conta`: o JWT de acesso do Supabase (o `access_token` da sessão do usuário), só quando o
+  servidor tem `conta`. O servidor confere a assinatura pela JWKS de `<conta.url>/auth/v1/.well-known/jwks.json`
+  (em cache, sem chamar o Supabase por sessão), `iss = <conta.url>/auth/v1`, `aud = authenticated`
+  e `exp` (60 s de folga), e lê o claim `plano`. Claim ausente ou desconhecido = `nenhum`.
+- Com `requer_senha` **e** `requer_conta`, os dois são obrigatórios: o servidor confere a senha
+  primeiro (`senha_servidor`), depois a conta (`conta_necessaria`).
+- A mesma conta em duas instalações vira dois participantes.
 
 Resposta `201`:
 ```json
-{ "token": "…", "expira_em": "2026-11-05T21:30:00Z", "participante_id": "p_8Kq2mZ0aL1", "ip_publico": "177.12.34.56" }
+{
+  "token": "…", "expira_em": "2026-11-05T21:30:00Z", "participante_id": "p_8Kq2mZ0aL1", "ip_publico": "177.12.34.56",
+  "conta_id": "2b0c6c1e-…",
+  "plano": {
+    "id": "hd",
+    "pode_entrar": true,
+    "transmitir": { "altura_max": 720, "fps_max": 60, "tela_kbps": 4000, "camera_kbps": 2500 }
+  }
+}
 ```
+- `conta_id` e `plano`: só quando a sessão tem conta. **Sem conta, não há limite de plano** (servidor
+  sem `requer_conta`, apps sem login).
+- `plano.id`: `"nenhum"`, `"espectador"`, `"hd"` ou `"fullhd"`. Os limites vêm de
+  `zap_proto::plan::limits` (a fonte dos números): `pode_entrar` (criar e entrar em sala Online) e
+  `transmitir` (`null` = não transmite; senão o teto da camada 0 de cada trilha: altura, fps e kbps
+  da tela/janela e da câmera). Áudio só pede `transmitir` diferente de `null`.
+- Assistir não depende do plano: o espectador recebe a melhor camada que a conexão aguenta, até a que
+  quem transmite mandar, com o teto de banda de 12000 kbps por espectador
+  ([`balanceamento.md`](balanceamento.md) §2).
 
 ## `POST /v1/sessoes/renovar`
 
-Sem corpo. Resposta igual à de criação, com token novo. O antigo vale mais 5 min.
+Corpo opcional `{ "acesso_conta": "…" }` (token novo do Supabase, depois de um login, de uma
+renovação ou de assinar um plano). Resposta igual à de criação, com token novo. O antigo vale mais
+5 min. Com `acesso_conta`, o plano do participante é atualizado; ele vale para salas e trilhas
+**novas** (nada em andamento é derrubado). `acesso_conta` inválido → `conta_necessaria`.
 
 ## `GET /v1/salas`
 
@@ -91,6 +127,7 @@ Resposta `201`: `{ "sala": { …mesmo formato da lista… } }` (inclui o `codigo
 
 - `nome`: 1 a 48 caracteres; `senha`: 1 a 128.
 - Quem cria já fica autorizado na sala: pode mandar `sala.entrar` sem chamar `POST …/entrar`.
+- Sessão com conta de plano sem `pode_entrar` (`nenhum`): `403 plano_insuficiente`.
 - A sala some 2 min depois que o último participante sai.
 
 ## `GET /v1/salas/{codigo}`
@@ -121,6 +158,9 @@ Resposta `200`:
 ```
 O `ingresso` vai na mensagem `ola` da conexão QUIC (ver [`midia.md`](midia.md)). Renovar: chamar
 `entrar` de novo (idempotente).
+
+Sessão com conta de plano sem `pode_entrar` (`nenhum`): `403 plano_insuficiente`. A lista e a
+`previa` continuam liberadas.
 
 Servidor sem ponte (`ponte: false` em `/info`): `midia.ponte` vem `null`. O cliente deve aceitar
 `null` ou o campo ausente.

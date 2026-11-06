@@ -188,6 +188,7 @@ mod tests {
             protocol: 4,
             app_version: "3.0.0".into(),
             server_password: None,
+            account_token: None,
         };
         hub.login(pedido, "203.0.113.7").unwrap().participant_id
     }
@@ -275,6 +276,7 @@ mod tests {
                 layers: escada(),
                 audio: None,
                 relay,
+                camera_layout: None,
             });
         }
         (hub, rqa, rqb, rwb)

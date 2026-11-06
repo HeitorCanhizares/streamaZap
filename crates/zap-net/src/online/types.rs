@@ -1,6 +1,17 @@
 //! Tipos de `docs/api/rest.md` (campos em inglês, nomes de fio em português via serde).
 use serde::{Deserialize, Serialize};
+use zap_proto::plan::PlanInfo;
 use zap_proto::{Access, RoomCode};
+
+/// Onde o app faz login quando o servidor confere contas (`GET /v1/info`, campo `conta`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AccountProvider {
+    /// Hoje só `"supabase"`.
+    #[serde(rename = "provedor")]
+    pub provider: String,
+    /// Ex.: `https://abcd1234.supabase.co`.
+    pub url: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QuicInfo {
@@ -34,6 +45,12 @@ pub struct ServerInfo {
     pub region: Option<String>,
     #[serde(rename = "requer_senha")]
     pub requires_password: bool,
+    /// Sem `acesso_conta` válido, `POST /sessoes` responde `conta_necessaria`.
+    #[serde(rename = "requer_conta", default)]
+    pub requires_account: bool,
+    /// `None` = o servidor não confere contas (o app nem mostra login).
+    #[serde(rename = "conta", default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<AccountProvider>,
     #[serde(rename = "ponte")]
     pub relay: bool,
     pub quic: QuicInfo,
@@ -58,6 +75,16 @@ pub struct LoginRequest {
     pub app_version: String,
     #[serde(rename = "senha_servidor", default, skip_serializing_if = "Option::is_none")]
     pub server_password: Option<String>,
+    /// JWT de acesso do Supabase (só quando o servidor tem `conta`).
+    #[serde(rename = "acesso_conta", default, skip_serializing_if = "Option::is_none")]
+    pub account_token: Option<String>,
+}
+
+/// Corpo opcional de `POST /v1/sessoes/renovar`: token novo do Supabase para atualizar o plano.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RenewRequest {
+    #[serde(rename = "acesso_conta", default, skip_serializing_if = "Option::is_none")]
+    pub account_token: Option<String>,
 }
 
 /// Resposta de `POST /v1/sessoes` e `/sessoes/renovar`.
@@ -70,6 +97,12 @@ pub struct SessionResponse {
     pub participant_id: String,
     #[serde(rename = "ip_publico", default)]
     pub public_ip: Option<String>,
+    /// Só quando a sessão tem conta.
+    #[serde(rename = "conta_id", default, skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+    /// Só quando a sessão tem conta. `None` = sem limite de plano.
+    #[serde(rename = "plano", default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<PlanInfo>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -471,6 +504,7 @@ mod tests {
             protocol: 4,
             app_version: "3.0.0".into(),
             server_password: None,
+            account_token: None,
         };
         let v = serde_json::to_value(&sem).unwrap();
         let obj = v.as_object().unwrap();
@@ -524,5 +558,87 @@ mod tests {
         sala["extra_raiz"] = json!([1, 2, 3]);
         let sala: RoomListing = serde_json::from_value(sala).unwrap();
         assert_eq!(sala.name, "Sexta do Rush");
+    }
+
+    #[test]
+    fn info_sem_conta_e_servidor_antigo() {
+        // Servidor de hoje: sem `requer_conta` nem `conta`.
+        let info: ServerInfo = serde_json::from_str(INFO).unwrap();
+        assert!(!info.requires_account);
+        assert_eq!(info.account, None);
+        let v = serde_json::to_value(&info).unwrap();
+        assert!(v.get("conta").is_none());
+    }
+
+    #[test]
+    fn info_com_conta() {
+        let mut v: Value = serde_json::from_str(INFO).unwrap();
+        v["requer_conta"] = json!(true);
+        v["conta"] = json!({"provedor": "supabase", "url": "https://abcd1234.supabase.co"});
+        let info: ServerInfo = serde_json::from_value(v).unwrap();
+        assert!(info.requires_account);
+        assert_eq!(
+            info.account,
+            Some(AccountProvider {
+                provider: "supabase".into(),
+                url: "https://abcd1234.supabase.co".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn login_request_com_conta() {
+        let pedido = LoginRequest {
+            name: "Heitor".into(),
+            color: "#3BF08A".into(),
+            install_id: "9f1c".into(),
+            protocol: 4,
+            app_version: "3.3.0".into(),
+            server_password: Some("abc".into()),
+            account_token: Some("eyJ".into()),
+        };
+        let v = serde_json::to_value(&pedido).unwrap();
+        assert_eq!(v["acesso_conta"], "eyJ");
+        assert_eq!(v["senha_servidor"], "abc");
+        let sem = LoginRequest {
+            account_token: None,
+            ..pedido
+        };
+        assert!(serde_json::to_value(&sem).unwrap().get("acesso_conta").is_none());
+    }
+
+    #[test]
+    fn renovar_com_e_sem_conta() {
+        assert_eq!(serde_json::to_value(RenewRequest::default()).unwrap(), json!({}));
+        let com = RenewRequest {
+            account_token: Some("eyJ".into()),
+        };
+        assert_eq!(serde_json::to_value(&com).unwrap(), json!({"acesso_conta": "eyJ"}));
+    }
+
+    #[test]
+    fn sessao_com_conta_e_plano() {
+        use zap_proto::plan::{PlanId, PlanInfo};
+        let v = json!({
+            "token": "tk", "expira_em": "2026-11-05T21:30:00Z", "participante_id": "p_1",
+            "ip_publico": "177.12.34.56",
+            "conta_id": "2b0c",
+            "plano": {
+                "id": "hd", "pode_entrar": true,
+                "transmitir": {"altura_max": 720, "fps_max": 60, "tela_kbps": 4000, "camera_kbps": 2500}
+            }
+        });
+        let s: SessionResponse = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(s.account_id.as_deref(), Some("2b0c"));
+        assert_eq!(s.plan, Some(PlanInfo::of(PlanId::Hd)));
+        assert_eq!(serde_json::to_value(&s).unwrap(), v);
+
+        // Sem conta: nada de `conta_id` nem `plano` (sem limite de plano).
+        let sem: SessionResponse =
+            serde_json::from_value(json!({"token": "tk", "expira_em": "x", "participante_id": "p_1"})).unwrap();
+        assert_eq!(sem.account_id, None);
+        assert_eq!(sem.plan, None);
+        let volta = serde_json::to_value(&sem).unwrap();
+        assert!(volta.get("conta_id").is_none() && volta.get("plano").is_none());
     }
 }

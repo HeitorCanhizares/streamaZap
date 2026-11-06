@@ -21,6 +21,8 @@ pub struct TrackSpec {
     pub layers: Vec<LayerSpec>,
     pub audio: Option<AudioSpec>,
     pub address: Option<MediaAddress>,
+    /// Só trilha `camera`: canto ou solta (`None` = canto inferior direito para quem assiste).
+    pub camera_layout: Option<zap_proto::CameraLayout>,
 }
 
 pub struct RoomModel {
@@ -136,16 +138,23 @@ impl RoomModel {
             layers: spec.layers,
             audio: spec.audio,
             address: spec.address,
+            camera_layout: if spec.kind == TrackKind::Camera {
+                spec.camera_layout
+            } else {
+                None
+            },
         };
         self.tracks.push(track.clone());
         Ok(track)
     }
-    /// Atualiza título/camadas; `None` se a trilha não existe.
+    /// Atualiza título/camadas/jeito da câmera (`None` = não muda); `None` se a trilha não existe.
+    /// O jeito da câmera só vale para trilha `camera`.
     pub fn update_track(
         &mut self,
         track_id: &str,
         title: Option<String>,
         layers: Option<Vec<LayerSpec>>,
+        camera_layout: Option<zap_proto::CameraLayout>,
     ) -> Option<Track> {
         let t = self.tracks.iter_mut().find(|t| t.id == track_id)?;
         if let Some(titulo) = title {
@@ -153,6 +162,9 @@ impl RoomModel {
         }
         if let Some(camadas) = layers {
             t.layers = camadas;
+        }
+        if camera_layout.is_some() && t.kind == TrackKind::Camera {
+            t.camera_layout = camera_layout;
         }
         Some(t.clone())
     }
@@ -371,6 +383,7 @@ mod tests {
             layers: Vec::new(),
             audio: None,
             address: None,
+            camera_layout: None,
         }
     }
 
@@ -409,6 +422,7 @@ mod tests {
             layers: Vec::new(),
             audio: None,
             address: None,
+            camera_layout: None,
         }
     }
 
@@ -611,13 +625,60 @@ mod tests {
     fn update_track_muda_camadas() {
         let mut m = modelo();
         let t = m.add_track("p_1", spec(TrackKind::Screen)).unwrap();
-        let novo = m.update_track(&t.id, None, Some(vec![camada(0), camada(1)])).unwrap();
+        let novo = m
+            .update_track(&t.id, None, Some(vec![camada(0), camada(1)]), None)
+            .unwrap();
         assert_eq!(novo.layers.len(), 2);
         assert_eq!(novo.title, "Trilha");
-        let novo = m.update_track(&t.id, Some("Nova".into()), None).unwrap();
+        let novo = m.update_track(&t.id, Some("Nova".into()), None, None).unwrap();
         assert_eq!(novo.title, "Nova");
         assert_eq!(novo.layers.len(), 2);
         assert_eq!(m.track_by_id(&t.id).unwrap().layers.len(), 2);
-        assert!(m.update_track("t_nao_existe", None, None).is_none());
+        assert!(m.update_track("t_nao_existe", None, None, None).is_none());
+    }
+
+    #[test]
+    fn jeito_da_camera_guardado_e_trocado_ao_vivo() {
+        use zap_proto::{CameraLayout, Corner};
+        let mut m = modelo();
+        let canto = CameraLayout::Corner {
+            corner: Corner::TopLeft,
+        };
+        let cam = m
+            .add_track(
+                "p_1",
+                TrackSpec {
+                    camera_layout: Some(canto),
+                    ..spec(TrackKind::Camera)
+                },
+            )
+            .unwrap();
+        assert_eq!(cam.camera_layout, Some(canto));
+        // Só o jeito muda: título e camadas ficam.
+        let novo = m.update_track(&cam.id, None, None, Some(CameraLayout::Free)).unwrap();
+        assert_eq!(novo.camera_layout, Some(CameraLayout::Free));
+        assert_eq!(novo.title, "Trilha");
+        // `None` em `trilha.atualizar` não apaga o jeito.
+        let igual = m.update_track(&cam.id, Some("Câmera".into()), None, None).unwrap();
+        assert_eq!(igual.camera_layout, Some(CameraLayout::Free));
+    }
+
+    #[test]
+    fn jeito_da_camera_ignorado_fora_da_camera() {
+        let mut m = modelo();
+        let tela = m
+            .add_track(
+                "p_1",
+                TrackSpec {
+                    camera_layout: Some(zap_proto::CameraLayout::Free),
+                    ..spec(TrackKind::Screen)
+                },
+            )
+            .unwrap();
+        assert_eq!(tela.camera_layout, None);
+        let novo = m
+            .update_track(&tela.id, None, None, Some(zap_proto::CameraLayout::Free))
+            .unwrap();
+        assert_eq!(novo.camera_layout, None);
     }
 }

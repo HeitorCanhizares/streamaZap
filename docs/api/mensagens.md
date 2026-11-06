@@ -44,7 +44,12 @@ type Trilha = {
   camadas: Camada[];             // vídeo: 1 a 3 (camada 0 = escolhida por quem transmite); áudio: []
   audio?: { taxa: 48000; canais: 1 | 2; kbps: number };
   endereco?: Endereco;           // só modo Local: onde conectar para receber esta trilha
+  camera?: CameraJeito;          // só tipo "camera"; ausente = canto inferior direito
 }
+// Como quem transmite quer a câmera para quem assiste: num canto da tela dele ou solta (célula própria).
+type CameraJeito =
+  | { modo: "canto"; canto: "sup_esq" | "sup_dir" | "inf_esq" | "inf_dir" }
+  | { modo: "solta" }
 type Endereco = { enderecos: string[] /* "26.12.34.56" */; porta: number; fingerprint: string /* SHA-256 hex do certificado */ }
 ```
 
@@ -125,9 +130,9 @@ O servidor guarda as últimas 200 mensagens e as manda logo depois de `sala.esta
 
 | t | Direção | Campos | Notas |
 |---|---|---|---|
-| `trilha.publicar` | C→S | `local_id`, `tipo`, `titulo`, `camadas`, `audio?`, `endereco?` (Local) | `camadas` = escada completa que o app sabe produzir |
+| `trilha.publicar` | C→S | `local_id`, `tipo`, `titulo`, `camadas`, `audio?`, `endereco?` (Local), `camera?` (só `camera`) | `camadas` = escada completa que o app sabe produzir |
 | `trilha.publicada` | S→C | `trilha`, `local_id?` (só para quem publicou) | Para todos da sala |
-| `trilha.atualizar` | C→S | `trilha_id`, `titulo?`, `camadas?` | Troca de qualidade ao vivo, janela redimensionada |
+| `trilha.atualizar` | C→S | `trilha_id`, `titulo?`, `camadas?`, `camera?` | Troca de qualidade ao vivo, janela redimensionada, câmera trocada de canto ou solta |
 | `trilha.atualizada` | S→C | `trilha` | |
 | `trilha.remover` | C→S | `trilha_id` | |
 | `trilha.removida` | S→C | `trilha_id` | |
@@ -144,6 +149,14 @@ Regras:
   `camadas: []`: não codifique nada até o servidor pedir.
 - `camadas.pedidas` cobre só quem assiste **pela ponte**. Espectadores na rota direta são alocados
   pelo próprio publicador ([`balanceamento.md`](balanceamento.md)).
+- `camera` (em `trilha.publicar`, `trilha.atualizar` e na `Trilha`): só vale para trilha `camera`;
+  em outro tipo, o servidor ignora. O servidor guarda o campo na trilha e o repassa em
+  `trilha.publicada`, `trilha.atualizada` e `sala.estado`. Em `trilha.atualizar`, ausente = não
+  muda. Trocar o jeito da câmera é só `trilha.atualizar` (a trilha não é republicada). App antigo
+  sem o campo: todo mundo vê a câmera no canto inferior direito.
+- **Plano (Online com conta):** `trilha.publicar` e `trilha.atualizar` são recusados com `erro`
+  `plano_insuficiente` (com `ref`) quando o plano da sessão não transmite ou quando a camada 0 passa
+  do limite do plano (`zap_proto::plan::check_publish`). Sessão sem conta não tem limite de plano.
 
 ## Assinaturas (quem assiste)
 

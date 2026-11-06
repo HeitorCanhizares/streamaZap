@@ -106,6 +106,8 @@ pub async fn info(State(hub): State<Arc<Hub>>) -> Json<ServerInfo> {
         protocol_max: PROTOCOLO,
         region: Some("local".to_string()),
         requires_password: config.server_password.is_some(),
+        requires_account: false,
+        account: None,
         relay: config.relay,
         quic: QuicInfo {
             port: porta_de(hub.bridge_addr.get()),

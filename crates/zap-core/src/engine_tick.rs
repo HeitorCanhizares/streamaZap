@@ -169,6 +169,7 @@ mod tests {
             ],
             audio: None,
             address: None,
+            camera_layout: None,
         }
     }
 

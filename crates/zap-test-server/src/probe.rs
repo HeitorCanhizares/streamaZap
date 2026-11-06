@@ -95,6 +95,7 @@ mod tests {
             title: "Tela".into(),
             layers,
             audio: None,
+            camera_layout: None,
             relay,
         }
     }

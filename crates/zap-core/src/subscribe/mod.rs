@@ -267,6 +267,7 @@ mod tests {
                 protocol: zap_proto::PROTOCOL_VERSION,
                 app_version: "teste".into(),
                 server_password: None,
+                account_token: None,
             },
         )
         .await
@@ -307,6 +308,7 @@ mod tests {
                 layers: vec![],
                 audio: None,
                 address: None,
+                camera_layout: None,
             },
             audio_track: None,
             tile: 7,

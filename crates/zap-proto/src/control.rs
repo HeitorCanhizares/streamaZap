@@ -234,6 +234,9 @@ pub enum ControlMsg {
         audio: Option<AudioSpec>,
         #[serde(rename = "endereco", default, skip_serializing_if = "Option::is_none")]
         address: Option<MediaAddress>,
+        /// Só trilha `camera`: canto ou solta (ausente = canto inferior direito).
+        #[serde(rename = "camera", default, skip_serializing_if = "Option::is_none")]
+        camera_layout: Option<CameraLayout>,
     },
     #[serde(rename = "trilha.publicada")]
     TrackPublished {
@@ -250,6 +253,9 @@ pub enum ControlMsg {
         title: Option<String>,
         #[serde(rename = "camadas", default, skip_serializing_if = "Option::is_none")]
         layers: Option<Vec<LayerSpec>>,
+        /// Troca o jeito da câmera ao vivo, sem republicar (ausente = não muda).
+        #[serde(rename = "camera", default, skip_serializing_if = "Option::is_none")]
+        camera_layout: Option<CameraLayout>,
     },
     #[serde(rename = "trilha.atualizada")]
     TrackUpdated {

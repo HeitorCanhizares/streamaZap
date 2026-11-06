@@ -342,6 +342,7 @@ mod tests {
                 port: 1,
                 fingerprint: "00".into(),
             }),
+            camera_layout: None,
         }
     }
 

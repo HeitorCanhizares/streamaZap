@@ -147,6 +147,7 @@ fn pedido() -> LoginRequest {
         protocol: 4,
         app_version: "3.0.0".into(),
         server_password: None,
+        account_token: None,
     }
 }
 

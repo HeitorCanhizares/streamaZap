@@ -133,6 +133,49 @@ pub struct Track {
     pub audio: Option<AudioSpec>,
     #[serde(rename = "endereco", default, skip_serializing_if = "Option::is_none")]
     pub address: Option<MediaAddress>,
+    /// Só trilha `camera`: canto da tela de quem transmite ou solta. Ausente = canto inferior
+    /// direito (`CameraLayout::default()`).
+    #[serde(rename = "camera", default, skip_serializing_if = "Option::is_none")]
+    pub camera_layout: Option<CameraLayout>,
+}
+
+/// Canto da tela de quem transmite onde a câmera aparece para quem assiste.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Corner {
+    #[serde(rename = "sup_esq")]
+    TopLeft,
+    #[serde(rename = "sup_dir")]
+    TopRight,
+    #[serde(rename = "inf_esq")]
+    BottomLeft,
+    #[default]
+    #[serde(rename = "inf_dir")]
+    BottomRight,
+}
+
+/// Jeito da câmera escolhido por quem transmite (`mensagens.md`, `CameraJeito`):
+/// `{"modo":"canto","canto":"inf_dir"}` ou `{"modo":"solta"}`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "modo")]
+pub enum CameraLayout {
+    /// Num canto da tela (ou janela) de quem transmite.
+    #[serde(rename = "canto")]
+    Corner {
+        #[serde(rename = "canto")]
+        corner: Corner,
+    },
+    /// Transmissão à parte, numa célula própria.
+    #[serde(rename = "solta")]
+    Free,
+}
+
+impl Default for CameraLayout {
+    /// Sem o campo (app antigo): canto inferior direito.
+    fn default() -> Self {
+        CameraLayout::Corner {
+            corner: Corner::BottomRight,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -328,6 +371,64 @@ mod tests {
         let t2: Track = serde_json::from_value(sem_camadas).expect("desserializa");
         assert!(t2.layers.is_empty());
         assert_eq!(t2.audio, t.audio);
+    }
+
+    fn camera_json(jeito: Option<Value>) -> Value {
+        let mut v = json!({
+            "id": "t_3",
+            "participante_id": "p_1",
+            "numero": 3,
+            "tipo": "camera",
+            "titulo": "Câmera integrada",
+            "camadas": [{"camada": 0, "largura": 1280, "altura": 720, "fps": 30, "kbps": 1500}]
+        });
+        if let Some(j) = jeito {
+            v["camera"] = j;
+        }
+        v
+    }
+
+    #[test]
+    fn track_camera_nos_quatro_cantos() {
+        for (texto, canto) in [
+            ("sup_esq", Corner::TopLeft),
+            ("sup_dir", Corner::TopRight),
+            ("inf_esq", Corner::BottomLeft),
+            ("inf_dir", Corner::BottomRight),
+        ] {
+            let t: Track = ida_e_volta(camera_json(Some(json!({"modo": "canto", "canto": texto}))));
+            assert_eq!(t.camera_layout, Some(CameraLayout::Corner { corner: canto }));
+        }
+    }
+
+    #[test]
+    fn track_camera_solta() {
+        let t: Track = ida_e_volta(camera_json(Some(json!({"modo": "solta"}))));
+        assert_eq!(t.camera_layout, Some(CameraLayout::Free));
+    }
+
+    #[test]
+    fn track_camera_sem_campo_e_canto_inferior_direito() {
+        // App antigo: sem o campo, nada é serializado de volta e o padrão é o canto inferior direito.
+        let t: Track = ida_e_volta(camera_json(None));
+        assert_eq!(t.camera_layout, None);
+        assert_eq!(
+            t.camera_layout.unwrap_or_default(),
+            CameraLayout::Corner {
+                corner: Corner::BottomRight
+            }
+        );
+    }
+
+    #[test]
+    fn camera_layout_invalido() {
+        for ruim in [
+            json!({"modo": "flutuante"}),
+            json!({"modo": "canto"}),
+            json!({"modo": "canto", "canto": "meio"}),
+        ] {
+            assert!(serde_json::from_value::<Track>(camera_json(Some(ruim))).is_err());
+        }
     }
 
     #[test]

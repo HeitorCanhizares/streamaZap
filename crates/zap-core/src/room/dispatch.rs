@@ -73,6 +73,7 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
             layers,
             audio,
             address,
+            camera_layout,
         } => {
             let spec = TrackSpec {
                 local_id: local_id.clone(),
@@ -81,6 +82,7 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
                 layers,
                 audio,
                 address,
+                camera_layout,
             };
             match model.add_track(from, spec) {
                 // Quem publicou recebe o `local_id` para casar com o pedido; os outros, não.
@@ -104,6 +106,7 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
             track_id,
             title,
             layers,
+            camera_layout,
         } => {
             if !dona_da_trilha(model, from, &track_id) {
                 return vec![erro(
@@ -112,7 +115,7 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
                     "Trilha inexistente ou de outro participante",
                 )];
             }
-            match model.update_track(&track_id, title, layers) {
+            match model.update_track(&track_id, title, layers, camera_layout) {
                 Some(track) => vec![para(Target::All, ControlMsg::TrackUpdated { track })],
                 None => vec![erro(
                     from,
@@ -320,6 +323,7 @@ mod tests {
             layers: Vec::new(),
             audio: None,
             address: None,
+            camera_layout: None,
         }
     }
 
@@ -338,6 +342,7 @@ mod tests {
             }],
             audio: None,
             address: None,
+            camera_layout: None,
         };
         m.add_track(dono, spec).unwrap().id
     }
@@ -466,6 +471,7 @@ mod tests {
             track_id: id.clone(),
             title: Some("Invadida".into()),
             layers: None,
+            camera_layout: None,
         };
         let out = handle_member_msg(&mut m, "p_3", alheia);
         assert!(so_erro(&out, "p_3", "trilha_invalida"));
@@ -475,6 +481,7 @@ mod tests {
             track_id: id.clone(),
             title: Some("Nova".into()),
             layers: None,
+            camera_layout: None,
         };
         let out = handle_member_msg(&mut m, "p_2", propria);
         assert_eq!(out.len(), 1);

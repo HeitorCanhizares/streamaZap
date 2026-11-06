@@ -129,6 +129,8 @@ pub struct TrackData {
     pub title: String,
     pub layers: Vec<LayerSpec>,
     pub audio: Option<AudioSpec>,
+    /// Só trilha `camera`: canto ou solta (repassado em `trilha.publicada`/`atualizada`/`sala.estado`).
+    pub camera_layout: Option<zap_proto::CameraLayout>,
     /// Alocador e assinantes desta trilha.
     pub relay: TrackRelay,
 }
@@ -271,6 +273,8 @@ impl Hub {
             expires_at: iso_from_unix_ms(expira_em),
             participant_id,
             public_ip: Some(remote_ip.to_string()),
+            account_id: None,
+            plan: None,
         })
     }
 
@@ -300,6 +304,8 @@ impl Hub {
             expires_at: iso_from_unix_ms(expira_em),
             participant_id,
             public_ip,
+            account_id: None,
+            plan: None,
         })
     }
 
@@ -333,6 +339,7 @@ mod tests {
             protocol: protocolo,
             app_version: "3.0.0".into(),
             server_password: senha.map(String::from),
+            account_token: None,
         }
     }
 

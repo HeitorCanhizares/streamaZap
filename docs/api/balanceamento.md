@@ -23,9 +23,20 @@ por quem transmite.** Escada padrão do app:
 | 1080p30 | 1920×1080 · 30 · 5000 | 1280×720 · 30 · 2500 | 640×360 · 15 · 400 |
 | 720p60 | 1280×720 · 60 · 4000 | 960×540 · 30 · 1200 | 640×360 · 15 · 400 |
 | 720p30 | 1280×720 · 30 · 2500 | 960×540 · 30 · 1200 | 640×360 · 15 · 400 |
-| Câmera | 1280×720 · 30 · 1500 | — | 640×360 · 15 · 300 |
+A câmera tem escada própria, escolhida à parte da tela (qualidade da câmera):
 
-(Largura real segue a proporção da tela/janela; a tabela supõe 16:9.)
+| Câmera | Camada 0 | Camada 1 | Camada 2 |
+|---|---|---|---|
+| 720p30 (padrão) | 1280×720 · 30 · 1500 | — | 640×360 · 15 · 300 |
+| 720p60 | 1280×720 · 60 · 2500 | 1280×720 · 30 · 1500 | 640×360 · 15 · 300 |
+| 1080p30 | 1920×1080 · 30 · 3000 | 1280×720 · 30 · 1500 | 640×360 · 15 · 300 |
+| 1080p60 | 1920×1080 · 60 · 4500 | 1280×720 · 30 · 1500 | 640×360 · 15 · 300 |
+
+A escada da câmera não promete mais do que o modo real da câmera: camada acima da resolução ou do
+fps do modo escolhido sai (uma câmera que só faz 720p30 anuncia a escada de 720p30, mesmo que a
+escolha tenha sido 1080p60).
+
+(Largura real segue a proporção da tela/janela/câmera; as tabelas supõem 16:9.)
 
 Cada camada pode ser codificada entre **50% e 100%** do seu `kbps` nominal (`piso` e `teto`).
 
@@ -33,7 +44,7 @@ Cada camada pode ser codificada entre **50% e 100%** do seu `kbps` nominal (`pis
 
 | Entrada | De onde vem |
 |---|---|
-| `banda_kbps` | `relatorio.banda_kbps` do espectador (descida); no modo direto, a estimativa do próprio publicador para aquele enlace |
+| `banda_kbps` | `relatorio.banda_kbps` do espectador (descida); no modo direto, a estimativa do próprio publicador para aquele enlace. **Na ponte do modo Online, `min(relatorio.banda_kbps, 12000)`**: teto de banda por espectador, igual para todos (`zap_proto::plan::VIEWER_MAX_KBPS`), aplicado antes do alocador e da sondagem |
 | `estado` | `relatorio.estado` (`sobrecarga` derruba na hora) |
 | `teto_pedido` | `assinar.camada_max` (ausente = 0) |
 | `teto_tamanho` | `assinar.tamanho`: miniatura → 2; principal/cheia → 0 |

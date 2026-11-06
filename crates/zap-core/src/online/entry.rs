@@ -215,6 +215,7 @@ async fn testa_servidor(shared: &Arc<Shared>, address: String, password: String)
             protocol: versao,
             app_version: env!("CARGO_PKG_VERSION").into(),
             server_password: if password.is_empty() { None } else { Some(password) },
+            account_token: None,
         };
         // O cliente logado só serve para validar a senha; é descartado.
         if let Err(e) = ServerClient::login(&base, req).await {

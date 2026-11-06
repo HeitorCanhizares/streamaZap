@@ -500,6 +500,7 @@ mod tests {
                 layers: Vec::new(),
                 audio: None,
                 address: None,
+                camera_layout: None,
             })
             .await
             .expect("envio");

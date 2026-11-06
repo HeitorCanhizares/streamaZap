@@ -133,6 +133,7 @@ impl OnlineSession {
             protocol: versao,
             app_version: env!("CARGO_PKG_VERSION").into(),
             server_password: if password.is_empty() { None } else { Some(password) },
+            account_token: None,
         };
         let client = ServerClient::login(&base, req).await?;
         // Só guarda `client` depois que o WebSocket abriu: falha não deixa estado parcial.

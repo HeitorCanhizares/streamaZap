@@ -34,6 +34,7 @@ impl OnlineRoom {
             layers: spec.layers,
             audio: spec.audio,
             address: None,
+            camera_layout: spec.camera_layout,
         };
         if let Err(e) = ws.send(msg).await {
             self.pending.lock().remove(&local_id);
@@ -71,6 +72,7 @@ impl OnlineRoom {
             track_id: track_id.into(),
             title,
             layers,
+            camera_layout: None,
         })
         .await?;
         Ok(())
@@ -184,6 +186,7 @@ mod tests {
             layers: Vec::new(),
             audio: None,
             address: None,
+            camera_layout: None,
         }
     }
 

@@ -12,6 +12,7 @@ pub mod framing;
 pub mod ids;
 pub mod media;
 pub mod music;
+pub mod plan;
 pub mod types;
 pub mod version;
 

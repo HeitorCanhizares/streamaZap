@@ -132,6 +132,7 @@ impl MemberRoom {
                 layers: spec.layers,
                 audio: spec.audio,
                 address: spec.address,
+                camera_layout: spec.camera_layout,
             })
             .await;
         if let Err(e) = enviado {
@@ -156,6 +157,7 @@ impl MemberRoom {
             track_id: track_id.into(),
             title,
             layers,
+            camera_layout: None,
         })
         .await
     }
@@ -261,6 +263,7 @@ mod tests {
             }],
             audio: None,
             address: None,
+            camera_layout: None,
         }
     }
 

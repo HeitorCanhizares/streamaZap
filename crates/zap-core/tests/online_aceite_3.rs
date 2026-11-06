@@ -35,6 +35,8 @@ fn info_falso() -> ServerInfo {
             max_bitrate_kbps: 10_000,
         },
         now: "2026-11-04T12:00:00Z".into(),
+        account: None,
+        requires_account: false,
     }
 }
 

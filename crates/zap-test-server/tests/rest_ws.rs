@@ -19,6 +19,7 @@ fn pedido(nome: &str, protocolo: u32, senha: Option<&str>) -> LoginRequest {
         protocol: protocolo,
         app_version: "3.0.0".into(),
         server_password: senha.map(String::from),
+        account_token: None,
     }
 }
 

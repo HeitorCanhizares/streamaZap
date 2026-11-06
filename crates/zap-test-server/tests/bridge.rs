@@ -78,6 +78,7 @@ fn pedido(nome: &str) -> LoginRequest {
         protocol: 4,
         app_version: "3.0.0".into(),
         server_password: None,
+        account_token: None,
     }
 }
 
@@ -167,6 +168,7 @@ async fn publicar(
             layers,
             audio,
             address: None,
+            camera_layout: None,
         })
         .await
         .unwrap();
