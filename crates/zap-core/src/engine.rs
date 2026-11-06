@@ -187,6 +187,7 @@ impl Shared {
                 let mut v = model.lock().to_view();
                 // No Online o id de participante vem do servidor (não é o `install_id`).
                 v.me_id = sala.my_id();
+                v.music = model.lock().music_view(&v.me_id, std::time::Instant::now());
                 Some(v)
             }
             None => None,

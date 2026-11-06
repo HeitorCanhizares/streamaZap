@@ -23,7 +23,15 @@ export interface TrackView { id: string; owner_id: string; kind: TrackKind; titl
 export interface ChatLine { id: string; author_id: string; author: string; color: string; text: string; ts: number }
 // code: codigo para convite (ex.: 'ZAP-7K2Q'); ausente na sala Local sem codigo.
 // me_id: meu id de participante nesta sala (no Online vem do servidor, diferente do install_id).
-export interface RoomView { id: string; name: string; mode: RoomMode; code?: string; participants: Participant[]; tracks: TrackView[]; chat: ChatLine[]; unread: number; me_id?: string }
+// owner_id: id do dono da sala (pode tirar qualquer música). music: fila de música (ausente = a sala
+// não tem: Online, ou o dono tem um app antigo).
+export interface RoomView { id: string; name: string; mode: RoomMode; code?: string; participants: Participant[]; tracks: TrackView[]; chat: ChatLine[]; unread: number; me_id?: string; owner_id?: string; music?: MusicView | null }
+// Música da sala (docs/planos/musica-da-sala.md). position_ms vale no instante at_ms (ms desde 1970).
+export interface MusicItemView { id: string; video_id: string; title: string; channel?: string; duration_ms?: number; live: boolean; added_by: string; added_by_name: string }
+export interface MusicNowView { item: MusicItemView; position_ms: number; at_ms: number; votes: string[]; needed: number }
+export interface MusicView { queue: MusicItemView[]; current?: MusicNowView | null }
+// O que o player descobriu sobre um item (musica.info).
+export interface MusicReport { item_id: string; duration_ms?: number; live?: boolean; title?: string; ended?: boolean; failed?: boolean }
 export interface TileView { tile: TileId; track_id: string; layer: number; width: number; height: number; fps: number; kbps: number; ping_ms: number; smoothing_ms: number; reason: string }
 /** Onde a cor é convertida para NV12: Video Processor da GPU ou reserva na CPU. */
 export type ConverterView = 'gpu' | 'cpu'

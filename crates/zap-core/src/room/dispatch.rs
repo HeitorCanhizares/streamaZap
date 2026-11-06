@@ -1,5 +1,7 @@
 //! Lógica pura do dono: o que fazer com cada mensagem de um membro.
 
+use std::time::Instant;
+
 use zap_proto::{ControlMsg, Participant};
 
 use super::model::{chat_message_msg, RoomModel, TrackSpec};
@@ -140,6 +142,52 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
             model.upsert_participant(autor.clone());
             vec![para(Target::All, ControlMsg::ParticipantUpdated { participant: autor })]
         }
+        ControlMsg::MusicAdd {
+            video_id,
+            title,
+            channel,
+        } => {
+            let agora = Instant::now();
+            match model.music.add(&autor, &video_id, title, channel, agora) {
+                Ok(()) => vec![estado_musica(model, agora)],
+                Err(e) => vec![erro(from, "musica_invalida", &e.message())],
+            }
+        }
+        ControlMsg::MusicRemove { item_id } => {
+            let agora = Instant::now();
+            let eh_dono = model.room.owner_id == from;
+            match model.music.remove(from, eh_dono, &item_id, agora) {
+                Ok(()) => vec![estado_musica(model, agora)],
+                Err(e) => vec![erro(from, "musica_invalida", &e.message())],
+            }
+        }
+        ControlMsg::MusicSkip { item_id, vote } => {
+            let agora = Instant::now();
+            let presentes = model.participants.len();
+            if model.music.vote(from, &item_id, vote, presentes, agora) {
+                vec![estado_musica(model, agora)]
+            } else {
+                Vec::new()
+            }
+        }
+        ControlMsg::MusicInfo {
+            item_id,
+            duration_ms,
+            live,
+            title,
+            ended,
+            failed,
+        } => {
+            let agora = Instant::now();
+            if model
+                .music
+                .info(&item_id, duration_ms, live, title, ended, failed, agora)
+            {
+                vec![estado_musica(model, agora)]
+            } else {
+                Vec::new()
+            }
+        }
         ControlMsg::Stats { ping_ms, .. } => {
             // `watching` fica como está: só a latência muda aqui.
             autor.latency_ms = Some(ping_ms);
@@ -155,10 +203,12 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
 pub fn on_member_joined(model: &mut RoomModel, p: Participant) -> Vec<Outgoing> {
     let id = p.id.clone();
     model.upsert_participant(p.clone());
-    vec![para(
-        Target::AllBut(id),
-        ControlMsg::ParticipantJoined { participant: p },
-    )]
+    vec![
+        para(Target::AllBut(id), ControlMsg::ParticipantJoined { participant: p }),
+        // Para todos: o novo recebe a música (e sabe que a sala tem), os outros veem o limite
+        // de votos mudar.
+        estado_musica(model, Instant::now()),
+    ]
 }
 
 /// Saída/queda: `trilha.removida` para cada trilha dele e `participante.saiu{motivo}` para todos
@@ -180,7 +230,16 @@ pub fn on_member_left(model: &mut RoomModel, id: &str, reason: &str) -> Vec<Outg
             reason: reason.into(),
         },
     ));
+    // Quem saiu perde o voto e o limite cai (pode pular na hora).
+    let agora = Instant::now();
+    model.music.left(id, model.participants.len(), agora);
+    saida.push(estado_musica(model, agora));
     saida
+}
+
+/// `musica.estado` de agora, para todos.
+fn estado_musica(model: &RoomModel, agora: Instant) -> Outgoing {
+    para(Target::All, model.music.msg(model.participants.len(), agora))
 }
 
 fn para(target: Target, msg: ControlMsg) -> Outgoing {
@@ -481,8 +540,11 @@ mod tests {
     fn entrada_notifica_os_outros() {
         let mut m = RoomModel::new(sala(), participante("p_1"));
         let out = on_member_joined(&mut m, participante("p_2"));
-        assert_eq!(out.len(), 1);
+        assert_eq!(out.len(), 2);
         assert_eq!(out[0].target, Target::AllBut("p_2".into()));
+        // A música vai para todos, até vazia: o novo fica sabendo que a sala tem música.
+        assert_eq!(out[1].target, Target::All);
+        assert!(matches!(&out[1].msg, ControlMsg::MusicState { queue, current: None } if queue.is_empty()));
         assert!(matches!(
             &out[0].msg,
             ControlMsg::ParticipantJoined { participant } if participant.id == "p_2"
@@ -498,8 +560,9 @@ mod tests {
         let outra = publicar(&mut m, "p_3", TrackKind::Camera);
 
         let out = on_member_left(&mut m, "p_2", "caiu");
-        assert_eq!(out.len(), 3);
+        assert_eq!(out.len(), 4);
         assert!(out.iter().all(|o| o.target == Target::All));
+        assert!(matches!(out[3].msg, ControlMsg::MusicState { .. }));
         // Trilhas primeiro (na ordem em que estavam), participante por último.
         assert_eq!(out[0].msg, ControlMsg::TrackRemoved { track_id: cam.clone() });
         assert_eq!(out[1].msg, ControlMsg::TrackRemoved { track_id: aud.clone() });
@@ -524,5 +587,120 @@ mod tests {
         assert_eq!(m.participants.len(), 3);
         assert_eq!(m.tracks.len(), 1);
         assert_eq!(m.tracks[0].id, id);
+    }
+
+    fn musica_de(out: &[Outgoing]) -> (Vec<zap_proto::MusicItem>, Option<zap_proto::MusicNow>) {
+        match out {
+            [Outgoing {
+                target: Target::All,
+                msg: ControlMsg::MusicState { queue, current },
+            }] => (queue.clone(), current.clone()),
+            outro => panic!("esperava só musica.estado para todos, veio {outro:?}"),
+        }
+    }
+
+    fn adicionar(video: &str) -> ControlMsg {
+        ControlMsg::MusicAdd {
+            video_id: video.into(),
+            title: Some("Música".into()),
+            channel: None,
+        }
+    }
+
+    #[test]
+    fn musica_adicionar_avisa_todos_e_recusa_link_ruim() {
+        let mut m = modelo();
+        let (fila, atual) = musica_de(&handle_member_msg(&mut m, "p_2", adicionar("aaaaaaaaaaa")));
+        assert!(fila.is_empty());
+        let atual = atual.expect("começou a tocar");
+        assert_eq!(atual.item.added_by, "p_2");
+        assert_eq!(atual.item.added_by_name, "Pessoa p_2");
+        assert_eq!(atual.needed, 2, "3 pessoas: precisa de 2");
+
+        let out = handle_member_msg(&mut m, "p_2", adicionar("curto"));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].target, Target::Only("p_2".into()));
+        assert!(matches!(&out[0].msg, ControlMsg::Error { code, .. } if code == "musica_invalida"));
+    }
+
+    #[test]
+    fn musica_voto_e_permissao_de_remover() {
+        let mut m = modelo();
+        let (_, atual) = musica_de(&handle_member_msg(&mut m, "p_2", adicionar("aaaaaaaaaaa")));
+        let id = atual.unwrap().item.id;
+        handle_member_msg(&mut m, "p_2", adicionar("bbbbbbbbbbb"));
+        // p_3 não pôs a música nem é dono: não pula direto.
+        let out = handle_member_msg(&mut m, "p_3", ControlMsg::MusicRemove { item_id: id.clone() });
+        assert!(matches!(&out[0].msg, ControlMsg::Error { .. }));
+        // Um voto de 2: só muda os votos. Voto repetido: nada a enviar.
+        let (_, atual) = musica_de(&handle_member_msg(
+            &mut m,
+            "p_3",
+            ControlMsg::MusicSkip {
+                item_id: id.clone(),
+                vote: true,
+            },
+        ));
+        assert_eq!(atual.unwrap().votes, vec!["p_3".to_string()]);
+        assert!(handle_member_msg(
+            &mut m,
+            "p_3",
+            ControlMsg::MusicSkip {
+                item_id: id.clone(),
+                vote: true
+            }
+        )
+        .is_empty());
+        // O dono (p_1) pula direto.
+        let (_, atual) = musica_de(&handle_member_msg(
+            &mut m,
+            "p_1",
+            ControlMsg::MusicRemove { item_id: id },
+        ));
+        assert_eq!(atual.unwrap().item.video_id, "bbbbbbbbbbb");
+    }
+
+    #[test]
+    fn musica_info_de_quem_nao_esta_na_sala_e_ignorada() {
+        let mut m = modelo();
+        let (_, atual) = musica_de(&handle_member_msg(&mut m, "p_2", adicionar("aaaaaaaaaaa")));
+        let id = atual.unwrap().item.id;
+        let info = ControlMsg::MusicInfo {
+            item_id: id.clone(),
+            duration_ms: Some(60_000),
+            live: None,
+            title: None,
+            ended: false,
+            failed: true,
+        };
+        assert!(handle_member_msg(&mut m, "p_fantasma", info.clone()).is_empty());
+        // De alguém da sala, o erro do player pula na hora (e a fila acaba).
+        let (_, atual) = musica_de(&handle_member_msg(&mut m, "p_3", info));
+        assert!(atual.is_none());
+    }
+
+    #[test]
+    fn saida_tira_o_voto_e_pode_pular() {
+        let mut m = modelo();
+        let (_, atual) = musica_de(&handle_member_msg(&mut m, "p_2", adicionar("aaaaaaaaaaa")));
+        let id = atual.unwrap().item.id;
+        handle_member_msg(&mut m, "p_2", adicionar("bbbbbbbbbbb"));
+        // 3 pessoas, precisa de 2: p_2 vota.
+        handle_member_msg(
+            &mut m,
+            "p_2",
+            ControlMsg::MusicSkip {
+                item_id: id,
+                vote: true,
+            },
+        );
+        // p_3 sai: 2 pessoas, precisa de 1, já tem 1: pula.
+        let out = on_member_left(&mut m, "p_3", "saiu");
+        match &out.last().unwrap().msg {
+            ControlMsg::MusicState {
+                current: Some(atual), ..
+            } => assert_eq!(atual.item.video_id, "bbbbbbbbbbb"),
+            outro => panic!("veio {outro:?}"),
+        }
     }
 }

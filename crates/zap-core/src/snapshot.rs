@@ -185,6 +185,45 @@ pub struct RoomView {
     /// Vazio (exemplos e testes) não sai no JSON.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub me_id: String,
+    /// Id de participante do dono da sala (quem pode tirar qualquer música da fila).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub owner_id: String,
+    /// Música da sala; ausente = a sala não tem (Online, ou dono com app antigo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music: Option<MusicView>,
+}
+
+/// Fila de música da sala (`docs/planos/musica-da-sala.md`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct MusicView {
+    pub queue: Vec<MusicItemView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<MusicNowView>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct MusicItemView {
+    pub id: String,
+    pub video_id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    pub live: bool,
+    pub added_by: String,
+    pub added_by_name: String,
+}
+
+/// O que está tocando: a posição da sala em `position_ms` vale no instante `at_ms` (relógio de
+/// parede, ms desde 1970); a interface soma o tempo que passou desde então.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct MusicNowView {
+    pub item: MusicItemView,
+    pub position_ms: i64,
+    pub at_ms: u64,
+    pub votes: Vec<String>,
+    pub needed: u32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -425,6 +464,8 @@ impl Snapshot {
                 }],
                 unread: 0,
                 me_id: String::new(),
+                music: None,
+                owner_id: String::new(),
             }),
             tiles: vec![TileView {
                 tile: 0,

@@ -13,6 +13,7 @@ import {
   celulasDaPrincipal,
   inviteText,
   lugaresDasStreams,
+  MUSICA,
   ownTracks,
   streamsDaSala,
   volumeInicial,
@@ -20,6 +21,7 @@ import {
   type VolumePessoa,
 } from './salaModel'
 import { useAssinaturas, type PedidoStream } from './useAssinaturas'
+import { CamadaMusica, MusicaContexto, type MusicaCtx } from './musica/BlocoMusica'
 
 export interface SalaScreenProps { onLeft: () => void }
 
@@ -61,6 +63,13 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     gravarVoceOculto(v)
   }
   const [painelTx, setPainelTx] = useState(false)
+  // Música da sala: o volume que escolhi para ela e se o player está num anúncio (ou carregando).
+  const [volMusica, setVolMusica] = useState<VolumePessoa>({ vol: 80, muted: false })
+  const [musicaTravada, setMusicaTravada] = useState(false)
+  // Onde a célula ou o cartão da música deixou a vaga do player, e a coluna que rola (a camada do
+  // player é filha dela).
+  const [vagaMusica, setVagaMusica] = useState<HTMLElement | null>(null)
+  const colunaRef = useRef<HTMLDivElement | null>(null)
 
   // Meu id nesta sala (no Online vem do servidor); a câmera está ligada se a trilha dela existe.
   const meId = room?.me_id || snap.me.install_id
@@ -77,6 +86,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const cantos = new Set(celulas.flatMap((c) => (c.pip ? [c.pip.trackId] : [])))
   // A minha miniatura com o cartão Você oculto não é assinada (não gasta codificação à toa).
   const pedidos: PedidoStream[] = streams
+    // A música não é assinada: cada um toca o vídeo no próprio player.
+    .filter((s) => s.kind !== 'musica')
     .filter((s) => lugares[s.trackId] !== 'fechada')
     .filter((s) => !(s.mine && voceOculto && lugares[s.trackId] === 'faixa'))
     .map((s) => ({
@@ -206,80 +217,102 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     void api.chatSend(text).catch(() => {})
   }
 
+  const atualMusica = room.music?.current ?? null
+  // Fechada = não toca para mim (o player é desmontado).
+  const musicaAberta = !!atualMusica && lugares[MUSICA] !== undefined && lugares[MUSICA] !== 'fechada'
+  const musica: MusicaCtx | null = atualMusica
+    ? {
+        atual: atualMusica,
+        volume: volMusica,
+        onVolume: setVolMusica,
+        volumeGeral: volume,
+        mudoGeral: muted,
+        onReport: (r) => void Promise.resolve(api.musicReport(r)).catch(() => {}),
+        // Sem player tocando não há anúncio a avisar.
+        travado: musicaTravada && musicaAberta,
+        onTravado: setMusicaTravada,
+        registrarVaga: setVagaMusica,
+      }
+    : null
+
   return (
     // Ocupa a altura da janela: o vídeo e a faixa rolam do lado esquerdo e o chat tem a rolagem
-    // dele, sem a página inteira crescer com as mensagens.
-    <div style={{ display: 'flex', alignItems: 'stretch', height: '100%', minHeight: 0 }}>
-      <div data-testid="sala-coluna" style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-        <SalaPrincipal
-          room={room}
-          celulas={celulas}
-          tiles={snap.tiles}
-          canvasDe={canvasDe}
-          temOutras={naFaixa.length > 0 || minhasForaDaPrincipal}
-          temFaixa={temCartoes ? true : temBotoes ? 'botao' : false}
-          volumeDe={volumeDe}
-          onVolumePessoa={onVolumePessoa}
-          onMover={onMover}
-          share={snap.share}
-          smoothingAuto={smoothingAuto}
-          onSmoothingAuto={onSmoothingAuto}
-          onToggleCamera={onToggleCamera}
-          onToggleShare={onToggleShare}
-          onStopShare={onStopShare}
-          onLeave={() => { void onLeave() }}
-          onFullscreen={onFullscreen}
-          muted={muted}
-          volume={volume}
-          camOn={cameraOn}
-          panelOpen={panelOpen}
-          onOpenPanel={() => setPanelOpen(true)}
-          onToggleMute={() => setMuted((m) => !m)}
-          onVolume={setVolume}
-          invite={invite}
-        />
-        {(aviso || naFaixa.length > 0 || mostrarVoce) && (
-          <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
-            <SalaTiles
-              room={room}
-              streams={naFaixa}
-              lugares={lugares}
-              canvasDe={canvasDe}
-              volumeDe={volumeDe}
-              onVolumePessoa={onVolumePessoa}
-              onMover={onMover}
-              mostrarVoce={mostrarVoce}
-              voceOculto={voceOculto}
-              onVoceOculto={setVoceOculto}
-              minhaTela={minhaTela}
-              minhaCam={minhaCam}
-              meId={meId}
-              camOn={cameraOn}
-              sharing={!!snap.share}
-              onToggleCam={onToggleCamera}
-              onToggleShare={onToggleShare}
-            />
-          </div>
+    // dele, sem a página inteira crescer com as mensagens. A música da sala vai pelo contexto.
+    <MusicaContexto.Provider value={musica}>
+      <div style={{ display: 'flex', alignItems: 'stretch', height: '100%', minHeight: 0 }}>
+        <div ref={colunaRef} data-testid="sala-coluna" style={{ position: 'relative', flex: '1 1 auto', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          <SalaPrincipal
+            room={room}
+            celulas={celulas}
+            tiles={snap.tiles}
+            canvasDe={canvasDe}
+            temOutras={naFaixa.length > 0 || minhasForaDaPrincipal}
+            temFaixa={temCartoes ? true : temBotoes ? 'botao' : false}
+            volumeDe={volumeDe}
+            onVolumePessoa={onVolumePessoa}
+            onMover={onMover}
+            share={snap.share}
+            smoothingAuto={smoothingAuto}
+            onSmoothingAuto={onSmoothingAuto}
+            onToggleCamera={onToggleCamera}
+            onToggleShare={onToggleShare}
+            onStopShare={onStopShare}
+            onLeave={() => { void onLeave() }}
+            onFullscreen={onFullscreen}
+            muted={muted}
+            volume={volume}
+            camOn={cameraOn}
+            panelOpen={panelOpen}
+            onOpenPanel={() => setPanelOpen(true)}
+            onToggleMute={() => setMuted((m) => !m)}
+            onVolume={setVolume}
+            invite={invite}
+          />
+          {(aviso || naFaixa.length > 0 || mostrarVoce) && (
+            <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
+              <SalaTiles
+                room={room}
+                streams={naFaixa}
+                lugares={lugares}
+                canvasDe={canvasDe}
+                volumeDe={volumeDe}
+                onVolumePessoa={onVolumePessoa}
+                onMover={onMover}
+                mostrarVoce={mostrarVoce}
+                voceOculto={voceOculto}
+                onVoceOculto={setVoceOculto}
+                minhaTela={minhaTela}
+                minhaCam={minhaCam}
+                meId={meId}
+                camOn={cameraOn}
+                sharing={!!snap.share}
+                onToggleCam={onToggleCamera}
+                onToggleShare={onToggleShare}
+              />
+            </div>
+          )}
+          {/* O player da música, um só: segue a vaga da célula ou do cartão sem mudar de lugar no DOM. */}
+          {musicaAberta && <CamadaMusica coluna={colunaRef} vaga={vagaMusica} />}
+        </div>
+        {painelTx && (
+          <SalaTransmissao
+            share={snap.share}
+            camOn={cameraOn}
+            onToggleCamera={onToggleCamera}
+            onCameraTrocada={onCameraTrocada}
+            onClose={() => setPainelTx(false)}
+          />
+        )}
+        {panelOpen && (
+          <SalaPainel
+            room={room}
+            onSend={onSend}
+            meId={meId}
+            onClose={() => setPanelOpen(false)}
+          />
         )}
       </div>
-      {painelTx && (
-        <SalaTransmissao
-          share={snap.share}
-          camOn={cameraOn}
-          onToggleCamera={onToggleCamera}
-          onCameraTrocada={onCameraTrocada}
-          onClose={() => setPainelTx(false)}
-        />
-      )}
-      {panelOpen && (
-        <SalaPainel
-          room={room}
-          onSend={onSend}
-          meId={meId}
-          onClose={() => setPanelOpen(false)}
-        />
-      )}
-    </div>
+    </MusicaContexto.Provider>
   )
 }

@@ -99,6 +99,10 @@ impl MemberRoom {
         tx.send(&msg).await?;
         Ok(())
     }
+    /// Pedido de música para o dono (a resposta chega como `musica.estado` ou `erro`).
+    pub async fn music(&self, msg: ControlMsg) -> Result<(), CoreError> {
+        self.send(msg).await
+    }
     pub async fn send_chat(&self, text: String) -> Result<(), CoreError> {
         if text.trim().is_empty() {
             return Err(CoreError::Invalid("mensagem vazia".into()));

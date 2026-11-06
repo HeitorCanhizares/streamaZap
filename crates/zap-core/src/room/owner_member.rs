@@ -338,4 +338,47 @@ mod tests {
         sala.close().await;
         Ok(())
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn musica_do_membro_chega_a_todos_e_o_voto_pula() -> Result<(), Erro> {
+        let (sala, _ev) = dono().await?;
+        let mut a = entra(&sala, "Ana").await?;
+        // Entrar já traz a música (vazia): Ana fica sabendo que a sala tem música.
+        let m = espera(&mut a, |m| matches!(m, ControlMsg::MusicState { .. })).await?;
+        assert!(matches!(m, ControlMsg::MusicState { ref queue, current: None } if queue.is_empty()));
+
+        a.tx.send(&ControlMsg::MusicAdd {
+            video_id: "aaaaaaaaaaa".into(),
+            title: Some("Primeira".into()),
+            channel: None,
+        })
+        .await?;
+        let atual = match espera(&mut a, |m| matches!(m, ControlMsg::MusicState { current: Some(_), .. })).await? {
+            ControlMsg::MusicState {
+                current: Some(atual), ..
+            } => atual,
+            outra => return Err(format!("veio {outra:?}").into()),
+        };
+        assert_eq!(atual.item.added_by, a.id);
+        assert_eq!(atual.item.title, "Primeira");
+        assert_eq!(atual.needed, 1, "2 pessoas: 1 voto");
+
+        // O dono vê a mesma música na visão dele.
+        let visao = sala
+            .model
+            .lock()
+            .music_view(&sala.my_id, std::time::Instant::now())
+            .ok_or("o dono não tem música")?;
+        assert_eq!(visao.current.map(|c| c.item.id), Some(atual.item.id.clone()));
+
+        // Com 2 pessoas, o voto de Ana pula (e a fila acaba).
+        a.tx.send(&ControlMsg::MusicSkip {
+            item_id: atual.item.id.clone(),
+            vote: true,
+        })
+        .await?;
+        espera(&mut a, |m| matches!(m, ControlMsg::MusicState { current: None, .. })).await?;
+        sala.close().await;
+        Ok(())
+    }
 }

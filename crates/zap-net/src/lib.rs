@@ -16,6 +16,7 @@ pub mod online;
 pub mod probe;
 pub mod report;
 pub mod tls;
+pub mod youtube;
 
 pub use clock::Clock;
 pub use error::NetError;

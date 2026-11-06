@@ -152,6 +152,8 @@ mod tests {
             chat: vec![],
             unread: 0,
             me_id: String::new(),
+            music: None,
+            owner_id: String::new(),
         }
     }
 

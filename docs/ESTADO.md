@@ -171,6 +171,23 @@ Quarta leva (áudio, depois da v3.1.2):
   - na captura, um app que falhava uma vez nunca mais era tentado: agora volta depois de 1, 2, 4,
     5 s, e um app fechado e aberto de novo é achado pelo executável (`app_tree::root_by_exe`).
 
+Música da sala (depois da v3.1.3; plano em `docs/planos/musica-da-sala.md`):
+- Fila de vídeos e lives do YouTube tocada junto: cada um toca no próprio player (embed oficial,
+  controlado por `postMessage`, sem o script do YouTube na página) na posição da sala. Pula com
+  votos de metade da sala; quem pôs e o dono pulam direto. Quem pega anúncio volta para a
+  posição da sala quando ele acaba (a sala nunca espera).
+- Núcleo: `zap_core::music` (fila do dono, pura), mensagens `musica.*` (`docs/api/mensagens.md`),
+  `zap_net::youtube::oembed` (título; recusa vídeo que não toca fora do YouTube), laço de 1 s do
+  dono, `RoomView.music`/`owner_id`.
+- Interface: aba **Música** no painel e a música como transmissão (principal, faixa ou fechada),
+  com os controles fora da área do player (termos do YouTube). CSP com `frame-src` do YouTube e
+  `img-src` do `i.ytimg.com`.
+- **Só no modo Local.** No Online o servidor precisa implementar as mensagens `musica.*` (mesmas
+  regras, ele como fonte); até lá a aba explica e a música não aparece.
+- Falta testar com dois PCs de verdade (sincronia, anúncio, live) e no app instalado (o embed com
+  a origem `http://tauri.localhost`). Na prévia do navegador o player tocou e respondeu aos
+  comandos.
+
 ## Atualização da rodada 4 (M2b, 2026-11-05, fechamento)
 
 Conversão para NV12 pela CPU (plano `docs/planos/m2b-conversao-cpu.md`). `zap-gpu` ganhou o

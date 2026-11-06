@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { RoomView } from '../../bridge/types'
 import { Avatar } from '../../components/Avatar'
 import { CanvasSlot } from './CanvasSlot'
+import { CartaoMusica } from './musica/BlocoMusica'
 import { SalaVoce } from './SalaVoce'
 import { kindLabel, type Lugar, type Stream, type VolumePessoa } from './salaModel'
 
@@ -162,7 +163,9 @@ export function SalaTiles(p: SalaTilesProps): ReactNode {
   const temBotoes = fechadas.length > 0 || (mostrarVoce && p.voceOculto)
   return (
     <div role="group" aria-label="Transmissões na sala" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
-      {abertas.map((s) => (
+      {abertas.map((s) => s.kind === 'musica' ? (
+        <CartaoMusica key={s.trackId} onMover={p.onMover} />
+      ) : (
         <Cartao
           key={s.trackId}
           room={room}
@@ -193,6 +196,14 @@ export function SalaTiles(p: SalaTilesProps): ReactNode {
         // Miniaturas fechadas: um botão pequeno cada, na linha de baixo inteira.
         <div role="group" aria-label="Miniaturas fechadas" style={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {fechadas.map((s) => {
+            if (s.kind === 'musica') {
+              return (
+                <button key={s.trackId} type="button" className="zp-ghost" onClick={() => p.onMover(s.trackId, 'faixa')} aria-label="Ouvir a música da sala de novo" title="Ouvir a música da sala de novo (fechada: não toca para você)" style={BOTAO_FECHADA}>
+                  <IconeReabrir />
+                  <span>Música da sala</span>
+                </button>
+              )
+            }
             const nome = room.participants.find((x) => x.id === s.ownerId)?.name ?? 'Alguém'
             const soSom = s.kind === 'audio'
             const rotulo = soSom ? `Ouvir ${nome} de novo` : `Reabrir ${kindLabel(s.kind).toLowerCase()} de ${nome}`

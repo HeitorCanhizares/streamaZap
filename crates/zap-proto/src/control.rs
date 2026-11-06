@@ -367,6 +367,88 @@ pub enum ControlMsg {
     },
     #[serde(rename = "relatorio")]
     Report(Report),
+    // música da sala (docs/planos/musica-da-sala.md)
+    /// Pôr um vídeo do YouTube na fila. Título e canal vêm de quem adiciona (oEmbed); faltando,
+    /// o player completa depois com `musica.info`.
+    #[serde(rename = "musica.adicionar")]
+    MusicAdd {
+        video_id: String,
+        #[serde(rename = "titulo", default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(rename = "canal", default, skip_serializing_if = "Option::is_none")]
+        channel: Option<String>,
+    },
+    /// Tirar um item da fila; o item que está tocando = pular direto (quem pôs ou o dono).
+    #[serde(rename = "musica.remover")]
+    MusicRemove { item_id: String },
+    /// Voto para pular o item atual (`voto: false` desfaz).
+    #[serde(rename = "musica.pular")]
+    MusicSkip {
+        item_id: String,
+        #[serde(rename = "voto")]
+        vote: bool,
+    },
+    /// O que o player de quem manda descobriu sobre o item.
+    #[serde(rename = "musica.info")]
+    MusicInfo {
+        item_id: String,
+        #[serde(rename = "duracao_ms", default, skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+        #[serde(rename = "ao_vivo", default, skip_serializing_if = "Option::is_none")]
+        live: Option<bool>,
+        #[serde(rename = "titulo", default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        /// O vídeo (ou a live) chegou ao fim no player.
+        #[serde(rename = "terminou", default, skip_serializing_if = "std::ops::Not::not")]
+        ended: bool,
+        /// O player não consegue tocar o item (removido, privado, sem permissão de embed).
+        #[serde(rename = "erro", default, skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
+    },
+    /// Estado completo da música, para todos a cada mudança e para quem entra.
+    #[serde(rename = "musica.estado")]
+    MusicState {
+        #[serde(rename = "fila")]
+        queue: Vec<MusicItem>,
+        #[serde(rename = "atual", default, skip_serializing_if = "Option::is_none")]
+        current: Option<MusicNow>,
+    },
+}
+
+/// Um vídeo da fila de música da sala.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MusicItem {
+    pub id: String,
+    /// Id do vídeo no YouTube (11 caracteres).
+    pub video_id: String,
+    #[serde(rename = "titulo")]
+    pub title: String,
+    #[serde(rename = "canal", default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(rename = "duracao_ms", default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(rename = "ao_vivo", default)]
+    pub live: bool,
+    /// `participante_id` de quem adicionou.
+    #[serde(rename = "por")]
+    pub added_by: String,
+    #[serde(rename = "por_nome")]
+    pub added_by_name: String,
+}
+
+/// O item tocando agora.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MusicNow {
+    pub item: MusicItem,
+    /// Posição da sala no instante do envio; negativa = ainda vai começar.
+    #[serde(rename = "posicao_ms")]
+    pub position_ms: i64,
+    /// `participante_id` de quem votou para pular.
+    #[serde(rename = "votos", default)]
+    pub votes: Vec<String>,
+    /// Votos que fazem pular (metade da sala, arredondando para cima).
+    #[serde(rename = "precisa")]
+    pub needed: u32,
 }
 
 #[cfg(test)]
@@ -378,6 +460,8 @@ pub(crate) fn roundtrip(json: &str) -> ControlMsg {
     msg
 }
 
+#[cfg(test)]
+mod tests_music;
 #[cfg(test)]
 mod tests_rooms; // tarefa proto-06
 #[cfg(test)]

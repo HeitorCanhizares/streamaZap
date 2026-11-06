@@ -1,7 +1,24 @@
 // Dados do design para uso fora do Tauri (tarefa ui-07).
 // Cada função monta objetos NOVOS a cada chamada: nada aqui é compartilhado,
 // então quem mutar o retorno não altera o mock das próximas chamadas.
-import type { Settings, Snapshot, Sources } from './types'
+import type { MusicView, Settings, Snapshot, Sources } from './types'
+
+/** Música de exemplo: um vídeo tocando há 5 s (um voto de 2 para pular) e duas na fila (uma live). */
+export function mockMusic(agoraMs = Date.now()): MusicView {
+  return {
+    current: {
+      item: { id: 'mu_1', video_id: 'jNQXAC9IVRw', title: 'Me at the zoo', channel: 'jawed', duration_ms: 19_000, live: false, added_by: 'p-ju', added_by_name: 'Ju' },
+      position_ms: 5_000,
+      at_ms: agoraMs,
+      votes: ['p-rafa'],
+      needed: 2,
+    },
+    queue: [
+      { id: 'mu_2', video_id: 'jfKfPfyJRdk', title: 'lofi hip hop radio', channel: 'Lofi Girl', live: true, added_by: 'p-marcao', added_by_name: 'Marcão' },
+      { id: 'mu_3', video_id: 'dQw4w9WgXcQ', title: 'Never Gonna Give You Up', channel: 'Rick Astley', duration_ms: 213_000, live: false, added_by: 'mock-install', added_by_name: 'Você' },
+    ],
+  }
+}
 
 export const mockSnapshot = (): Snapshot => ({
   version: 1,
@@ -117,6 +134,9 @@ export const mockSnapshot = (): Snapshot => ({
       { id: 'c4', author_id: 'p-dudu', author: 'Dudu', color: '#FF9E5C', text: 'abri o mapa, clica no meu quad', ts: 1767312780000 },
     ],
     unread: 0,
+    owner_id: 'p-marcao',
+    // A prévia no navegador mostra a música com ?musica no endereço; os testes usam mockMusic().
+    ...(typeof globalThis.location !== 'undefined' && globalThis.location.search.includes('musica') ? { music: mockMusic() } : {}),
   },
   tiles: [
     {

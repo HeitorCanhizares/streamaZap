@@ -6,6 +6,7 @@ import { api } from '../../bridge/api'
 import { Badge } from '../../components/Badge'
 import { PainelChat } from './PainelChat'
 import { PainelPessoas } from './PainelPessoas'
+import { PainelMusica } from './musica/PainelMusica'
 
 export interface SalaPainelProps {
   room: RoomView
@@ -22,7 +23,7 @@ const digitarPadrao = (typing: boolean): void => {
   void api.chatTyping(typing).catch(() => {})
 }
 
-type Aba = 'chat' | 'pessoas'
+type Aba = 'chat' | 'pessoas' | 'musica'
 
 // Abas no estilo do design: 36px, raio 9; a ativa ganha fundo escuro e texto verde.
 const ABA_BASE = {
@@ -48,11 +49,12 @@ export function SalaPainel({ room, onSend, meId = '', onClose, onTyping = digita
   const abas: { value: Aba; label: string; badge: number }[] = [
     { value: 'chat', label: 'Chat', badge: room.unread },
     { value: 'pessoas', label: `Pessoas · ${room.participants.length}`, badge: 0 },
+    { value: 'musica', label: 'Música', badge: room.music?.queue.length ?? 0 },
   ]
 
   return (
     <aside
-      aria-label="Chat e pessoas"
+      aria-label="Chat, pessoas e música"
       style={{
         flex: '1 1 340px',
         maxWidth: 400,
@@ -104,8 +106,10 @@ export function SalaPainel({ room, onSend, meId = '', onClose, onTyping = digita
 
       {aba === 'chat' ? (
         <PainelChat chat={room.chat} meId={meId} onSend={onSend} onTyping={onTyping} />
-      ) : (
+      ) : aba === 'pessoas' ? (
         <PainelPessoas participants={room.participants} meId={meId} />
+      ) : (
+        <PainelMusica room={room} meId={meId} />
       )}
     </aside>
   )

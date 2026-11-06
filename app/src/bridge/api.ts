@@ -3,7 +3,7 @@ import type * as Core from '@tauri-apps/api/core'
 import { mockDiagReport, mockDiagText } from './mockDiag'
 import { mockSettings, mockSnapshot, mockSources } from './mock'
 import { decodeThumbnail } from './thumbnail'
-import type { CreateRoom, DiagReport, FirewallResult, UpdateInfo, JoinTarget, ServerTestResult, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId } from './types'
+import type { CreateRoom, DiagReport, FirewallResult, UpdateInfo, JoinTarget, MusicReport, ServerTestResult, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId } from './types'
 
 export const isTauri = (): boolean => '__TAURI_INTERNALS__' in globalThis
 
@@ -168,6 +168,22 @@ export const api = {
     await call('set_smoothing', { auto, ms })
   },
 
+  musicAdd: async (link: string): Promise<void> => {
+    if (!isTauri()) return
+    await call('music_add', { link })
+  },
+  musicRemove: async (itemId: string): Promise<void> => {
+    if (!isTauri()) return
+    await call('music_remove', { itemId })
+  },
+  musicVote: async (itemId: string, vote: boolean): Promise<void> => {
+    if (!isTauri()) return
+    await call('music_vote', { itemId, vote })
+  },
+  musicReport: async (report: MusicReport): Promise<void> => {
+    if (!isTauri()) return
+    await call('music_report', { report })
+  },
   chatSend: async (text: string): Promise<void> => {
     if (!isTauri()) return
     await call('chat_send', { text })

@@ -81,6 +81,7 @@ impl OwnerRoom {
             closed: std::sync::atomic::AtomicBool::new(false),
         });
         tokio::spawn(accept_loop(this.clone()));
+        tokio::spawn(music_loop(Arc::downgrade(&this)));
         Ok(this)
     }
 
@@ -114,6 +115,22 @@ impl OwnerRoom {
                 let _ = tx.send(&out.msg).await;
             }
         }
+    }
+
+    /// Pedido de música do próprio dono: passa pela mesma regra dos membros e avisa todos.
+    pub async fn music(&self, msg: ControlMsg) -> Result<(), CoreError> {
+        let outs = {
+            let mut model = self.model.lock();
+            handle_member_msg(&mut model, &self.my_id, msg)
+        };
+        for out in &outs {
+            if let ControlMsg::Error { message, .. } = &out.msg {
+                return Err(CoreError::Invalid(message.clone()));
+            }
+        }
+        self.send_all(outs).await;
+        let _ = self.ctx.events.send(RoomEvent::Changed);
+        Ok(())
     }
 
     pub async fn send_chat(&self, text: String) -> Result<(), CoreError> {
@@ -246,6 +263,46 @@ impl OwnerRoom {
             conn.close(0u32.into(), b"sala encerrada");
         }
         self.endpoint.close(0u32.into(), b"sala encerrada");
+    }
+}
+
+/// Com música tocando, o estado vai de novo a todos a cada tantos tiques do `music_loop`: conserta
+/// um membro que ficou com um estado velho (dois envios cruzados) e o atraso acumulado no espelho.
+const REENVIO_MUSICA_TIQUES: u32 = 10;
+
+/// A cada 1 s, avança a música quando o vídeo atual acaba e avisa todos (`musica.estado`); com
+/// música tocando, reenvia o estado a cada 10 s. Para quando a sala fecha ou deixa de existir.
+async fn music_loop(room: std::sync::Weak<OwnerRoom>) {
+    let mut tique = tokio::time::interval(std::time::Duration::from_secs(1));
+    tique.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut n: u32 = 0;
+    loop {
+        tique.tick().await;
+        n = n.wrapping_add(1);
+        let Some(room) = room.upgrade() else {
+            return;
+        };
+        if room.closed.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let outs = {
+            let mut model = room.model.lock();
+            let agora = std::time::Instant::now();
+            let reenviar = n % REENVIO_MUSICA_TIQUES == 0 && !model.music.is_empty();
+            if model.music.tick(agora) || reenviar {
+                let msg = model.music.msg(model.participants.len(), agora);
+                vec![Outgoing {
+                    target: Target::All,
+                    msg,
+                }]
+            } else {
+                Vec::new()
+            }
+        };
+        if !outs.is_empty() {
+            room.send_all(outs).await;
+            let _ = room.ctx.events.send(RoomEvent::Changed);
+        }
     }
 }
 

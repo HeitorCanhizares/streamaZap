@@ -4,7 +4,8 @@ use std::collections::VecDeque;
 
 use zap_proto::{AudioSpec, ControlMsg, LayerSpec, MediaAddress, Participant, Room, Track, TrackKind};
 
-use crate::snapshot::{self, RoomView, TrackView, TrackViewKind};
+use crate::music::{MusicMirror, MusicQueue};
+use crate::snapshot::{self, MusicView, RoomView, TrackView, TrackViewKind};
 use crate::types::ChatLine;
 use crate::util::{iso8601_from_ms, new_id, now_ms};
 use crate::CoreError;
@@ -29,6 +30,10 @@ pub struct RoomModel {
     pub chat: VecDeque<ChatLine>,
     pub unread: u32,
     pub(crate) next_number: u16,
+    /// Fila de música (só o dono a usa: ele é a fonte da verdade).
+    pub music: MusicQueue,
+    /// Último `musica.estado` recebido do dono (só nos membros).
+    pub music_mirror: Option<MusicMirror>,
 }
 
 /// Próximo número livre: maior número existente + 1 (1 se não há trilhas).
@@ -47,6 +52,8 @@ impl RoomModel {
             chat: VecDeque::new(),
             unread: 0,
             next_number: 1,
+            music: MusicQueue::default(),
+            music_mirror: None,
         }
     }
     /// Espelho de um membro a partir de `bem_vindo`/`sala.estado`.
@@ -59,6 +66,8 @@ impl RoomModel {
             chat: VecDeque::new(),
             unread: 0,
             next_number,
+            music: MusicQueue::default(),
+            music_mirror: None,
         }
     }
     /// Substitui participantes e trilhas (mantém o chat).
@@ -217,7 +226,19 @@ impl RoomModel {
             chat: self.chat.iter().cloned().collect(),
             unread: self.unread,
             me_id: String::new(),
+            owner_id: self.room.owner_id.clone(),
+            music: None,
         }
+    }
+    /// Música para a interface: o dono lê a própria fila; o membro, o último `musica.estado`
+    /// (com a posição andada desde que chegou). `None` = sem música (sala Online, ou o dono tem
+    /// um app que ainda não manda `musica.estado`).
+    pub fn music_view(&self, my_id: &str, agora: std::time::Instant) -> Option<MusicView> {
+        if let Some(m) = &self.music_mirror {
+            return Some(m.view(agora));
+        }
+        let sou_dono = self.room.mode == zap_proto::RoomMode::Local && self.room.owner_id == my_id;
+        sou_dono.then(|| MusicMirror::from_msg(&self.music.msg(self.participants.len(), agora), agora).view(agora))
     }
 }
 

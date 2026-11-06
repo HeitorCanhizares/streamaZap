@@ -4,6 +4,7 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import type { RoomView, ShareView, TileView } from '../../bridge/types'
 import { VideoFrame } from '../../components/VideoFrame'
 import { CanvasSlot } from './CanvasSlot'
+import { CelulaMusica } from './musica/BlocoMusica'
 import { SalaCabecalho } from './SalaCabecalho'
 import { SalaControles } from './SalaControles'
 import { kindLabel, type Celula, type Lugar, type VolumePessoa } from './salaModel'
@@ -59,6 +60,9 @@ const MONO = "'JetBrains Mono', monospace"
 const RESERVA_SEM_FAIXA = 180
 const RESERVA_COM_FAIXA = 400
 const RESERVA_COM_BOTAO = 250
+// Altura da barra de controles (com a margem de baixo): com a música na principal, as células
+// terminam acima dela.
+const RESERVA_CONTROLES = 84
 
 function IconeX({ size }: { size: number }): ReactNode {
   return (
@@ -202,6 +206,8 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
   const n = celulas.length
   const cols = colunas(n)
   const linhas = Math.max(1, Math.ceil(n / cols))
+  // Termos do YouTube: a barra de controles da sala não pode ficar por cima do player da música.
+  const temMusica = celulas.some((c) => c.stream.kind === 'musica')
 
   return (
     <main style={{ flex: '0 0 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 28px 28px' }}>
@@ -232,8 +238,10 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
       >
         <VideoFrame>
           {n > 0 ? (
-            <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${linhas}, minmax(0, 1fr))`, gap: n > 1 ? 8 : 0, padding: n > 1 ? 8 : 0 }}>
-              {celulas.map((c) => (
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: temMusica ? RESERVA_CONTROLES : 0, display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${linhas}, minmax(0, 1fr))`, gap: n > 1 ? 8 : 0, padding: n > 1 ? 8 : 0 }}>
+              {celulas.map((c) => c.stream.kind === 'musica' ? (
+                <CelulaMusica key={c.stream.trackId} onMover={p.onMover} varias={n > 1} />
+              ) : (
                 <CelulaPrincipal
                   key={c.stream.trackId}
                   room={room}

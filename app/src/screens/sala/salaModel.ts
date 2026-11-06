@@ -12,9 +12,12 @@ export function roomChip(room: RoomView): string {
   return room.code ? `${base} · ${room.code}` : base
 }
 
-/** Rotulo do tipo da trilha: screen 'Tela', window 'Janela', camera 'Webcam', audio 'Só o som'. */
-export function kindLabel(kind: TrackView['kind']): string {
+/** Rotulo do tipo da trilha: screen 'Tela', window 'Janela', camera 'Webcam', audio 'Só o som';
+ *  a música da sala, 'Música'. */
+export function kindLabel(kind: StreamKind): string {
   switch (kind) {
+    case 'musica':
+      return 'Música'
     case 'screen':
       return 'Tela'
     case 'window':
@@ -60,12 +63,18 @@ export function ownTracks(room: RoomView, meId: string): { screen: TrackView | n
 /** Onde a transmissão aparece. 'fechada' = sem receber nada (economiza banda). */
 export type Lugar = 'principal' | 'faixa' | 'fechada'
 
-/** Uma transmissão na sala: vídeo (tela, janela, câmera) ou só o som. As minhas (`mine`) são só
- *  vídeo e chegam pela prévia local do núcleo, sem rede. */
+/** Tipo de uma transmissão: o de uma trilha ou a música da sala (o player do YouTube). */
+export type StreamKind = TrackView['kind'] | 'musica'
+
+/** Id da transmissão da música da sala (é uma só, troque o vídeo ou não). */
+export const MUSICA = 'musica'
+
+/** Uma transmissão na sala: vídeo (tela, janela, câmera), só o som ou a música da sala. As minhas
+ *  (`mine`) são só vídeo e chegam pela prévia local do núcleo, sem rede. */
 export interface Stream {
   trackId: string
   ownerId: string
-  kind: TrackView['kind']
+  kind: StreamKind
   /** Tile fixo desta trilha enquanto o app estiver aberto (o núcleo assina por tile). */
   tile: number
   /** Minha transmissão (a tela ou a câmera que eu estou mandando). */
@@ -87,12 +96,13 @@ export function tileDaTrilha(trackId: string): number {
   return t
 }
 
-const ehVideo = (k: TrackView['kind']): boolean => k !== 'audio'
+const ehVideo = (k: StreamKind): boolean => k !== 'audio'
 // Tela e janela antes da câmera; depois a ordem de chegada (número da trilha).
-const ordemTipo = (k: TrackView['kind']): number => (k === 'camera' ? 1 : 0)
+const ordemTipo = (k: StreamKind): number => (k === 'camera' ? 1 : 0)
 
-/** Transmissões da sala: os vídeos dos outros (tela/janela antes da câmera), o som de quem só manda
- *  som (o som de quem tem vídeo vem junto com o vídeo) e, por último, os meus vídeos. */
+/** Transmissões da sala: os vídeos dos outros (tela/janela antes da câmera), a música da sala (se
+ *  estiver tocando), o som de quem só manda som (o som de quem tem vídeo vem junto com o vídeo) e,
+ *  por último, os meus vídeos. Sem vídeo dos outros, a música é quem vai para a principal. */
 export function streamsDaSala(room: RoomView, meId: string): Stream[] {
   const porTipo = (a: TrackView, b: TrackView): number => ordemTipo(a.kind) - ordemTipo(b.kind) || a.number - b.number
   const dosOutros = room.tracks.filter((t) => t.owner_id !== meId)
@@ -101,7 +111,8 @@ export function streamsDaSala(room: RoomView, meId: string): Stream[] {
   const soSom = dosOutros.filter((t) => t.kind === 'audio' && !comVideo.has(t.owner_id))
   const meus = room.tracks.filter((t) => t.owner_id === meId && ehVideo(t.kind)).sort(porTipo)
   const vira = (t: TrackView, mine: boolean): Stream => ({ trackId: t.id, ownerId: t.owner_id, kind: t.kind, tile: tileDaTrilha(t.id), ...(mine ? { mine } : {}) })
-  return [...videos.map((t) => vira(t, false)), ...soSom.map((t) => vira(t, false)), ...meus.map((t) => vira(t, true))]
+  const musica: Stream[] = room.music?.current ? [{ trackId: MUSICA, ownerId: '', kind: 'musica', tile: -1 }] : []
+  return [...videos.map((t) => vira(t, false)), ...musica, ...soSom.map((t) => vira(t, false)), ...meus.map((t) => vira(t, true))]
 }
 
 /**
@@ -124,7 +135,7 @@ export function lugaresDasStreams(streams: Stream[], escolhas: Record<string, Lu
     if (primeira) out[primeira.trackId] = 'principal'
   }
   const telaNaPrincipal = new Set(
-    streams.filter((s) => s.kind !== 'camera' && s.kind !== 'audio' && out[s.trackId] === 'principal').map((s) => s.ownerId),
+    streams.filter((s) => s.kind !== 'camera' && s.kind !== 'audio' && s.kind !== 'musica' && out[s.trackId] === 'principal').map((s) => s.ownerId),
   )
   for (const s of streams) {
     if (out[s.trackId] !== undefined) continue

@@ -393,6 +393,8 @@ mod tests_basicos {
             chat: vec![],
             unread: 0,
             me_id: String::new(),
+            music: None,
+            owner_id: String::new(),
         };
         let atual = sala_atual_do(Some(&view)).expect("sala presente");
         assert_eq!(atual.name, "Sala");
@@ -770,6 +772,8 @@ mod tests_montar {
                 chat: vec![],
                 unread: 0,
                 me_id: String::new(),
+                music: None,
+                owner_id: String::new(),
             }),
             other_versions: vec![(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)), 5)],
             video_adapters: vec![zap_media::VideoAdapter {

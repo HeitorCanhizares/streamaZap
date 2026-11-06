@@ -14,7 +14,7 @@ pub mod media;
 pub mod types;
 pub mod version;
 
-pub use control::{ControlMsg, DelayState, Report};
+pub use control::{ControlMsg, DelayState, MusicItem, MusicNow, Report};
 pub use error::ProtoError;
 pub use ids::RoomCode;
 pub use types::*;

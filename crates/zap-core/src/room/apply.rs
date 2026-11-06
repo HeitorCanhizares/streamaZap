@@ -3,6 +3,7 @@
 use zap_proto::ControlMsg;
 
 use super::model::{chat_line_from_msg, RoomModel};
+use crate::music::MusicMirror;
 use crate::types::ChatLine;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -68,6 +69,10 @@ pub fn apply_owner_msg(model: &mut RoomModel, msg: ControlMsg) -> Effect {
             }
             None => Effect::None,
         },
+        msg @ ControlMsg::MusicState { .. } => {
+            model.music_mirror = Some(MusicMirror::from_msg(&msg, std::time::Instant::now()));
+            Effect::Changed
+        }
         ControlMsg::RoomClosed { reason } => Effect::Closed(reason),
         ControlMsg::Error { code, message, .. } => Effect::Error { code, message },
         _ => Effect::None,

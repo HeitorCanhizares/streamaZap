@@ -74,7 +74,7 @@ describe('SalaScreen', () => {
     render(<SalaScreen onLeft={() => {}} />)
     expect(screen.getByRole('toolbar', { name: 'Controles da sala' })).toBeTruthy()
     expect(screen.getByRole('group', { name: 'Transmissões na sala' })).toBeTruthy()
-    expect(screen.getByRole('complementary', { name: 'Chat e pessoas' })).toBeTruthy()
+    expect(screen.getByRole('complementary', { name: 'Chat, pessoas e música' })).toBeTruthy()
   })
 
   it('chip ONLINE · ZAP-7K2Q aparece', () => {
@@ -188,8 +188,8 @@ describe('SalaScreen', () => {
     estado.snap = mockSnapshot()
     render(<SalaScreen onLeft={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Fechar painel' }))
-    expect(screen.queryByRole('complementary', { name: 'Chat e pessoas' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'Chat, pessoas e música' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Painel' }))
-    expect(screen.getByRole('complementary', { name: 'Chat e pessoas' })).toBeTruthy()
+    expect(screen.getByRole('complementary', { name: 'Chat, pessoas e música' })).toBeTruthy()
   })
 })

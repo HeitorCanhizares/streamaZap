@@ -192,6 +192,38 @@ Quem assiste não alcança quem publica (firewall do outro lado): pede, via quem
 o publicador conectar nele. A conexão QUIC aberta pelo publicador começa com `ola` contendo
 `token`, e daí em diante os papéis de mídia são os mesmos.
 
+## Música da sala
+
+Fila de vídeos do YouTube que cada participante toca no próprio player (embed oficial), na
+posição da sala. Ninguém retransmite som. Plano: [`../planos/musica-da-sala.md`](../planos/musica-da-sala.md).
+
+```ts
+type ItemMusica = {
+  id: string; video_id: string /* 11 caracteres */; titulo: string; canal?: string;
+  duracao_ms?: number; ao_vivo: boolean; por: string /* participante_id */; por_nome: string;
+}
+```
+
+| t | Direção | Campos | Notas |
+|---|---|---|---|
+| `musica.adicionar` | C→S | `video_id`, `titulo?`, `canal?` | Fila com até 50 itens; com nada tocando, o item começa já |
+| `musica.remover` | C→S | `item_id` | Só quem pôs o item ou o dono da sala; o item atual = pular direto |
+| `musica.pular` | C→S | `item_id`, `voto: bool` | Voto no item atual (`false` desfaz). Pula com `max(1, ⌈presentes/2⌉)` votos |
+| `musica.info` | C→S | `item_id`, `duracao_ms?`, `ao_vivo?`, `titulo?`, `terminou?`, `erro?` | O que o player descobriu. A maior duração vence; `titulo` só substitui o título padrão |
+| `musica.estado` | S→C | `fila: ItemMusica[]`, `atual?: { item, posicao_ms, votos: string[], precisa }` | Para todos a cada mudança, para quem entra (depois do histórico do chat) e de novo a cada 10 s com música tocando |
+
+Regras:
+- `posicao_ms` vale no instante do envio (negativa = o item começa daqui a pouco; o item novo começa
+  2 s no futuro para os players carregarem juntos). Quem recebe soma o tempo desde que recebeu.
+- Fim: quem é a fonte avança quando a posição passa da duração (+2 s). `terminou` avança se a
+  posição estiver a 5 s do fim (sem duração: depois de 10 s tocando); em live, sempre. `erro`
+  pula o item atual na hora.
+- Quem sai da sala perde o voto, e o limite é recalculado na hora (pode pular).
+- Erros de pedido: `erro` com `codigo: "musica_invalida"` só para quem pediu.
+- **Modo Local**: a fonte é quem criou a sala. **Modo Online**: o servidor ainda não implementa;
+  quando implementar, ele é a fonte com as mesmas regras (o app esconde a música nas salas Online
+  até lá). Apps antigos ignoram `musica.*`.
+
 ## Estatísticas para a interface
 
 | t | Direção | Campos |

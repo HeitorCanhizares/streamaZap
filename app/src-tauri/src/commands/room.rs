@@ -42,6 +42,30 @@ pub async fn chat_send(state: State<'_, Arc<AppState>>, text: String) -> Result<
     state.core.send_chat(text).await.map_err(convert::err_string)
 }
 
+/// Põe um link do YouTube na fila de música da sala (`core.music_add`).
+#[tauri::command]
+pub async fn music_add(state: State<'_, Arc<AppState>>, link: String) -> Result<(), String> {
+    state.core.music_add(link).await.map_err(convert::err_string)
+}
+
+/// Tira um item da fila (o atual = pular direto, só quem pôs ou o dono).
+#[tauri::command]
+pub async fn music_remove(state: State<'_, Arc<AppState>>, item_id: String) -> Result<(), String> {
+    state.core.music_remove(item_id).await.map_err(convert::err_string)
+}
+
+/// Voto para pular a música atual (`vote: false` desfaz).
+#[tauri::command]
+pub async fn music_vote(state: State<'_, Arc<AppState>>, item_id: String, vote: bool) -> Result<(), String> {
+    state.core.music_vote(item_id, vote).await.map_err(convert::err_string)
+}
+
+/// O que o player do YouTube descobriu (duração, live, título, fim, erro).
+#[tauri::command]
+pub async fn music_report(state: State<'_, Arc<AppState>>, report: zap_core::MusicReport) -> Result<(), String> {
+    state.core.music_report(report).await.map_err(convert::err_string)
+}
+
 /// Se `convert::should_send_typing(typing)`: `core.send_typing()`.
 #[tauri::command]
 pub async fn chat_typing(state: State<'_, Arc<AppState>>, typing: bool) -> Result<(), String> {
