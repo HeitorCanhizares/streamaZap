@@ -19,7 +19,8 @@ export interface PeerListing { name: string; version: string; ip: string; receiv
 export interface Participant { id: string; name: string; color: string; ping_ms: number; sharing: boolean; camera: boolean; volume?: number; muted?: boolean }
 // kind 'audio': o som de quem compartilha (aparece sozinho quando a pessoa transmite só o som).
 export type TrackKind = 'screen' | 'window' | 'camera' | 'audio'
-export interface TrackView { id: string; owner_id: string; kind: TrackKind; title: string; number: number }
+// camera_layout: só trilha 'camera'. Ausente = canto inferior direito (app antigo ou servidor sem o campo).
+export interface TrackView { id: string; owner_id: string; kind: TrackKind; title: string; number: number; camera_layout?: CameraLayout }
 export interface ChatLine { id: string; author_id: string; author: string; color: string; text: string; ts: number }
 // code: codigo para convite (ex.: 'ZAP-7K2Q'); ausente na sala Local sem codigo.
 // me_id: meu id de participante nesta sala (no Online vem do servidor, diferente do install_id).
@@ -56,19 +57,27 @@ export interface Snapshot {
 }
 export interface ServerStatus { state: 'off' | 'connecting' | 'online' | 'error'; name?: string; ping_ms?: number; message?: string }
 export interface ServerTestResult { ok: boolean; name: string | null; ping_ms: number | null; code: string | null; message: string }
+// Jeito da câmera para quem assiste (espelha zap_proto::CameraLayout): no canto da tela de quem
+// transmite ou solta, numa célula própria. JSON: {"modo":"canto","canto":"inf_dir"} | {"modo":"solta"}.
+export type Corner = 'sup_esq' | 'sup_dir' | 'inf_esq' | 'inf_dir'
+export type CameraLayout = { modo: 'canto'; canto: Corner } | { modo: 'solta' }
+/** Quando instalar a atualização baixada: perguntar, ao fechar o app ou sozinho (fora de sala). */
+export type InstallMode = 'ask' | 'on_exit' | 'auto'
 export type SceneKind = 'game' | 'race' | 'movie' | 'code' | 'desktop' | 'cama' | 'camb' | 'camc' | 'camd'
 
 export interface Settings {
   name: string; color: string; install_id: string; open_in: RoomMode
-  server?: { address: string; password: string; use_relay: boolean }
+  // enabled: modo Online ligado. Desligado, o app não mostra nada do Online nem abre conexão com o servidor.
+  server?: { enabled: boolean; address: string; password: string; use_relay: boolean }
   local: { interface: string | null; port: number; announce: boolean }
-  video: { camera_id: string | null; mirror_preview: boolean; default_preset: Preset; encoder?: string; smoothing_auto: boolean; smoothing_ms: number }
+  video: { camera_id: string | null; mirror_preview: boolean; default_preset: Preset; camera_preset: Preset; camera_layout: CameraLayout; encoder?: string; smoothing_auto: boolean; smoothing_ms: number }
   sound: { initial_volume: number; message_sound: boolean; notify_room_open: boolean; mute_when_minimized: boolean }
-  update: { auto: boolean; channel: 'estavel' | 'beta' }
+  update: { check: boolean; download: boolean; install: InstallMode; channel: 'estavel' | 'beta' }
 }
 // sound: só nos apps. playing = tocando agora; ready = já abriu o som (quieto); silent = só tem janela.
 export type AppSound = 'playing' | 'ready' | 'silent'
-export interface SourceItem { id: string; kind: 'screen' | 'window' | 'camera' | 'app'; name: string; sound?: AppSound }
+// max_height/max_fps: só nas câmeras, o melhor modo nativo (ausentes = não se sabe: não desligar nada).
+export interface SourceItem { id: string; kind: 'screen' | 'window' | 'camera' | 'app'; name: string; sound?: AppSound; max_height?: number; max_fps?: number }
 export interface Sources { screens: SourceItem[]; windows: SourceItem[]; cameras: SourceItem[]; apps: SourceItem[]; encoders: string[] }
 export interface CreateRoom { name: string; mode: RoomMode; password: string | null }
 // source: id da fonte (screen:N, window:H, camera:ID) ou SO_AUDIO ('none') para transmitir só o som.
@@ -83,6 +92,10 @@ export interface Thumbnail { width: number; height: number; rgba: Uint8ClampedAr
 export type UpdatePhase = 'nada' | 'baixando' | 'pronta' | 'instalando' | 'erro'
 /** Payload do evento `zap://update`. */
 export interface UpdateState { fase: UpdatePhase; progresso: number; versao: string | null; erro: string | null }
+/** Payload de `zap://update-aviso`: `segundos` até instalar sozinho (30 ao abrir); 0 = fechar o aviso. */
+export interface UpdateAviso { versao: string; segundos: number }
+/** Payload de `zap://update-aplicada` e resposta de `update_applied_take`: "Atualizado para a vX". */
+export interface UpdateAplicada { versao: string; anterior: string; notas: string | null }
 /** Resposta de `update_check`. */
 export interface UpdateInfo { disponivel: boolean; versao: string | null; notas: string | null; tamanho: number | null }
 

@@ -60,6 +60,20 @@ pub(crate) fn camera_source(camera_id: Option<String>) -> Result<SourceRef, Core
     }
 }
 
+/// A fonte é sintética (tela de teste ou câmera `synthetic:LxA`)? Define o som sintético.
+fn fonte_sintetica(src: &SourceRef) -> bool {
+    match src {
+        SourceRef::Synthetic { .. } => true,
+        SourceRef::Camera(id) => id.starts_with("synthetic:"),
+        _ => false,
+    }
+}
+
+/// O pedido tem a webcam como fonte (`camera:<id>`)?
+fn pedido_de_webcam(req: &ShareRequest) -> bool {
+    req.source.starts_with("camera:")
+}
+
 /// Título amigável da fonte; sem achar, o próprio id.
 fn titulo_da_fonte(src: &SourceRef, id: &str) -> String {
     let achado = match src {
@@ -85,7 +99,13 @@ pub struct ShareSession {
     pub screen: Option<PublishedVideo>,
     pub audio: Option<(Track, Arc<AudioPublisher>)>,
     pub camera: Option<PublishedVideo>,
+    /// Fonte e plano da câmera em uso (`None` com a câmera desligada). Preenchido por
+    /// `start_camera_locked`; `set_camera_quality` compara o plano novo com este.
+    pub camera_info: Option<crate::share_camera::CameraRuntime>,
 }
+
+// A câmera (`set_camera`, `set_camera_quality`, `stop_camera_locked`) vive em `share_camera.rs` e o
+// jeito dela (`set_camera_layout`) em `share_camera_layout.rs`; ambos são `impl ShareSession`.
 
 impl ShareSession {
     /// Escada: `zap_rate::ladder::screen_ladder(preset.to_rate(), src_w, src_h)` com a resolução
@@ -102,7 +122,9 @@ impl ShareSession {
                 .ok()
                 .and_then(|l| l.into_iter().find(|w| w.hwnd == *hw))
                 .map_or(RESOLUCAO_PADRAO, |w| (w.width, w.height)),
-            SourceRef::Camera(_) => return zap_rate::ladder::camera_ladder(1280, 720),
+            SourceRef::Camera(_) => {
+                return zap_rate::ladder::camera_ladder(zap_rate::ladder::Preset::P720p30, 1280, 720, 30)
+            }
         };
         zap_rate::ladder::screen_ladder(preset.to_rate(), w, h)
     }
@@ -129,6 +151,23 @@ impl ShareSession {
         } else {
             Some(parse_audio(&req.audio)?)
         };
+        if let SourceRef::Camera(id) = &src {
+            // Webcam como fonte: trilha `camera`, sem trilha de tela.
+            // Uma câmera por pessoa: "Minha câmera" ligada para antes (não abre o dispositivo 2x).
+            if sessao.camera.is_some() {
+                Self::stop_camera_locked(shared, sessao).await;
+            }
+            Self::start_camera_locked(shared, sessao, Some(id.clone())).await?;
+            if let Some(sel) = selecao {
+                if let Err(e) = Self::start_audio(shared, sessao, fonte_sintetica(&src), sel).await {
+                    tracing::warn!(erro = %e, "falha ao iniciar o áudio do compartilhamento");
+                    shared.state.lock().push_error(format!("Áudio não iniciou: {e}"));
+                    shared.notifier.touch();
+                }
+            }
+            sessao.request = Some(req);
+            return Ok(());
+        }
         let ms = shared.ensure_media_server().await?;
         let ladder = Self::ladder_for(&src, req.preset);
         let kind = if matches!(src, SourceRef::Window(_)) {
@@ -174,7 +213,7 @@ impl ShareSession {
         sessao.screen = Some(PublishedVideo { track, publisher });
 
         if let Some(sel) = selecao {
-            let sintetica = matches!(src, SourceRef::Synthetic { .. });
+            let sintetica = fonte_sintetica(&src);
             if let Err(e) = Self::start_audio(shared, sessao, sintetica, sel).await {
                 // Segue só com vídeo; a interface recebe o aviso.
                 tracing::warn!(erro = %e, "falha ao iniciar o áudio do compartilhamento");
@@ -296,10 +335,10 @@ impl ShareSession {
                 screen.publisher.set_ladder(ladder.clone());
                 let track_id = screen.track.id.clone();
                 if let Some(room) = shared.current_room() {
-                    room.update_track(&track_id, None, Some(ladder)).await?;
+                    room.update_track(&track_id, None, Some(ladder), None).await?;
                 }
             }
-            matches!(src, SourceRef::Synthetic { .. })
+            fonte_sintetica(&src)
         };
         if let Some((_, a)) = sessao.audio.as_ref() {
             a.set_selection(selecao);
@@ -314,8 +353,12 @@ impl ShareSession {
         Ok(())
     }
 
-    /// Para tela e áudio (a câmera fica), removendo as trilhas do modelo.
+    /// Para tela e áudio, removendo as trilhas do modelo. A câmera fica, salvo quando a webcam
+    /// é a fonte do pedido (aí ela é o vídeo do pedido e para junto).
     async fn stop_video_audio(shared: &Arc<Shared>, sessao: &mut ShareSession) {
+        if sessao.request.as_ref().is_some_and(pedido_de_webcam) {
+            Self::stop_camera_locked(shared, sessao).await;
+        }
         let ms = shared.media_server.lock().await.clone();
         let room = shared.current_room();
         let mut trilhas: Vec<String> = Vec::new();
@@ -331,7 +374,7 @@ impl ShareSession {
         Self::remover_trilhas(ms, room, trilhas).await;
     }
 
-    async fn remover_trilhas(
+    pub(crate) async fn remover_trilhas(
         ms: Option<Arc<crate::publish::MediaServer>>,
         room: Option<Arc<crate::room::ActiveRoom>>,
         trilhas: Vec<String>,
@@ -353,68 +396,6 @@ impl ShareSession {
         Self::stop_camera_locked(shared, &mut sessao).await;
         Self::stop_video_audio(shared, &mut sessao).await;
         *sessao = ShareSession::default();
-    }
-
-    async fn stop_camera_locked(shared: &Arc<Shared>, sessao: &mut ShareSession) {
-        if let Some(c) = sessao.camera.take() {
-            let ms = shared.media_server.lock().await.clone();
-            c.publisher.stop();
-            Self::remover_trilhas(ms, shared.current_room(), vec![c.track.id]).await;
-        }
-    }
-
-    /// Liga/desliga a câmera: trilha `camera` com `camera_ladder`, fonte
-    /// `Camera(settings.video.camera_id)` (ou sintética 1280×720 se `camera_id` for
-    /// `synthetic:..`); sem câmera configurada em plataforma sem câmera → `Unsupported`.
-    pub async fn set_camera(shared: &Arc<Shared>, on: bool) -> Result<(), CoreError> {
-        let mut sessao = shared.share.lock().await;
-        if !on {
-            Self::stop_camera_locked(shared, &mut sessao).await;
-            return Ok(());
-        }
-        if sessao.camera.is_some() {
-            return Ok(());
-        }
-        let room = shared.current_room().ok_or(CoreError::NoRoom)?;
-        let (camera_id, encoder_pref, interface) = {
-            let s = shared.settings.read();
-            (s.video.camera_id.clone(), s.video.encoder, s.local.interface.clone())
-        };
-        let src = camera_source(camera_id)?;
-        let ms = shared.ensure_media_server().await?;
-        let ladder = zap_rate::ladder::camera_ladder(1280, 720);
-        let track = room
-            .publish_track(TrackSpec {
-                local_id: new_id("l_"),
-                kind: TrackKind::Camera,
-                title: "Câmera".into(),
-                layers: ladder.clone(),
-                audio: None,
-                address: Some(ms.address(interface.as_deref(), shared.options.include_loopback)),
-                camera_layout: None,
-            })
-            .await?;
-        let publisher = match VideoPublisher::start(
-            VideoPipelineConfig {
-                track: track.number,
-                source: to_video_spec(&src),
-                ladder,
-                encoder: encoder_pref.to_spec(),
-            },
-            shared.rt.clone(),
-            shared.clock.clone(),
-        ) {
-            Ok(p) => p,
-            Err(e) => {
-                let _ = room.remove_track(&track.id).await;
-                return Err(e);
-            }
-        };
-        ms.register(track.id.clone(), PublishedTrack::Video(publisher.clone()));
-        // Modo Online: liga o publicador da câmera à ponte (no-op nas outras salas).
-        room.on_track_started(&track, PublishedTrack::Video(publisher.clone()));
-        sessao.camera = Some(PublishedVideo { track, publisher });
-        Ok(())
     }
 
     /// Reinicia o que eu compartilhava depois de `RoomEvent::Reconnected`: não dá para manter os
@@ -447,8 +428,13 @@ impl ShareSession {
             AudioChoice::Keyword(_) => "Todo o PC".to_string(),
             AudioChoice::Apps(a) => format!("{} apps", a.len()),
         };
-        let Some(screen) = self.screen.as_ref() else {
-            // Só o som: sem codificador de vídeo nem camadas.
+        // Webcam como fonte: o vídeo do pedido é o publicador da câmera.
+        let video = self
+            .screen
+            .as_ref()
+            .or_else(|| pedido_de_webcam(req).then_some(self.camera.as_ref()).flatten());
+        let Some(screen) = video else {
+            // Só o som (ou webcam desligada pelo botão): sem codificador de vídeo nem camadas.
             return Some(ShareView {
                 source: req.source.clone(),
                 audio,
@@ -503,7 +489,28 @@ mod tests {
     #[test]
     fn ladder_for_camera() {
         let l = ShareSession::ladder_for(&SourceRef::Camera("x".into()), Preset::P720p30);
-        assert_eq!(l, zap_rate::ladder::camera_ladder(1280, 720));
+        assert_eq!(
+            l,
+            zap_rate::ladder::camera_ladder(zap_rate::ladder::Preset::P720p30, 1280, 720, 30)
+        );
+    }
+
+    #[test]
+    fn view_de_webcam_sem_tela_usa_a_camera() {
+        let req = ShareRequest {
+            source: "camera:x".into(),
+            audio: AudioChoice::Keyword("none".into()),
+            preset: Preset::P720p30,
+            encoder: "auto".into(),
+        };
+        let s = ShareSession {
+            request: Some(req),
+            camera: None,
+            ..Default::default()
+        };
+        let v = s.view().expect("pedido de webcam");
+        assert!(v.encoder.is_empty());
+        assert!(v.layers.is_empty());
     }
 
     #[test]

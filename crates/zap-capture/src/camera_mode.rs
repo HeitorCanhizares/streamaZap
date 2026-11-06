@@ -11,7 +11,8 @@ pub struct CameraMode {
 }
 
 /// Escolhe o índice (em `modes`) do melhor modo para o pedido.
-/// Regras, em ordem: (1) só modos com `fps <= 30` se existir algum (senão todos); (2) preferir
+/// Regras, em ordem: (1) só modos com `fps <= max(30, want_fps)` se existir algum (senão todos);
+/// ou seja, acima de 30 fps só se o pedido for maior; (2) preferir
 /// modos com `width >= want_w` e `height >= want_h`; entre eles o de menor área; se nenhum, o de
 /// maior área; (3) empate: `fps` mais perto de `want_fps` (preferindo o menor se igualmente
 /// perto); (4) empate final: menor índice. `None` se `modes` vazio.
@@ -20,12 +21,13 @@ pub fn pick_camera_mode(modes: &[CameraMode], want_w: u32, want_h: u32, want_fps
         return None;
     }
 
-    // Até 30 fps é o que a captura aguenta com folga; acima só se não houver outra opção.
-    let ate_30: Vec<usize> = (0..modes.len()).filter(|&i| modes[i].fps <= 30).collect();
-    let candidatos: Vec<usize> = if ate_30.is_empty() {
+    // Até 30 fps é o que a captura aguenta com folga; acima disso só se o pedido for maior.
+    let limite = want_fps.max(30);
+    let dentro_do_limite: Vec<usize> = (0..modes.len()).filter(|&i| modes[i].fps <= limite).collect();
+    let candidatos: Vec<usize> = if dentro_do_limite.is_empty() {
         (0..modes.len()).collect()
     } else {
-        ate_30
+        dentro_do_limite
     };
 
     // Modos que cobrem o pedido: prefere o menor deles (menos dados); senão, o maior disponível.
@@ -84,9 +86,33 @@ mod tests {
     }
 
     #[test]
-    fn ignora_acima_de_30fps_quando_ha_alternativa() {
+    fn pedido_60_escolhe_modo_60() {
         let modes = [modo(1920, 1080, 60), modo(1920, 1080, 30)];
-        assert_eq!(pick_camera_mode(&modes, 1920, 1080, 60), Some(1));
+        assert_eq!(pick_camera_mode(&modes, 1920, 1080, 60), Some(0));
+    }
+
+    #[test]
+    fn pedido_30_ignora_60() {
+        let modes = [modo(1920, 1080, 60), modo(1920, 1080, 30)];
+        assert_eq!(pick_camera_mode(&modes, 1920, 1080, 30), Some(1));
+    }
+
+    #[test]
+    fn pedido_60_sem_modo_60_cai_para_30() {
+        let modes = [modo(1280, 720, 30), modo(1920, 1080, 30)];
+        assert_eq!(pick_camera_mode(&modes, 1280, 720, 60), Some(0));
+    }
+
+    #[test]
+    fn pedido_60_prefere_menor_area_que_cobre() {
+        let modes = [modo(1280, 720, 60), modo(1920, 1080, 60), modo(1280, 720, 30)];
+        assert_eq!(pick_camera_mode(&modes, 1280, 720, 60), Some(0));
+    }
+
+    #[test]
+    fn pedido_45_aceita_ate_45() {
+        let modes = [modo(1280, 720, 60), modo(1280, 720, 45), modo(1280, 720, 30)];
+        assert_eq!(pick_camera_mode(&modes, 1280, 720, 45), Some(1));
     }
 
     #[test]

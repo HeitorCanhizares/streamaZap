@@ -165,10 +165,17 @@ impl OnlineSession {
     /// Aborta a tarefa atual, zera `client`/`ws`/`info`/`rooms`/`status`/`route` e chama `start`
     /// (as configurações do servidor mudaram).
     pub fn restart(self: &Arc<Self>, shared: &Arc<Shared>) {
+        self.clear(shared);
+        self.start(shared);
+    }
+    /// Parte comum de `restart` e `stop_and_clear`: aborta a tarefa e zera o estado da sessão
+    /// e o que a interface mostra dela. Idempotente.
+    fn clear(&self, shared: &Arc<Shared>) {
         if let Some(t) = self.task.lock().take() {
             t.abort();
         }
         *self.client.lock() = None;
+        // Sem nenhum `WsTx` vivo, a tarefa do WebSocket fecha a conexão sozinha.
         *self.ws.lock() = None;
         *self.info.lock() = None;
         self.rooms.lock().clear();
@@ -180,7 +187,18 @@ impl OnlineSession {
             st.set_online_rooms(vec![]);
         }
         shared.notifier.touch();
-        self.start(shared);
+    }
+    /// Desliga o Online (interruptor "Usar o modo Online" desligado): aborta a tarefa, fecha o
+    /// WebSocket e zera `client`/`ws`/`info`/`rooms`/`status`/`route`, o `server` e as salas Online
+    /// do estado e as prévias abertas; avisa a interface. **Não** sobe a sessão de novo (diferente de
+    /// `restart`). Tarefa core-03.
+    pub fn stop_and_clear(self: &Arc<Self>, shared: &Arc<Shared>) {
+        // Copia os tiles antes: `preview::stop` toma o mesmo lock.
+        let tiles: Vec<_> = self.previews.active.lock().keys().copied().collect();
+        for tile in tiles {
+            super::preview::stop(shared, tile);
+        }
+        self.clear(shared);
     }
     /// Aborta a tarefa e fecha o WebSocket (desligamento do `Core`).
     pub fn stop(&self) {
@@ -265,7 +283,10 @@ mod tests {
         let srv = zap_test_server::spawn(Config::default()).await.unwrap();
         let (core, d) = novo_core().await;
         let url = srv.base_url.clone();
-        core.update_settings(|s| s.server.address = url);
+        core.update_settings(|s| {
+            s.server.address = url;
+            s.server.enabled = true;
+        });
         let _rx = core.shared.online.connect(&core.shared).await.unwrap();
         assert!(core.shared.online.client().is_some());
         assert!(core.shared.online.ws().is_some());
@@ -286,7 +307,10 @@ mod tests {
         .unwrap();
         let (core, d) = novo_core().await;
         let url = srv.base_url.clone();
-        core.update_settings(|s| s.server.address = url);
+        core.update_settings(|s| {
+            s.server.address = url;
+            s.server.enabled = true;
+        });
         let r = core.shared.online.connect(&core.shared).await;
         assert!(matches!(r, Err(CoreError::Server { ref code, .. }) if code == "senha_servidor"));
         assert!(core.shared.online.client().is_none());
@@ -328,7 +352,10 @@ mod tests {
         });
 
         let (core, d) = novo_core().await;
-        core.update_settings(|s| s.server.address = format!("http://127.0.0.1:{porta}"));
+        core.update_settings(|s| {
+            s.server.address = format!("http://127.0.0.1:{porta}");
+            s.server.enabled = true;
+        });
         let r = core.shared.online.connect(&core.shared).await;
         match r {
             Err(CoreError::Server { code, message }) => {
@@ -350,7 +377,10 @@ mod tests {
         let srv = zap_test_server::spawn(Config::default()).await.unwrap();
         let (core, d) = novo_core().await;
         let url = srv.base_url.clone();
-        core.update_settings(|s| s.server.address = url);
+        core.update_settings(|s| {
+            s.server.address = url;
+            s.server.enabled = true;
+        });
         let ms = core.shared.online.measure_ping(&core.shared).await.unwrap();
         assert!(ms >= 1);
         encerrar(core, d).await;
@@ -361,7 +391,10 @@ mod tests {
         let srv = zap_test_server::spawn(Config::default()).await.unwrap();
         let (core, d) = novo_core().await;
         let url = srv.base_url.clone();
-        core.update_settings(|s| s.server.address = url);
+        core.update_settings(|s| {
+            s.server.address = url;
+            s.server.enabled = true;
+        });
         let _rx = core.shared.online.connect(&core.shared).await.unwrap();
         *core.shared.online.status.lock() = Some(ServerStatus::connecting(None));
         // Sem endereço, a tarefa nova (quando `run` existir) não reconecta e não mexe no estado.
@@ -377,6 +410,78 @@ mod tests {
         assert!(core.shared.online.task.lock().is_some());
         core.shared.online.stop();
         assert!(core.shared.online.task.lock().is_none());
+        encerrar(core, d).await;
+    }
+
+    async fn sessao_online(srv: &zap_test_server::Handle) -> (Core, std::path::PathBuf) {
+        let (core, d) = novo_core().await;
+        let url = srv.base_url.clone();
+        core.update_settings(|s| {
+            s.server.address = url;
+            s.server.enabled = true;
+        });
+        core.shared.online.start(&core.shared);
+        for _ in 0..100 {
+            if core.shared.online.status().is_some() && core.shared.online.ws().is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        (core, d)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stop_and_clear_zera_estado() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (core, d) = sessao_online(&srv).await;
+        assert!(core.shared.online.status().is_some());
+        core.shared.online.stop_and_clear(&core.shared);
+        assert!(core.shared.online.status().is_none());
+        assert!(core.shared.online.task.lock().is_none());
+        assert!(core.snapshot().server.is_none());
+        assert!(core.shared.online.rooms().is_empty());
+        assert!(core.shared.online.ws().is_none());
+        assert!(core.shared.online.client().is_none());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stop_and_clear_e_idempotente() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (core, d) = sessao_online(&srv).await;
+        core.shared.online.stop_and_clear(&core.shared);
+        core.shared.online.stop_and_clear(&core.shared);
+        assert!(core.shared.online.status().is_none());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stop_and_clear_nao_sobe_de_novo() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (core, d) = sessao_online(&srv).await;
+        core.shared.online.stop_and_clear(&core.shared);
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert!(core.shared.online.task.lock().is_none());
+        assert!(core.shared.online.status().is_none());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stop_and_clear_fecha_websocket() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (core, d) = sessao_online(&srv).await;
+        let com_ws = |srv: &zap_test_server::Handle| srv.hub.inner.lock().participants.values().any(|p| p.ws.is_some());
+        assert!(com_ws(&srv), "o servidor deveria ter a sessão ativa");
+        core.shared.online.stop_and_clear(&core.shared);
+        let mut fechou = false;
+        for _ in 0..60 {
+            if !com_ws(&srv) {
+                fechou = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(fechou, "o WebSocket continuou aberto");
         encerrar(core, d).await;
     }
 }

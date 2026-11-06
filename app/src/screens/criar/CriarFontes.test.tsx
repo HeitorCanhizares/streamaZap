@@ -100,4 +100,53 @@ describe('CriarFontes', () => {
     render(<CriarFontes {...props({ tab: 'webcam' })} />)
     expect(screen.queryByRole('switch')).toBeNull()
   })
+
+  it('nada: aba só existe com mostrarNada e chama onTab("nada")', () => {
+    const { unmount } = render(<CriarFontes {...props()} />)
+    expect(screen.queryByRole('tab', { name: 'Nada por enquanto' })).toBeNull()
+    unmount()
+    const onTab = vi.fn()
+    render(<CriarFontes {...props({ mostrarNada: true, onTab })} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Nada por enquanto' }))
+    expect(onTab).toHaveBeenCalledWith('nada')
+  })
+
+  it('nada: texto no lugar da grade e sem câmera', () => {
+    render(<CriarFontes {...props({ tab: 'nada', mostrarNada: true, cameraJeito: 'off', onCameraJeito: vi.fn() })} />)
+    expect(screen.getByText(/Você cria a sala agora/)).toBeTruthy()
+    expect(screen.queryByText('Tela 1 (1920x1080)')).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'Desligada' })).toBeNull()
+  })
+
+  it('jeito off: três opções, sem cantos; clicar No canto chama onCameraJeito', () => {
+    const onCameraJeito = vi.fn()
+    render(<CriarFontes {...props({ cameraJeito: 'off', onCameraJeito })} />)
+    expect(screen.getByRole('radio', { name: 'Desligada' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: 'Solta' })).toBeTruthy()
+    expect(screen.queryByRole('radiogroup', { name: 'Canto da câmera' })).toBeNull()
+    fireEvent.click(screen.getByRole('radio', { name: 'No canto' }))
+    expect(onCameraJeito).toHaveBeenCalledWith('canto')
+    expect(screen.queryByRole('switch')).toBeNull()
+  })
+
+  it('jeito canto: mostra os cantos e clicar Superior direito chama onCameraCanto', () => {
+    const onCameraCanto = vi.fn()
+    render(<CriarFontes {...props({ cameraJeito: 'canto', onCameraJeito: vi.fn(), cameraCanto: 'inf_dir', onCameraCanto })} />)
+    expect(screen.getByRole('radiogroup', { name: 'Canto da câmera' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('radio', { name: 'Superior direito' }))
+    expect(onCameraCanto).toHaveBeenCalledWith('sup_dir')
+  })
+
+  it('jeito solta: sem cantos', () => {
+    render(<CriarFontes {...props({ cameraJeito: 'solta', onCameraJeito: vi.fn() })} />)
+    expect(screen.queryByRole('radiogroup', { name: 'Canto da câmera' })).toBeNull()
+  })
+
+  it('webcam e mostrarCanto=false: sem seletor de jeito', () => {
+    const { unmount } = render(<CriarFontes {...props({ tab: 'webcam', cameraJeito: 'off', onCameraJeito: vi.fn() })} />)
+    expect(screen.queryByRole('radiogroup', { name: 'Jeito da câmera' })).toBeNull()
+    unmount()
+    render(<CriarFontes {...props({ mostrarCanto: false, cameraJeito: 'off', onCameraJeito: vi.fn() })} />)
+    expect(screen.queryByRole('radiogroup', { name: 'Jeito da câmera' })).toBeNull()
+  })
 })

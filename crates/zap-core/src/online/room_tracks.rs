@@ -57,12 +57,13 @@ impl OnlineRoom {
         }
     }
 
-    /// `TrackUpdate{track_id, title, layers}`; o modelo muda quando chega `TrackUpdated`.
+    /// `TrackUpdate{track_id, title, layers, camera_layout}`; o modelo muda quando chega `TrackUpdated`.
     pub async fn update_track(
         &self,
         track_id: &str,
         title: Option<String>,
         layers: Option<Vec<LayerSpec>>,
+        camera_layout: Option<zap_proto::CameraLayout>,
     ) -> Result<(), CoreError> {
         let ws = self
             .session
@@ -72,7 +73,7 @@ impl OnlineRoom {
             track_id: track_id.into(),
             title,
             layers,
-            camera_layout: None,
+            camera_layout,
         })
         .await?;
         Ok(())
@@ -224,7 +225,7 @@ mod tests {
     fn update_track_sem_ws_erro_connect() {
         let core = core();
         let room = sala(&core);
-        let r = rt().block_on(room.update_track("t1", Some("novo".into()), None));
+        let r = rt().block_on(room.update_track("t1", Some("novo".into()), None, None));
         assert!(matches!(r, Err(CoreError::Connect(_))));
     }
 

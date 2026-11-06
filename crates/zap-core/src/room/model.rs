@@ -233,6 +233,7 @@ impl RoomModel {
                     kind: vista_de(t.kind),
                     title: t.title.clone(),
                     number: t.number,
+                    camera_layout: t.camera_layout,
                 })
                 .collect(),
             chat: self.chat.iter().cloned().collect(),
@@ -680,5 +681,43 @@ mod tests {
             .update_track(&tela.id, None, None, Some(zap_proto::CameraLayout::Free))
             .unwrap();
         assert_eq!(novo.camera_layout, None);
+    }
+
+    #[test]
+    fn room_view_expoe_camera_layout_da_camera() {
+        use zap_proto::CameraLayout;
+        let mut m = modelo();
+        let cam = m
+            .add_track(
+                "p_1",
+                TrackSpec {
+                    camera_layout: Some(CameraLayout::Free),
+                    ..spec(TrackKind::Camera)
+                },
+            )
+            .unwrap();
+        let tela = m
+            .add_track(
+                "p_1",
+                TrackSpec {
+                    camera_layout: Some(CameraLayout::Free),
+                    ..spec(TrackKind::Screen)
+                },
+            )
+            .unwrap();
+        let view = m.to_view();
+        let v_cam = view.tracks.iter().find(|t| t.id == cam.id).unwrap();
+        let v_tela = view.tracks.iter().find(|t| t.id == tela.id).unwrap();
+        assert_eq!(v_cam.camera_layout, Some(CameraLayout::Free));
+        assert_eq!(v_tela.camera_layout, None);
+    }
+
+    #[test]
+    fn room_view_camera_sem_campo_fica_none() {
+        let mut m = modelo();
+        let cam = m.add_track("p_1", spec(TrackKind::Camera)).unwrap();
+        let view = m.to_view();
+        let v_cam = view.tracks.iter().find(|t| t.id == cam.id).unwrap();
+        assert_eq!(v_cam.camera_layout, None);
     }
 }

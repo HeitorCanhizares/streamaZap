@@ -4,7 +4,8 @@ import { SO_AUDIO, type Preset, type RoomMode, type SceneKind, type ShareRequest
 export type Acesso = 'aberta' | 'senha'
 export type SomModo = 'none' | 'all' | 'apps'
 // 'audio' = transmitir só o som, sem tela, janela nem câmera.
-export type FonteTab = 'telas' | 'janelas' | 'webcam' | 'audio'
+// 'nada' = "Nada por enquanto": cria a sala sem transmitir (plano B1); `montarPedido` devolve null.
+export type FonteTab = 'telas' | 'janelas' | 'webcam' | 'audio' | 'nada'
 
 export interface ModoInfo { value: RoomMode; label: string; hint: string; tech: string; cor: string }
 export interface AcessoInfo { value: Acesso; label: string; hint: string }
@@ -96,6 +97,7 @@ const CENAS_POR_ABA: Record<FonteTab, SceneKind[]> = {
   janelas: ['game', 'movie', 'code'],
   webcam: ['camc', 'cama'],
   audio: ['desktop'],
+  nada: ['desktop'],
 }
 
 /** Cena usada na miniatura da fonte `indice` da aba (telas: game/desktop; janelas: game/movie/code; webcam: camc/cama). */
@@ -127,15 +129,31 @@ export function somDoPedido(audio: ShareRequest['audio']): { sound: SomModo; mar
   return { sound: audio, marcados: [] }
 }
 
-/** Pedido de transmissão a partir das escolhas da tela (`null` = falta escolher a fonte). */
+/** Texto de apoio quando a aba é "Nada por enquanto": a sala entra sem transmitir. */
+export const TEXTO_SEM_TRANSMITIR = 'Você entra na sala sem transmitir'
+
+/** Rótulo do botão de criar, conforme a aba e se está ocupado. */
+export function textoBotaoCriar(tab: FonteTab, busy: boolean): string {
+  if (busy) return tab === 'nada' ? 'Criando…' : 'Iniciando…'
+  return tab === 'nada' ? 'Criar sala' : 'Iniciar transmissão'
+}
+
+/** `true` quando a aba é "Nada por enquanto" (cria a sala sem transmitir). */
+export function semTransmitir(tab: FonteTab): boolean {
+  return tab === 'nada'
+}
+
+/** Pedido de transmissão a partir das escolhas da tela (`null` = falta escolher a fonte, ou não há transmissão). */
 export function montarPedido(tab: FonteTab, selected: string | null, sound: SomModo, marcados: string[], preset: Preset, encoder: string): ShareRequest | null {
+  if (tab === 'nada') return null
   const source = tab === 'audio' ? SO_AUDIO : selected
   if (source === null) return null
   return { source, audio: sound === 'apps' ? marcados : sound, preset, encoder }
 }
 
-/** Erro de uma escolha incompleta, antes de mandar ao núcleo (`null` = pode transmitir). */
+/** Erro de uma escolha incompleta, antes de mandar ao núcleo (`null` = pode transmitir ou não há transmissão). */
 export function erroDoPedido(tab: FonteTab, selected: string | null, sound: SomModo, marcados: string[]): string | null {
+  if (tab === 'nada') return null
   if (tab === 'audio' && sound === 'none') return 'Para transmitir só o som, escolha o som (todo o PC ou alguns apps).'
   if (sound === 'apps' && marcados.length === 0) return 'Marque pelo menos um app, ou escolha outro som.'
   if (tab !== 'audio' && selected === null) return 'Escolha o que compartilhar.'

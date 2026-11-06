@@ -1,8 +1,10 @@
 //! Lógica pura do updater (sem Tauri): tipos do evento `zap://update`, escolha do endpoint por
 //! canal, detecção do placeholder da chave pública e as regras "nunca reiniciar numa sala".
 
+use std::time::Duration;
+
 use serde::Serialize;
-use zap_core::UpdateChannel;
+use zap_core::{InstallMode, UpdateChannel};
 
 /// Nome do evento de estado da atualização.
 pub const EVENT_UPDATE: &str = "zap://update";
@@ -129,9 +131,261 @@ pub fn deve_instalar_ao_sair(fase: Fase, marcada: bool) -> bool {
     marcada && fase == Fase::Pronta
 }
 
+/// Evento do aviso de instalação ("Atualizando para a vX em 30 s · Adiar 1 h").
+pub const EVENT_UPDATE_AVISO: &str = "zap://update-aviso";
+/// Evento "Atualizado para a vX" (emitido na abertura seguinte a uma instalação).
+pub const EVENT_UPDATE_APLICADA: &str = "zap://update-aplicada";
+/// Espera depois de abrir o app antes da primeira checagem.
+pub const ESPERA_INICIAL: Duration = Duration::from_secs(10);
+/// Intervalo entre checagens com o app aberto.
+pub const INTERVALO_CHECAGEM: Duration = Duration::from_secs(6 * 3600);
+/// Teto do sorteio somado ao intervalo (para não bater todo mundo no GitHub na mesma hora).
+pub const SORTEIO_MAX: Duration = Duration::from_secs(5 * 60);
+/// Nova tentativa depois de uma checagem que falhou.
+pub const INTERVALO_FALHA: Duration = Duration::from_secs(30 * 60);
+/// De quanto em quanto tempo se confere se já é seguro instalar.
+pub const TICK_INSTALACAO: Duration = Duration::from_secs(30);
+/// Tempo ocioso mínimo (sem teclado/mouse) para instalar com o app aberto e visível.
+pub const OCIOSO_MIN: Duration = Duration::from_secs(120);
+/// Duração do aviso antes de instalar.
+pub const AVISO_DURACAO: Duration = Duration::from_secs(30);
+/// Quanto o botão "Adiar" empurra a instalação.
+pub const ADIAR: Duration = Duration::from_secs(3600);
+
+/// Payload do evento `zap://update-aviso`.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+pub struct AvisoInstalacao {
+    pub versao: String,
+    /// Segundos até instalar (30 ao abrir o aviso). `0` = fechar o aviso (adiado ou ficou inseguro).
+    pub segundos: u32,
+}
+
+/// Fotografia do que importa para decidir se é seguro instalar agora.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ContextoInstalacao {
+    pub em_sala: bool,
+    /// Há transmissão minha em andamento (`snapshot.share` presente).
+    pub transmitindo: bool,
+    /// Há prévia de sala aberta na lista de salas.
+    pub previa_aberta: bool,
+    pub minimizado: bool,
+    /// Tempo sem teclado nem mouse (`zap_core::idle_time()`).
+    pub ocioso: Duration,
+}
+
+/// `true` quando é seguro instalar sozinho: fora de sala, sem transmitir, sem prévia aberta E
+/// (app minimizado OU ocioso por pelo menos `OCIOSO_MIN`).
+pub fn pode_instalar_agora(ctx: &ContextoInstalacao) -> bool {
+    !ctx.em_sala && !ctx.transmitindo && !ctx.previa_aberta && (ctx.minimizado || ctx.ocioso >= OCIOSO_MIN)
+}
+
+/// O que o laço de instalação deve fazer neste tick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Passo {
+    /// Nada a fazer (ou cancelar um aviso em curso se `aviso_em` estava preenchido).
+    Esperar,
+    /// Abrir o aviso de 30 s.
+    Avisar,
+    /// O aviso está aberto e ainda seguro: deixar a contagem correr, sem mexer no aviso.
+    Contando,
+    /// O aviso venceu sem resposta: instalar.
+    Instalar,
+}
+
+/// Decide o próximo passo da instalação sozinha. Tempos (`adiado_ate`, `aviso_em`, `agora`) são
+/// relógio monotônico desde a abertura do app.
+///
+/// - `modo != Auto` ou `fase != Pronta` -> `Esperar`;
+/// - `adiado_ate > agora` -> `Esperar`;
+/// - `!pode_instalar_agora(ctx)` -> `Esperar`;
+/// - seguro e sem aviso (`aviso_em == None`) -> `Avisar`;
+/// - seguro e `agora >= aviso_em + AVISO_DURACAO` -> `Instalar`; antes disso -> `Contando` (o
+///   aviso continua aberto, sem reiniciar a contagem).
+pub fn proximo_passo(
+    modo: InstallMode,
+    fase: Fase,
+    ctx: &ContextoInstalacao,
+    adiado_ate: Option<Duration>,
+    aviso_em: Option<Duration>,
+    agora: Duration,
+) -> Passo {
+    if modo != InstallMode::Auto || fase != Fase::Pronta {
+        return Passo::Esperar;
+    }
+    // Adiamento vencido (`t <= agora`) não vale mais.
+    if matches!(adiado_ate, Some(t) if t > agora) {
+        return Passo::Esperar;
+    }
+    if !pode_instalar_agora(ctx) {
+        return Passo::Esperar;
+    }
+    match aviso_em {
+        None => Passo::Avisar,
+        Some(t) if agora >= t + AVISO_DURACAO => Passo::Instalar,
+        Some(_) => Passo::Contando,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ctx_seguro() -> ContextoInstalacao {
+        ContextoInstalacao {
+            em_sala: false,
+            transmitindo: false,
+            previa_aberta: false,
+            minimizado: true,
+            ocioso: Duration::ZERO,
+        }
+    }
+
+    fn s(n: u64) -> Duration {
+        Duration::from_secs(n)
+    }
+
+    #[test]
+    fn pode_instalar_tabela() {
+        let casos: Vec<(ContextoInstalacao, bool)> = vec![
+            (ctx_seguro(), true),
+            (
+                ContextoInstalacao {
+                    minimizado: false,
+                    ocioso: s(119),
+                    ..ctx_seguro()
+                },
+                false,
+            ),
+            (
+                ContextoInstalacao {
+                    minimizado: false,
+                    ocioso: s(120),
+                    ..ctx_seguro()
+                },
+                true,
+            ),
+            (
+                ContextoInstalacao {
+                    minimizado: false,
+                    ocioso: s(300),
+                    ..ctx_seguro()
+                },
+                true,
+            ),
+            (
+                ContextoInstalacao {
+                    em_sala: true,
+                    ..ctx_seguro()
+                },
+                false,
+            ),
+            (
+                ContextoInstalacao {
+                    transmitindo: true,
+                    ..ctx_seguro()
+                },
+                false,
+            ),
+            (
+                ContextoInstalacao {
+                    previa_aberta: true,
+                    ..ctx_seguro()
+                },
+                false,
+            ),
+            (
+                ContextoInstalacao {
+                    em_sala: true,
+                    minimizado: false,
+                    ocioso: s(300),
+                    ..ctx_seguro()
+                },
+                false,
+            ),
+            (
+                ContextoInstalacao {
+                    minimizado: false,
+                    ocioso: s(0),
+                    ..ctx_seguro()
+                },
+                false,
+            ),
+        ];
+        for (i, (ctx, esperado)) in casos.iter().enumerate() {
+            assert_eq!(pode_instalar_agora(ctx), *esperado, "caso {i}: {ctx:?}");
+        }
+    }
+
+    #[test]
+    fn passo_so_no_modo_auto() {
+        let c = ctx_seguro();
+        for modo in [InstallMode::Ask, InstallMode::OnExit] {
+            assert_eq!(
+                proximo_passo(modo, Fase::Pronta, &c, None, None, s(100)),
+                Passo::Esperar
+            );
+        }
+        assert_eq!(
+            proximo_passo(InstallMode::Auto, Fase::Pronta, &c, None, None, s(100)),
+            Passo::Avisar
+        );
+    }
+
+    #[test]
+    fn passo_exige_fase_pronta() {
+        let c = ctx_seguro();
+        for fase in [Fase::Nada, Fase::Baixando, Fase::Instalando, Fase::Erro] {
+            assert_eq!(
+                proximo_passo(InstallMode::Auto, fase, &c, None, None, s(100)),
+                Passo::Esperar,
+                "fase {fase:?}"
+            );
+        }
+        assert_eq!(
+            proximo_passo(InstallMode::Auto, Fase::Pronta, &c, None, None, s(100)),
+            Passo::Avisar
+        );
+    }
+
+    #[test]
+    fn passo_respeita_adiar() {
+        let c = ctx_seguro();
+        let adiado = Some(s(3600));
+        let passo = |agora| proximo_passo(InstallMode::Auto, Fase::Pronta, &c, adiado, None, agora);
+        assert_eq!(passo(s(100)), Passo::Esperar);
+        assert_eq!(passo(s(3600)), Passo::Avisar);
+        assert_eq!(passo(s(4000)), Passo::Avisar);
+    }
+
+    #[test]
+    fn passo_inseguro_cancela() {
+        let c = ContextoInstalacao {
+            em_sala: true,
+            ..ctx_seguro()
+        };
+        assert_eq!(
+            proximo_passo(InstallMode::Auto, Fase::Pronta, &c, None, Some(s(10)), s(45)),
+            Passo::Esperar
+        );
+    }
+
+    #[test]
+    fn passo_aviso_30s() {
+        let c = ctx_seguro();
+        let passo = |agora| proximo_passo(InstallMode::Auto, Fase::Pronta, &c, None, Some(s(100)), agora);
+        assert_eq!(passo(s(100)), Passo::Contando);
+        assert_eq!(passo(s(129)), Passo::Contando);
+        assert_eq!(passo(s(130)), Passo::Instalar);
+        assert_eq!(passo(s(500)), Passo::Instalar);
+    }
+
+    #[test]
+    fn passo_sem_aviso_avisa_antes_de_instalar() {
+        assert_eq!(
+            proximo_passo(InstallMode::Auto, Fase::Pronta, &ctx_seguro(), None, None, s(1000)),
+            Passo::Avisar
+        );
+    }
 
     #[test]
     fn construtores_preenchem_campos() {

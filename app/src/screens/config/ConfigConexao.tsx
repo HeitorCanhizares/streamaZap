@@ -5,6 +5,8 @@ import type { NetworkStatus, RoomMode } from '../../bridge/types'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 import { useServerTest } from './useServerTest'
 import { textoTeste } from '../../bridge/serverModel'
+import { api } from '../../bridge/api'
+import { useSnapshot } from '../../bridge/store'
 
 const MODOS: Array<[RoomMode, string]> = [['online', 'Online'], ['local', 'Local']]
 
@@ -58,7 +60,7 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
   const endereco = srv?.address ?? ''
   const senha = srv?.password ?? ''
   // Patch por seção: mantém os outros campos do servidor.
-  const base = { address: endereco, password: senha, use_relay: srv?.use_relay ?? true }
+  const base = { enabled: srv?.enabled ?? false, address: endereco, password: senha, use_relay: srv?.use_relay ?? true }
   const { testando, resultado, testar, limpar } = useServerTest()
   const [porta, setPorta] = useState(local.port > 0 ? String(local.port) : '')
 
@@ -68,6 +70,37 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
   }, [local.port])
 
   const { texto: testeTexto, cor: testeCor } = textoTeste(resultado, testando)
+
+  const online = base.enabled
+  const emSalaOnline = useSnapshot().room?.mode === 'online'
+  const [confirmando, setConfirmando] = useState(false)
+  const [erroSair, setErroSair] = useState<string | null>(null)
+
+  function alternarOnline(): void {
+    if (!online) {
+      onChange({ server: { ...base, enabled: true } })
+      return
+    }
+    // Desligar dentro de uma sala Online sai dela: pede confirmação antes.
+    if (emSalaOnline) {
+      setErroSair(null)
+      setConfirmando(true)
+      return
+    }
+    onChange({ server: { ...base, enabled: false } })
+  }
+
+  async function desligarESair(): Promise<void> {
+    try {
+      await api.roomLeave()
+    } catch (e) {
+      // Não conseguiu sair: mantém o modo Online ligado.
+      setErroSair(String(e))
+      return
+    }
+    setConfirmando(false)
+    onChange({ server: { ...base, enabled: false } })
+  }
 
   return (
     <section
@@ -108,50 +141,90 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
             </span>
             Online · servidor
           </span>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label htmlFor="srv" style={rotulo}>Endereço do servidor</label>
-            <input
-              id="srv"
-              placeholder="ex.: zap.seudominio.com:7443"
-              value={endereco}
-              onChange={(e) => { onChange({ server: { ...base, address: e.target.value } }); limpar() }}
-              style={{ ...campo, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
-            />
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label htmlFor="chave" style={rotulo}>Senha do servidor</label>
-            <input
-              id="chave"
-              type="password"
-              placeholder="pede pro dono do servidor"
-              value={senha}
-              onChange={(e) => { onChange({ server: { ...base, password: e.target.value } }); limpar() }}
-              style={{ ...campo, letterSpacing: '0.1em' }}
-            />
-            <span style={dica}>Barra bots e quem não foi convidado.</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
-            <button
-              className="zp-cta"
-              disabled={testando}
-              onClick={() => void testar(endereco, senha)}
-              style={{ height: 44, padding: '0 18px', borderRadius: 12, border: 0, background: '#3BF08A', color: '#03140A', fontWeight: 700 }}
-            >
-              Testar conexão
-            </button>
-            <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, color: testeCor }}>{testeTexto}</span>
-          </div>
           <button
+            type="button"
             role="switch"
-            aria-checked={base.use_relay}
-            onClick={() => onChange({ server: { ...base, use_relay: !base.use_relay } })}
+            aria-label="Usar o modo Online"
+            aria-checked={online}
+            onClick={alternarOnline}
             style={botaoSwitch}
           >
-            <span style={swTrack(base.use_relay)}><span style={swKnob(base.use_relay)} /></span>
+            <span style={swTrack(online)}><span style={swKnob(online)} /></span>
             <span style={{ fontSize: 13, color: '#A3BDB1', lineHeight: 1.4 }}>
-              <b style={{ color: '#E6F4EC', fontWeight: 600 }}>Usar o servidor como ponte</b> quando a conexão direta com alguém falhar.
+              <b style={{ color: '#E6F4EC', fontWeight: 600 }}>Usar o modo Online</b>
+              <br />
+              Salas pela internet, sem Radmin. O modo Local continua funcionando como sempre.
             </span>
           </button>
+          {confirmando && (
+            <div
+              role="alertdialog"
+              aria-label="Desligar o modo Online"
+              style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 14, borderRadius: 12, background: '#0A100E', border: '1px solid #2A443C' }}
+            >
+              <span style={{ fontSize: 13, color: '#E6F4EC' }}>Você está numa sala Online. Desligar o modo Online sai da sala.</span>
+              {erroSair && <span role="alert" style={{ fontSize: 13, color: '#FF6B6B' }}>{erroSair}</span>}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button type="button" onClick={() => void desligarESair()} style={{ height: 40, padding: '0 16px', borderRadius: 10, border: 0, background: '#FF6B6B', color: '#1A0505', fontWeight: 700 }}>
+                  Desligar e sair
+                </button>
+                <button type="button" onClick={() => { setConfirmando(false); setErroSair(null) }} style={{ height: 40, padding: '0 16px', borderRadius: 10, border: '1px solid #2A443C', background: 'transparent', color: '#A3BDB1', fontWeight: 600 }}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          {online && (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label htmlFor="chave" style={rotulo}>Senha do servidor</label>
+                <input
+                  id="chave"
+                  type="password"
+                  placeholder="pede pro dono do servidor"
+                  value={senha}
+                  onChange={(e) => { onChange({ server: { ...base, password: e.target.value } }); limpar() }}
+                  style={{ ...campo, letterSpacing: '0.1em' }}
+                />
+                <span style={dica}>Barra bots e quem não foi convidado.</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 14, borderRadius: 12, border: '1px solid #1F332D' }}>
+                <span style={{ fontWeight: 600, fontSize: 13.5 }}>Servidor próprio</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label htmlFor="srv" style={rotulo}>Endereço do servidor</label>
+                  <input
+                    id="srv"
+                    placeholder="ex.: zap.seudominio.com:7443"
+                    value={endereco}
+                    onChange={(e) => { onChange({ server: { ...base, address: e.target.value } }); limpar() }}
+                    style={{ ...campo, fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                  <button
+                    className="zp-cta"
+                    disabled={testando}
+                    onClick={() => void testar(endereco, senha)}
+                    style={{ height: 44, padding: '0 18px', borderRadius: 12, border: 0, background: '#3BF08A', color: '#03140A', fontWeight: 700 }}
+                  >
+                    Testar conexão
+                  </button>
+                  <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, color: testeCor }}>{testeTexto}</span>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={base.use_relay}
+                  onClick={() => onChange({ server: { ...base, use_relay: !base.use_relay } })}
+                  style={botaoSwitch}
+                >
+                  <span style={swTrack(base.use_relay)}><span style={swKnob(base.use_relay)} /></span>
+                  <span style={{ fontSize: 13, color: '#A3BDB1', lineHeight: 1.4 }}>
+                    <b style={{ color: '#E6F4EC', fontWeight: 600 }}>Usar o servidor como ponte</b> quando a conexão direta com alguém falhar.
+                  </span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <div style={cartao}>

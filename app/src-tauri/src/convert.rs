@@ -38,6 +38,8 @@ pub fn should_send_typing(typing: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zap_core::snapshot::{TrackView, TrackViewKind};
+    use zap_core::{Snapshot, SourceItem, SourceKind};
 
     #[test]
     fn tile_size_limites() {
@@ -82,5 +84,73 @@ mod tests {
     fn typing_so_true() {
         assert!(should_send_typing(true));
         assert!(!should_send_typing(false));
+    }
+
+    // Sources e Snapshot cruzam a ponte por serde direto: estes testes seguram o JSON que a
+    // interface lê (sem conversão manual no app).
+
+    #[test]
+    fn fonte_de_camera_serializa_modo_maximo() {
+        let item = SourceItem {
+            id: "camera:x".into(),
+            kind: SourceKind::Camera,
+            name: "Cam".into(),
+            sound: None,
+            max_height: Some(1080),
+            max_fps: Some(60),
+        };
+        let v = serde_json::to_value(&item).expect("json");
+        assert_eq!(v["max_height"].as_u64(), Some(1080));
+        assert_eq!(v["max_fps"].as_u64(), Some(60));
+    }
+
+    #[test]
+    fn fonte_sem_modo_omite_os_campos() {
+        let item = SourceItem {
+            id: "camera:x".into(),
+            kind: SourceKind::Camera,
+            name: "Cam".into(),
+            sound: None,
+            max_height: None,
+            max_fps: None,
+        };
+        let v = serde_json::to_value(&item).expect("json");
+        assert!(v.get("max_height").is_none());
+        assert!(v.get("max_fps").is_none());
+    }
+
+    #[test]
+    fn trilha_de_camera_leva_o_jeito() {
+        let base = |layout| TrackView {
+            id: "t1".into(),
+            owner_id: "p1".into(),
+            kind: TrackViewKind::Camera,
+            title: "Câmera".into(),
+            number: 1,
+            camera_layout: layout,
+        };
+
+        let solta = serde_json::to_value(base(Some(zap_proto::CameraLayout::Free))).expect("json");
+        assert_eq!(solta["camera_layout"], serde_json::json!({"modo": "solta"}));
+
+        let canto = serde_json::to_value(base(Some(zap_proto::CameraLayout::Corner {
+            corner: zap_proto::Corner::TopLeft,
+        })))
+        .expect("json");
+        assert_eq!(
+            canto["camera_layout"],
+            serde_json::json!({"modo": "canto", "canto": "sup_esq"})
+        );
+
+        let sem = serde_json::to_value(base(None)).expect("json");
+        assert!(sem.get("camera_layout").is_none());
+    }
+
+    #[test]
+    fn snapshot_de_exemplo_vai_e_volta() {
+        let original = Snapshot::example();
+        let v = serde_json::to_value(&original).expect("json");
+        let volta: Snapshot = serde_json::from_value(v).expect("de volta");
+        assert_eq!(volta, original);
     }
 }

@@ -8,6 +8,11 @@ pub mod fwfix;
 mod setup;
 pub mod sink;
 pub mod state;
+pub mod update_agenda;
+pub mod update_aplicada;
+pub mod update_auto;
+pub mod update_contexto;
+pub mod update_instalar;
 pub mod update_state;
 pub mod updater;
 pub mod video;
@@ -37,6 +42,8 @@ pub fn run() {
             commands::update::update_download,
             commands::update::update_install_now,
             commands::update::update_install_on_exit,
+            commands::update::update_postpone,
+            commands::update::update_applied_take,
             commands::settings::settings_get,
             commands::settings::settings_set,
             commands::sources::sources_list,
@@ -57,6 +64,8 @@ pub fn run() {
             commands::share::share_update,
             commands::share::share_stop,
             commands::share::camera_set,
+            commands::share::camera_quality_set,
+            commands::share::camera_layout_set,
             commands::share::camera_preview,
             commands::share::camera_preview_stop,
             commands::watch::watch,

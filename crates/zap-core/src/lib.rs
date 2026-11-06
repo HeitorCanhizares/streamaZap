@@ -14,6 +14,7 @@
 #![deny(unsafe_code)]
 
 pub mod audio_out;
+pub mod camera_plan;
 mod camera_test;
 pub mod diag;
 pub mod diag_build;
@@ -35,6 +36,8 @@ pub mod publish;
 pub mod room;
 pub mod settings;
 pub mod share;
+mod share_camera;
+mod share_camera_layout;
 pub mod snapshot;
 pub mod sources;
 pub mod state;
@@ -50,6 +53,8 @@ pub use diag::{DiagInput, DiagReport};
 pub use engine_music::MusicReport;
 pub use error::CoreError;
 pub use online::{ServerState, ServerStatus, ServerTestResult};
-pub use settings::Settings;
+pub use settings::{InstallMode, Settings};
 pub use snapshot::Snapshot;
 pub use types::*;
+/// Há quanto tempo o usuário não mexe no teclado nem no mouse (o app só depende de `zap-core`).
+pub use zap_sys::idle_time;

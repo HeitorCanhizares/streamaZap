@@ -86,6 +86,12 @@ pub struct SourceItem {
     /// Só nos apps (`app:<pid>`): o que se sabe do som dele agora.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sound: Option<AppSoundView>,
+    /// Só nas câmeras: altura do melhor modo nativo (a interface desliga o que a câmera não faz).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_height: Option<u32>,
+    /// Só nas câmeras: fps do melhor modo nativo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_fps: Option<u32>,
 }
 
 /// Som de um app na listagem: tocando agora, já abriu o áudio (quieto) ou só tem janela.

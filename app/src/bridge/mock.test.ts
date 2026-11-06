@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { api } from './api'
 import { mockSettings, mockSnapshot, mockSources } from './mock'
 
 describe('mockSnapshot', () => {
@@ -99,5 +100,39 @@ describe('mockSources', () => {
     expect(s.apps.map((a) => a.name)).toEqual(['Spotify', 'Discord', 'Google Chrome', 'Jogo', 'Visual Studio Code'])
     expect(s.apps.map((a) => a.sound)).toEqual(['playing', 'ready', 'ready', 'silent', 'silent'])
     expect(s.encoders).toEqual(['Automatico', 'NVENC', 'x264'])
+  })
+
+  it('câmera tem o melhor modo nativo: max_height 1080 e max_fps 60', () => {
+    const [camera] = mockSources().cameras
+    expect(camera.max_height).toBe(1080)
+    expect(camera.max_fps).toBe(60)
+  })
+})
+
+describe('mockSettings (v3.3.0: servidor, câmera e atualização)', () => {
+  it('server.enabled é true no mock, para o design mostrar o Online ligado', () => {
+    expect(mockSettings().server!.enabled).toBe(true)
+  })
+
+  it('câmera do mock começa em 720p30 com o canto inferior direito', () => {
+    const v = mockSettings().video
+    expect(v.camera_preset).toBe('720p30')
+    expect(v.camera_layout).toEqual({ modo: 'canto', canto: 'inf_dir' })
+  })
+
+  it('atualização do mock: check, download, install auto e canal estável', () => {
+    const u = mockSettings().update
+    expect(u).toEqual({ check: true, download: true, install: 'auto', channel: 'estavel' })
+  })
+
+  it('a seção update não tem a chave antiga "auto"', () => {
+    expect(mockSettings().update).not.toHaveProperty('auto')
+  })
+})
+
+describe('api.settingsSet no mock (merge por seção)', () => {
+  it('trocar só install mantém check, download e channel da seção update', async () => {
+    const s = await api.settingsSet({ update: { install: 'ask' } as never })
+    expect(s.update).toEqual({ check: true, download: true, install: 'ask', channel: 'estavel' })
   })
 })

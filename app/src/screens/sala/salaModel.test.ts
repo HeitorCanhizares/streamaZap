@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mockSnapshot } from '../../bridge/mock'
-import type { RoomView } from '../../bridge/types'
+import type { CameraLayout, Corner, RoomView } from '../../bridge/types'
 import {
   celulasDaPrincipal,
   inviteText,
@@ -201,6 +201,84 @@ describe('celulasDaPrincipal', () => {
     const s = streamsDaSala(salaCheia(), 'eu')
     const c = celulasDaPrincipal(s, { 'cam-ana': 'principal', 'tela-ana': 'faixa', 'jan-bia': 'faixa', 'som-caio': 'faixa' })
     expect(c).toEqual([{ stream: s.find((x) => x.trackId === 'cam-ana'), pip: null }])
+  })
+})
+
+describe('layout da câmera (aceite B4)', () => {
+  const sala2 = (layout?: CameraLayout, comTela = true): RoomView => ({
+    ...salaCheia(),
+    tracks: [
+      ...(comTela ? [{ id: 'tela-z', owner_id: 'zeca', kind: 'screen' as const, title: 'T', number: 1 }] : []),
+      { id: 'cam-z', owner_id: 'zeca', kind: 'camera' as const, title: 'C', number: 2, ...(layout ? { camera_layout: layout } : {}) },
+    ],
+  })
+  const monta = (layout?: CameraLayout, jeitos?: Record<string, 'canto' | 'solta'>, comTela = true) => {
+    const s = streamsDaSala(sala2(layout, comTela), 'eu')
+    const l = lugaresDasStreams(s, {})
+    return { s, l, c: celulasDaPrincipal(s, l, jeitos) }
+  }
+
+  for (const canto of ['sup_esq', 'sup_dir', 'inf_esq', 'inf_dir'] as Corner[]) {
+    it(`canto ${canto}: uma célula com a câmera no canto`, () => {
+      const { c } = monta({ modo: 'canto', canto })
+      expect(c).toHaveLength(1)
+      expect(c[0].pip?.trackId).toBe('cam-z')
+      expect(c[0].corner).toBe(canto)
+    })
+  }
+
+  it('solta: duas células, a câmera logo depois da tela e com podeCanto', () => {
+    const { c } = monta({ modo: 'solta' })
+    expect(c.map((x) => [x.stream.trackId, x.pip])).toEqual([['tela-z', null], ['cam-z', null]])
+    expect(c[0].podeCanto).toBeUndefined()
+    expect(c[1].podeCanto).toBe(true)
+  })
+
+  it('câmera sem layout: canto inf_dir', () => {
+    const { c } = monta()
+    expect(c).toHaveLength(1)
+    expect(c[0].pip?.trackId).toBe('cam-z')
+    expect(c[0].corner).toBe('inf_dir')
+  })
+
+  it('a escolha de quem assiste vale mais que a de quem transmite', () => {
+    const a = monta({ modo: 'canto', canto: 'sup_esq' }, { 'cam-z': 'solta' })
+    expect(a.c.map((x) => x.stream.trackId)).toEqual(['tela-z', 'cam-z'])
+    expect(a.c.every((x) => x.pip === null)).toBe(true)
+    const b = monta({ modo: 'solta' }, { 'cam-z': 'canto' })
+    expect(b.c).toHaveLength(1)
+    expect(b.c[0].pip?.trackId).toBe('cam-z')
+    expect(b.c[0].corner).toBe('inf_dir')
+  })
+
+  it('câmera de dono sem tela na principal: célula própria no fim, sem podeCanto', () => {
+    const { c } = monta({ modo: 'solta' }, undefined, false)
+    expect(c).toHaveLength(1)
+    expect(c[0].stream.trackId).toBe('cam-z')
+    expect(c[0].pip).toBeNull()
+    expect(c[0].podeCanto).toBeUndefined()
+  })
+
+  it('streamsDaSala copia camera_layout só nas câmeras e só quando existe', () => {
+    const r: RoomView = {
+      ...salaCheia(),
+      tracks: [
+        { id: 'tela-z', owner_id: 'zeca', kind: 'screen', title: 'T', number: 1, camera_layout: { modo: 'solta' } },
+        { id: 'cam-z', owner_id: 'zeca', kind: 'camera', title: 'C', number: 2, camera_layout: { modo: 'solta' } },
+        { id: 'cam-w', owner_id: 'wil', kind: 'camera', title: 'C', number: 3 },
+      ],
+    }
+    const s = streamsDaSala(r, 'eu')
+    const por = (id: string) => s.find((x) => x.trackId === id)!
+    expect(por('cam-z').cameraLayout).toEqual({ modo: 'solta' })
+    expect('cameraLayout' in por('tela-z')).toBe(false)
+    expect('cameraLayout' in por('cam-w')).toBe(false)
+  })
+
+  it('lugaresDasStreams: câmera solta de quem tem a tela na principal também fica na principal', () => {
+    const { l } = monta({ modo: 'solta' })
+    expect(l['tela-z']).toBe('principal')
+    expect(l['cam-z']).toBe('principal')
   })
 })
 

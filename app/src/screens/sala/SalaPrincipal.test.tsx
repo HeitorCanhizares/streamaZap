@@ -160,4 +160,63 @@ describe('SalaPrincipal', () => {
     fireEvent.pointerLeave(barra)
     expect(barra.getAttribute('data-visivel')).toBe('false')
   })
+
+  describe('câmera: canto e jeito', () => {
+    const pos = (celula: Celula, nomeCam = 'Câmera de Ana') => {
+      montar({ celulas: [celula] })
+      return (screen.getByRole('img', { name: nomeCam }).parentElement as HTMLElement).style
+    }
+    const vazio = (v: string) => v === '' || v === 'auto'
+
+    it('posiciona o pip pelo canto', () => {
+      let st = pos({ stream: s1, pip: s2, corner: 'sup_esq' })
+      expect(st.left).toBe('26px'); expect(st.top).not.toBe(''); expect(vazio(st.right)).toBe(true); expect(vazio(st.bottom)).toBe(true)
+      cleanup()
+      st = pos({ stream: s1, pip: s2, corner: 'sup_dir' })
+      expect(st.right).toBe('26px'); expect(st.top).not.toBe(''); expect(vazio(st.left)).toBe(true); expect(vazio(st.bottom)).toBe(true)
+      cleanup()
+      st = pos({ stream: s1, pip: s2, corner: 'inf_esq' })
+      expect(st.left).toBe('26px'); expect(st.bottom).not.toBe(''); expect(vazio(st.right)).toBe(true); expect(vazio(st.top)).toBe(true)
+      cleanup()
+      st = pos({ stream: s1, pip: s2, corner: 'inf_dir' })
+      expect(st.right).toBe('26px'); expect(st.bottom).toBe('96px'); expect(vazio(st.left)).toBe(true); expect(vazio(st.top)).toBe(true)
+      cleanup()
+      st = pos({ stream: s1, pip: s2 })
+      expect(st.right).toBe('26px'); expect(st.bottom).toBe('96px'); expect(vazio(st.left)).toBe(true); expect(vazio(st.top)).toBe(true)
+    })
+
+    it('Soltar a câmera só existe com onJeito', () => {
+      const onJeito = vi.fn<(trackId: string, jeito: 'canto' | 'solta') => void>()
+      montar({ celulas: [{ stream: s1, pip: s2 }], onJeito })
+      fireEvent.click(screen.getByRole('button', { name: 'Soltar a câmera de Ana' }))
+      expect(onJeito).toHaveBeenCalledWith('t2', 'solta')
+      cleanup()
+      montar({ celulas: [{ stream: s1, pip: s2 }] })
+      expect(screen.queryByRole('button', { name: 'Soltar a câmera de Ana' })).toBeNull()
+    })
+
+    it('Pôr a câmera no canto aparece só com podeCanto e onJeito', () => {
+      const onJeito = vi.fn<(trackId: string, jeito: 'canto' | 'solta') => void>()
+      montar({ celulas: [{ stream: s2, pip: null, podeCanto: true }], onJeito })
+      fireEvent.click(screen.getByRole('button', { name: 'Pôr a câmera de Ana no canto' }))
+      expect(onJeito).toHaveBeenCalledWith('t2', 'canto')
+      cleanup()
+      montar({ celulas: [{ stream: s2, pip: null }], onJeito })
+      expect(screen.queryByRole('button', { name: /no canto/ })).toBeNull()
+      cleanup()
+      montar({ celulas: [{ stream: s2, pip: null, podeCanto: true }] })
+      expect(screen.queryByRole('button', { name: /no canto/ })).toBeNull()
+    })
+
+    it('minha câmera usa os rótulos em primeira pessoa', () => {
+      const onJeito = vi.fn<(trackId: string, jeito: 'canto' | 'solta') => void>()
+      const minha: Stream = { ...s2, ownerId: 'p1', mine: true }
+      const tela: Stream = { ...s1, mine: true }
+      montar({ celulas: [{ stream: tela, pip: minha }], onJeito })
+      expect(screen.getByRole('button', { name: 'Soltar minha câmera' })).toBeTruthy()
+      cleanup()
+      montar({ celulas: [{ stream: minha, pip: null, podeCanto: true }], onJeito })
+      expect(screen.getByRole('button', { name: 'Pôr minha câmera no canto' })).toBeTruthy()
+    })
+  })
 })

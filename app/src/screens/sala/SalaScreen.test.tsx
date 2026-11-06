@@ -192,4 +192,45 @@ describe('SalaScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Painel' }))
     expect(screen.getByRole('complementary', { name: 'Chat, pessoas e música' })).toBeTruthy()
   })
+
+  describe('câmera: canto ou solta (escolha local)', () => {
+    function comCamera(layout: { modo: 'canto'; canto: 'sup_esq' } | { modo: 'solta' }) {
+      const base = mockSnapshot()
+      const dono = base.room!.participants.find((p) => p.id !== base.me.install_id)!
+      estado.snap = {
+        ...base,
+        room: {
+          ...base.room!,
+          tracks: [
+            { id: 'tela-o', owner_id: dono.id, kind: 'screen', title: 'Tela', number: 1 },
+            { id: 'cam-o', owner_id: dono.id, kind: 'camera', title: 'Câmera', number: 2, camera_layout: layout },
+          ],
+        },
+      }
+      vi.spyOn(api, 'watch').mockResolvedValue(undefined)
+      return dono.name
+    }
+
+    it('canto: pip, soltar e pôr de volta no canto, sem chamar a api de câmera', () => {
+      const nome = comCamera({ modo: 'canto', canto: 'sup_esq' })
+      const camSet = vi.spyOn(api, 'cameraSet').mockResolvedValue(undefined)
+      const layoutSet = vi.spyOn(api as unknown as Record<string, () => unknown>, 'cameraLayoutSet' as never).mockResolvedValue(undefined as never)
+      render(<SalaScreen onLeft={() => {}} />)
+      expect(screen.getAllByTestId('celula-principal')).toHaveLength(1)
+      expect(screen.getByRole('img', { name: `Câmera de ${nome}` })).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: `Soltar a câmera de ${nome}` }))
+      expect(screen.getAllByTestId('celula-principal')).toHaveLength(2)
+      fireEvent.click(screen.getByRole('button', { name: `Pôr a câmera de ${nome} no canto` }))
+      expect(screen.getAllByTestId('celula-principal')).toHaveLength(1)
+      expect(camSet).not.toHaveBeenCalled()
+      expect(layoutSet).not.toHaveBeenCalled()
+    })
+
+    it('solta: começa como célula própria', () => {
+      const nome = comCamera({ modo: 'solta' })
+      render(<SalaScreen onLeft={() => {}} />)
+      expect(screen.getAllByTestId('celula-principal')).toHaveLength(2)
+      expect(screen.getByRole('button', { name: `Pôr a câmera de ${nome} no canto` })).toBeTruthy()
+    })
+  })
 })

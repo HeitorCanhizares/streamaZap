@@ -5,7 +5,7 @@ import { Select } from '../../components/Select'
 import { api } from '../../bridge/api'
 import { useSnapshot } from '../../bridge/store'
 import { useUpdateState } from '../../bridge/updateStore'
-import type { UpdateInfo } from '../../bridge/types'
+import type { InstallMode, UpdateInfo } from '../../bridge/types'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 
 // Versão exibida na seção. Constante local até o app ler a versão do pacote.
@@ -28,6 +28,51 @@ function bolinha(on: boolean): CSSProperties {
   return { width: 20, height: 20, borderRadius: '50%', background: on ? '#03140A' : '#A3BDB1' }
 }
 
+const MODOS = [
+  { value: 'ask', label: 'Perguntar' },
+  { value: 'on_exit', label: 'Ao fechar o app' },
+  { value: 'auto', label: 'Sozinho, quando eu não estiver em sala' },
+]
+
+const DICAS_INSTALAR: Record<InstallMode, string> = {
+  ask: 'Mostra o aviso Instalar agora / Ao fechar.',
+  on_exit: 'Instala quando você fechar o app.',
+  auto: 'Instala fora de sala, com o app minimizado ou o PC parado, avisando 30 s antes.',
+}
+
+interface InterruptorProps {
+  titulo: string
+  dica: string
+  ligado: boolean
+  desabilitado?: boolean
+  onClick: () => void
+}
+
+function Interruptor({ titulo, dica, ligado, desabilitado = false, onClick }: InterruptorProps): ReactNode {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-label={titulo}
+      aria-checked={ligado}
+      disabled={desabilitado}
+      onClick={onClick}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, padding: '12px 14px',
+        borderRadius: 14, border: '1px solid #1F332D', background: '#0A100E', textAlign: 'left',
+        cursor: desabilitado ? 'default' : 'pointer', opacity: desabilitado ? 0.5 : 1,
+      }}
+    >
+      <span style={trilho(ligado)}>
+        <span style={bolinha(ligado)} />
+      </span>
+      <span style={{ fontSize: 13, color: '#A3BDB1', lineHeight: 1.4 }}>
+        <b style={{ color: '#E6F4EC', fontWeight: 600 }}>{titulo}</b> — {dica}
+      </span>
+    </button>
+  )
+}
+
 export function ConfigSobre({ settings, onChange }: ConfigSecaoProps): ReactNode {
   const up = useUpdateState()
   const emRoom = useSnapshot().room !== null
@@ -35,7 +80,7 @@ export function ConfigSobre({ settings, onChange }: ConfigSecaoProps): ReactNode
   const [info, setInfo] = useState<UpdateInfo | null>(null)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
   const [aoFechar, setAoFechar] = useState(false)
-  const auto = settings.update.auto
+  const auto = settings.update.check
   const fase = up.fase
 
   function msg(e: unknown): string {
@@ -192,27 +237,31 @@ export function ConfigSobre({ settings, onChange }: ConfigSecaoProps): ReactNode
         </a>
       </div>
 
-      <button
-        type="button"
-        role="switch"
-        aria-checked={auto}
-        onClick={() => onChange({ update: { ...settings.update, auto: !auto } })}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, padding: '12px 14px',
-          borderRadius: 14, border: '1px solid #1F332D', background: '#0A100E', textAlign: 'left', cursor: 'pointer',
-        }}
-      >
-        <span style={trilho(auto)}>
-          <span style={bolinha(auto)} />
-        </span>
-        <span style={{ fontSize: 13, color: '#A3BDB1', lineHeight: 1.4 }}>
-          <b style={{ color: '#E6F4EC', fontWeight: 600 }}>Atualizar sozinho ao abrir</b> — baixa, confere e reabre já atualizado.
-        </span>
-      </button>
+      <Interruptor
+        titulo="Procurar atualizações sozinho" dica="Confere a cada 6 h e quando o app abre."
+        ligado={auto} onClick={() => onChange({ update: { ...settings.update, check: !auto } })}
+      />
+      <Interruptor
+        titulo="Baixar sozinho" dica="Baixa em segundo plano assim que achar."
+        ligado={settings.update.download} desabilitado={!auto}
+        onClick={() => onChange({ update: { ...settings.update, download: !settings.update.download } })}
+      />
+
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left' }}>
+        <span style={{ fontSize: 12.5, color: '#A3BDB1' }}>Instalar</span>
+        <Select
+          ariaLabel="Instalar"
+          options={MODOS}
+          value={settings.update.install}
+          onChange={(v) => onChange({ update: { ...settings.update, install: v as InstallMode } })}
+        />
+        <span style={{ fontSize: 12, color: '#A3BDB1' }}>{DICAS_INSTALAR[settings.update.install]}</span>
+      </div>
 
       <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left' }}>
         <span style={{ fontSize: 12.5, color: '#A3BDB1' }}>Canal de atualização</span>
         <Select
+          ariaLabel="Canal de atualização"
           options={CANAIS}
           value={settings.update.channel}
           onChange={(v) => onChange({ update: { ...settings.update, channel: v as 'estavel' | 'beta' } })}

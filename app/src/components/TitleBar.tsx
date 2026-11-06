@@ -1,6 +1,7 @@
 // Tarefa shell-05
 import type { ReactNode } from 'react'
 import type { TitleBarProps } from './shell/types'
+import { useOnlineEnabled } from '../bridge/onlineStore'
 import { ServerStatus } from './shell/ServerStatus'
 import { WindowControls } from './shell/WindowControls'
 
@@ -11,6 +12,8 @@ export type { TitleBarProps } from './shell/types'
 // não têm o atributo, assim o clique neles não inicia arrasto.
 export function TitleBar(props: TitleBarProps): ReactNode {
   const { version, crumb, right, onMinimize, onMaximize, onClose, serverMs, server, radminIp } = props
+  // Com o Online desligado não há servidor para mostrar (o `right` da sala continua).
+  const onlineLigado = useOnlineEnabled()
 
   return (
     <header className="zp-titlebar" data-tauri-drag-region>
@@ -46,7 +49,7 @@ export function TitleBar(props: TitleBarProps): ReactNode {
         </span>
       ) : null}
       <span style={{ flex: 1 }} data-tauri-drag-region />
-      {right ?? <ServerStatus serverMs={serverMs} server={server} radminIp={radminIp} />}
+      {right ?? (onlineLigado ? <ServerStatus serverMs={serverMs} server={server} radminIp={radminIp} /> : null)}
       <WindowControls onMinimize={onMinimize} onMaximize={onMaximize} onClose={onClose} />
     </header>
   )

@@ -3,21 +3,68 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
-use crossbeam_channel::Receiver;
+use crossbeam_channel::{Receiver, Sender};
 use parking_lot::Mutex;
-use zap_media::{EncodedFrame, VideoPipeline, VideoPipelineConfig};
+use zap_media::{EncodedFrame, EncoderChoiceSpec, PipelineStats, VideoPipeline, VideoPipelineConfig, VideoSourceSpec};
 use zap_proto::{LayerSpec, TileSize};
-use zap_rate::allocator::Allocator;
+use zap_rate::allocator::{Allocator, LayerRequest};
 
 use super::viewer::ViewerLink;
 use crate::playout::PlayoutHub;
 use crate::types::{TileId, VideoPacket};
 use crate::CoreError;
 
+/// Pipeline trocável: a câmera reinicia a captura em outro modo sem trocar o publicador
+/// (`VideoPublisher::restart_capture`). Fica vazio só durante a troca (ou se o novo não abriu):
+/// aí os pedidos não fazem nada e as estatísticas saem zeradas.
+pub struct PipelineSlot {
+    atual: Mutex<Option<VideoPipeline>>,
+}
+
+impl PipelineSlot {
+    pub fn new(pipeline: VideoPipeline) -> Self {
+        Self {
+            atual: Mutex::new(Some(pipeline)),
+        }
+    }
+    pub fn set_requests(&self, reqs: &[LayerRequest]) {
+        if let Some(p) = self.atual.lock().as_ref() {
+            p.set_requests(reqs);
+        }
+    }
+    pub fn request_keyframe(&self, layer: u8) {
+        if let Some(p) = self.atual.lock().as_ref() {
+            p.request_keyframe(layer);
+        }
+    }
+    pub fn set_ladder(&self, ladder: Vec<LayerSpec>) {
+        if let Some(p) = self.atual.lock().as_ref() {
+            p.set_ladder(ladder);
+        }
+    }
+    pub fn stats(&self) -> PipelineStats {
+        self.atual.lock().as_ref().map(VideoPipeline::stats).unwrap_or_default()
+    }
+    /// Tira o pipeline do slot. O drop (que espera a thread de vídeo) fica com quem chamou, fora
+    /// do lock.
+    fn take(&self) -> Option<VideoPipeline> {
+        self.atual.lock().take()
+    }
+    fn put(&self, pipeline: VideoPipeline) {
+        *self.atual.lock() = Some(pipeline);
+    }
+}
+
+impl From<VideoPipeline> for PipelineSlot {
+    fn from(pipeline: VideoPipeline) -> Self {
+        Self::new(pipeline)
+    }
+}
+
 /// Estado compartilhado entre a thread de envio, a tarefa do alocador e a API.
 pub struct VideoShared {
     pub track: u16,
-    pub pipeline: VideoPipeline,
+    pub pipeline: PipelineSlot,
     pub allocator: Mutex<Allocator>,
     pub viewers: Mutex<Vec<Arc<ViewerLink>>>,
     pub ladder: Mutex<Vec<LayerSpec>>,
@@ -62,19 +109,16 @@ impl VideoShared {
     }
 
     /// Pedidos que não vêm do alocador: os da ponte Online e o da prévia local, unidos.
-    pub fn extra_requests(&self) -> Vec<zap_rate::allocator::LayerRequest> {
+    pub fn extra_requests(&self) -> Vec<LayerRequest> {
         let ponte = self.bridge_requests.lock().clone();
         let previa: Vec<_> = self
             .preview_layer()
             .and_then(|camada| {
                 let ladder = self.ladder.lock();
-                ladder
-                    .iter()
-                    .find(|l| l.layer == camada)
-                    .map(|l| zap_rate::allocator::LayerRequest {
-                        layer: l.layer,
-                        kbps: l.kbps,
-                    })
+                ladder.iter().find(|l| l.layer == camada).map(|l| LayerRequest {
+                    layer: l.layer,
+                    kbps: l.kbps,
+                })
             })
             .into_iter()
             .collect();
@@ -125,6 +169,9 @@ pub struct VideoPublisher {
     pub track: u16,
     pub(crate) shared: Arc<VideoShared>,
     pub(crate) thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// Ponta de envio do canal da thread "zap-send": um pipeline novo (`restart_capture`) entra no
+    /// mesmo canal, e a thread não cai quando o antigo sai.
+    tx: Sender<EncodedFrame>,
 }
 
 impl VideoPublisher {
@@ -140,7 +187,7 @@ impl VideoPublisher {
         let (tx, rx) = crossbeam_channel::bounded::<EncodedFrame>(64);
         let ladder = cfg.ladder.clone();
         let track = cfg.track;
-        let pipeline = VideoPipeline::start(cfg, tx)?;
+        let pipeline = VideoPipeline::start(cfg, tx.clone())?.into();
         let shared = Arc::new(VideoShared {
             track,
             pipeline,
@@ -164,7 +211,40 @@ impl VideoPublisher {
             track,
             shared,
             thread: Mutex::new(Some(handle)),
+            tx,
         }))
+    }
+    /// Reinicia a captura com outra fonte e escada (a câmera mudou de modo) sem trocar o
+    /// publicador: espectadores, ponte Online, prévia local, registro no `MediaServer` e a thread
+    /// de envio continuam. O pipeline antigo cai antes de o novo abrir (a webcam não abre duas
+    /// vezes). As camadas religam no próximo tick do alocador e começam por keyframe. Erro: o
+    /// publicador fica sem pipeline (nada codifica) e quem chamou deve parar a trilha.
+    pub fn restart_capture(
+        &self,
+        source: VideoSourceSpec,
+        ladder: Vec<LayerSpec>,
+        encoder: EncoderChoiceSpec,
+    ) -> Result<(), CoreError> {
+        // O drop espera a thread de vídeo e fecha a captura; fora do lock do slot.
+        let antigo = self.shared.pipeline.take();
+        drop(antigo);
+        let novo = VideoPipeline::start(
+            VideoPipelineConfig {
+                track: self.track,
+                source,
+                ladder: ladder.clone(),
+                encoder,
+            },
+            self.tx.clone(),
+        )?;
+        self.shared.allocator.lock().set_layers(ladder.clone());
+        *self.shared.ladder.lock() = ladder;
+        // O decodificador da prévia recomeça no keyframe do pipeline novo.
+        if let Some(p) = self.shared.local_preview.lock().as_mut() {
+            p.waiting_key = true;
+        }
+        self.shared.pipeline.put(novo);
+        Ok(())
     }
     pub fn add_viewer(&self, v: Arc<ViewerLink>) {
         // O alocador cria o estado dele no próximo tick.
@@ -389,6 +469,78 @@ mod tests {
         assert_eq!(st.viewers_per_layer.iter().sum::<u32>(), 2);
         p.remove_viewer(0);
         assert_eq!(p.stats().viewers_per_layer.iter().sum::<u32>(), 1);
+        p.stop();
+    }
+
+    /// Interface de mentira: guarda `(camada, keyframe, largura, altura)` de cada quadro entregue.
+    #[derive(Default)]
+    struct FakeUi {
+        got: Mutex<Vec<(u8, bool, u16, u16)>>,
+    }
+    impl crate::engine::UiSink for FakeUi {
+        fn state(&self, _snapshot: Arc<crate::Snapshot>) {}
+        fn chat(&self, _msg: crate::types::ChatLine) {}
+        fn video(&self, _tile: TileId, p: VideoPacket) {
+            self.got.lock().push((p.layer, p.keyframe, p.width, p.height));
+        }
+    }
+
+    /// Espera (até 3 s) a prévia receber um quadro que satisfaz `cond`; devolve o índice dele.
+    async fn espera_quadro(ui: &FakeUi, cond: impl Fn(&(u8, bool, u16, u16)) -> bool) -> Option<usize> {
+        let ini = std::time::Instant::now();
+        while ini.elapsed() < std::time::Duration::from_secs(3) {
+            if let Some(i) = ui.got.lock().iter().position(&cond) {
+                return Some(i);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        None
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn restart_capture_troca_escada_e_mantem_previa() {
+        let ui = Arc::new(FakeUi::default());
+        let hub = Arc::new(PlayoutHub::start(Clock::new(), ui.clone()));
+        let p = publicador();
+        p.set_local_preview(7, hub.clone(), TileSize::Thumbnail);
+        // Antes: a prévia recebe a camada mais leve da escada da tela.
+        let antiga = p.ladder();
+        let camada_antiga = layer_for(&antiga, TileSize::Thumbnail).unwrap();
+        assert!(espera_quadro(&ui, |q| q.0 == camada_antiga).await.is_some());
+
+        let nova = vec![
+            LayerSpec {
+                layer: 0,
+                width: 1920,
+                height: 1080,
+                fps: 30,
+                kbps: 3000,
+            },
+            LayerSpec {
+                layer: 2,
+                width: 800,
+                height: 450,
+                fps: 15,
+                kbps: 300,
+            },
+        ];
+        assert!(antiga.iter().all(|l| (l.width, l.height) != (800, 450)));
+        p.restart_capture(
+            VideoSourceSpec::Synthetic {
+                width: 1920,
+                height: 1080,
+            },
+            nova.clone(),
+            EncoderChoiceSpec::Auto,
+        )
+        .unwrap();
+        assert_eq!(p.ladder(), nova);
+
+        // Mesmo publicador e mesma prévia: o pipeline novo entrega, começando por keyframe.
+        let i = espera_quadro(&ui, |q| (q.2, q.3) == (800, 450))
+            .await
+            .expect("a prévia deveria receber o pipeline novo");
+        assert!(ui.got.lock()[i].1, "o primeiro quadro novo deveria ser keyframe");
         p.stop();
     }
 

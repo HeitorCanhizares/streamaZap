@@ -108,7 +108,10 @@ async fn novo_core(nome: &str, online: bool, endereco: Option<String>) -> Core {
     .unwrap()
     .expect("core");
     if let Some(e) = endereco {
-        core.update_settings(|s| s.server.address = e);
+        core.update_settings(|s| {
+            s.server.address = e;
+            s.server.enabled = true;
+        });
     }
     core
 }
@@ -131,6 +134,7 @@ fn erro_de_protocolo(c: &Core) -> bool {
 async fn teste_de_servidor_mostra_protocolo_incompativel() {
     let (addr, srv) = servidor_falso().await;
     let c = novo_core("teste", false, None).await;
+    c.update_settings(|s| s.server.enabled = true);
     let r = c.server_test(format!("http://{addr}"), String::new()).await;
     desligar(c).await;
     srv.abort();
@@ -182,6 +186,7 @@ async fn endereco_sem_resposta_da_conexao() {
         l.local_addr().expect("endereço").port()
     };
     let c = novo_core("fechado", false, None).await;
+    c.update_settings(|s| s.server.enabled = true);
     let r = c.server_test(format!("http://127.0.0.1:{porta}"), String::new()).await;
     desligar(c).await;
     assert!(!r.ok, "não deveria passar: {r:?}");

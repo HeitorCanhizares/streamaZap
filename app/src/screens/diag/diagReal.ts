@@ -6,7 +6,7 @@ import { checkServidor } from './diagServidor'
 
 const PERFIS = ['Domínio', 'Privado', 'Público']
 
-function checkRede(rel: DiagReport): Check {
+function checkRede(rel: DiagReport, online: boolean): Check {
   const { interfaces, radmin_ip } = rel.network
   const lines: LinhaCheck[] = interfaces.length > 0
     ? interfaces.map((i) => ({ tom: 'ok' as const, text: `${i.name} · ${i.ip}` + (i.radmin ? ' · Radmin' : '') }))
@@ -14,7 +14,11 @@ function checkRede(rel: DiagReport): Check {
   if (radmin_ip) {
     lines.push({ tom: 'ok', text: `Radmin VPN · ${radmin_ip}` })
   } else {
-    lines.push({ tom: 'warn', text: 'Radmin não detectado', sub: 'O modo Online continua funcionando sem ele.' })
+    lines.push({
+      tom: 'warn',
+      text: 'Radmin não detectado',
+      ...(online ? { sub: 'O modo Online continua funcionando sem ele.' } : {}),
+    })
   }
   for (const v of rel.vpns) lines.push({ tom: 'warn', text: `VPN ativa: ${v}`, sub: 'Pode desviar o tráfego das salas.' })
   for (const a of rel.antivirus) lines.push({ tom: 'warn', text: `Antivírus com firewall próprio: ${a}` })
@@ -109,11 +113,11 @@ function checkVideo(rel: DiagReport): Check {
 
 /** As 6 checagens (srv, net, fw, peers, rooms, video) com os dados do relatório; sem relatório,
  * cai nas 5 do snapshot (a placa de vídeo só vem no relatório). */
-export function montarChecksReal(rel: DiagReport | null, snap: Snapshot): Check[] {
-  if (rel === null) return montarChecks(snap)
+export function montarChecksReal(rel: DiagReport | null, snap: Snapshot, online = true): Check[] {
+  if (rel === null) return montarChecks(snap, online)
   return [
-    checkServidor(snap),
-    checkRede(rel),
+    ...(online ? [checkServidor(snap)] : []),
+    checkRede(rel, online),
     checkFirewall(rel),
     checkAmigos(rel),
     checkSalas(rel),

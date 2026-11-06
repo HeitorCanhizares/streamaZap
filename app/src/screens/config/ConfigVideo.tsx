@@ -1,7 +1,10 @@
 // Tarefa config-04: seção 'Vídeo e câmera' (porte fiel de docs/design/4-configuracoes.html 177-216).
+import { useEffect } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import type { Preset, Sources } from '../../bridge/types'
 import { PreviaCamera } from './PreviaCamera'
+import { CameraQualidade } from '../criar/CameraQualidade'
+import { presetAjustado } from '../criar/cameraModel'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 
 // Cards do design, na ordem.
@@ -28,6 +31,14 @@ export function ConfigVideo({ settings, onChange, sources }: ConfigSecaoProps & 
   const video = settings.video
   const selecionado = PRESETS.map((p) => p.value).lastIndexOf(video.default_preset)
   const auto = video.smoothing_auto
+  const camera = sources.cameras.find((c) => c.id === video.camera_id) ?? sources.cameras[0]
+  const ajustado = presetAjustado(video.camera_preset, camera)
+
+  // Se a câmera atual não faz o preset guardado, desce para o que ela faz (só quando difere: sem laço).
+  useEffect(() => {
+    if (ajustado !== video.camera_preset) onChange({ video: { ...video, camera_preset: ajustado } })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ajustado, video.camera_preset])
 
   return (
     <section
@@ -97,6 +108,15 @@ export function ConfigVideo({ settings, onChange, sources }: ConfigSecaoProps & 
             )
           })}
         </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <span style={{ fontSize: 12.5, color: '#A3BDB1' }}>Qualidade padrão da câmera</span>
+        <CameraQualidade
+          preset={video.camera_preset}
+          onPreset={(p) => onChange({ video: { ...video, camera_preset: p } })}
+          camera={camera}
+          rotulo="Qualidade padrão da câmera"
+        />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 14, borderRadius: 14, background: '#0A100E', border: '1px solid #1F332D' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

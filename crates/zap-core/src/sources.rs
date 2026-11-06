@@ -15,6 +15,16 @@ const SINTETICA_ALTURA: u32 = 1080;
 /// Lado máximo, em pixels, de uma miniatura.
 const MINIATURA_MAX: u32 = 1920;
 
+/// Melhor modo nativo da câmera como `(altura, fps)`: maior altura; empate, maior fps. Lista vazia:
+/// `None`. Tarefa core-12 (o esqueleto devolve sempre `None`).
+pub(crate) fn best_camera_mode(modes: &[zap_capture::CameraMode]) -> Option<(u32, u32)> {
+    // A tupla (altura, fps) faz o empate de altura ser decidido pelo fps.
+    modes
+        .iter()
+        .max_by_key(|m| (m.height, m.fps))
+        .map(|m| (m.height, m.fps))
+}
+
 /// Lista monitores (`zap_capture::list_monitors`), janelas (`list_windows`), câmeras
 /// (`list_cameras`), apps com som (`zap_audio::list_audio_apps`, só Windows) e codificadores
 /// (`["auto","hardware","software"]`). Erros de listagem viram lista vazia (log). Em qualquer
@@ -29,6 +39,8 @@ pub fn list_sources() -> Sources {
                 kind: SourceKind::Screen,
                 name: m.name,
                 sound: None,
+                max_height: None,
+                max_fps: None,
             })
             .collect(),
         Err(e) => {
@@ -52,6 +64,8 @@ pub fn list_sources() -> Sources {
                     kind: SourceKind::Window,
                     name: w.title,
                     sound: None,
+                    max_height: None,
+                    max_fps: None,
                 }
             })
             .collect(),
@@ -64,11 +78,19 @@ pub fn list_sources() -> Sources {
     let cameras = match zap_capture::list_cameras() {
         Ok(cams) => cams
             .into_iter()
-            .map(|c| SourceItem {
-                id: format!("camera:{}", c.id),
-                kind: SourceKind::Camera,
-                name: c.name,
-                sound: None,
+            .map(|c| {
+                // Câmera que não abre ou não lista modos fica sem os limites (a interface não trava nada).
+                let melhor = zap_capture::camera_modes(&c.id)
+                    .ok()
+                    .and_then(|modos| best_camera_mode(&modos));
+                SourceItem {
+                    id: format!("camera:{}", c.id),
+                    kind: SourceKind::Camera,
+                    name: c.name,
+                    sound: None,
+                    max_height: melhor.map(|(h, _)| h),
+                    max_fps: melhor.map(|(_, f)| f),
+                }
             })
             .collect(),
         Err(e) => {
@@ -91,6 +113,8 @@ pub fn list_sources() -> Sources {
                     zap_audio::AppSound::Ready => AppSoundView::Ready,
                     zap_audio::AppSound::Silent => AppSoundView::Silent,
                 }),
+                max_height: None,
+                max_fps: None,
             })
             .collect(),
         Err(e) => {
@@ -107,6 +131,8 @@ pub fn list_sources() -> Sources {
         kind: SourceKind::Screen,
         name: "Tela de teste (sintética)".to_string(),
         sound: None,
+        max_height: None,
+        max_fps: None,
     });
 
     Sources {
@@ -324,6 +350,45 @@ mod tests {
 
         let outra = thumbnail(&SourceRef::Monitor(1), 8, 4).unwrap();
         assert_ne!(a.data, outra.data);
+    }
+
+    fn modo(width: u32, height: u32, fps: u32) -> zap_capture::CameraMode {
+        zap_capture::CameraMode {
+            width,
+            height,
+            fps,
+            type_index: 0,
+        }
+    }
+
+    #[test]
+    fn best_camera_mode_vazio_e_none() {
+        assert_eq!(best_camera_mode(&[]), None);
+    }
+
+    #[test]
+    fn best_camera_mode_maior_altura() {
+        let modos = [modo(640, 480, 30), modo(1280, 720, 60), modo(1920, 1080, 30)];
+        assert_eq!(best_camera_mode(&modos), Some((1080, 30)));
+    }
+
+    #[test]
+    fn best_camera_mode_empate_pega_maior_fps() {
+        let modos = [modo(1920, 1080, 30), modo(1920, 1080, 60), modo(1280, 720, 60)];
+        assert_eq!(best_camera_mode(&modos), Some((1080, 60)));
+    }
+
+    #[test]
+    fn best_camera_mode_unico() {
+        assert_eq!(best_camera_mode(&[modo(1280, 720, 30)]), Some((720, 30)));
+    }
+
+    #[test]
+    fn fontes_nao_camera_ficam_sem_limites() {
+        for item in list_sources().screens {
+            assert_eq!(item.max_height, None, "{}", item.id);
+            assert_eq!(item.max_fps, None, "{}", item.id);
+        }
     }
 
     #[test]

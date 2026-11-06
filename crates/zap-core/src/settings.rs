@@ -19,6 +19,9 @@ pub const PRODUCTION_SERVER: &str = "https://streamazap.heitorcanhizares.net:744
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct ServerSettings {
+    /// Modo Online ligado. Desligado (padrão), o app não abre nenhuma conexão com o servidor.
+    /// Arquivo antigo sem o campo: `settings::load` liga se já havia senha (migração).
+    pub enabled: bool,
     pub address: String,
     pub password: String,
     pub use_relay: bool,
@@ -26,6 +29,7 @@ pub struct ServerSettings {
 impl Default for ServerSettings {
     fn default() -> Self {
         Self {
+            enabled: false,
             address: String::new(),
             password: String::new(),
             use_relay: true,
@@ -57,6 +61,10 @@ pub struct VideoSettings {
     pub camera_id: Option<String>,
     pub mirror_preview: bool,
     pub default_preset: Preset,
+    /// Qualidade da câmera, à parte da tela (`camera_ladder`). Padrão 720p30.
+    pub camera_preset: Preset,
+    /// Jeito da câmera para quem assiste (canto da tela ou solta). Padrão: canto inferior direito.
+    pub camera_layout: zap_proto::CameraLayout,
     pub encoder: EncoderPref,
     pub smoothing_auto: bool,
     pub smoothing_ms: u32,
@@ -67,6 +75,8 @@ impl Default for VideoSettings {
             camera_id: None,
             mirror_preview: true,
             default_preset: Preset::P720p30,
+            camera_preset: Preset::P720p30,
+            camera_layout: zap_proto::CameraLayout::default(),
             encoder: EncoderPref::Auto,
             smoothing_auto: true,
             smoothing_ms: 200,
@@ -96,16 +106,36 @@ impl Default for SoundSettings {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct UpdateSettings {
-    pub auto: bool,
+    /// Procurar atualização sozinho.
+    pub check: bool,
+    /// Baixar sozinho quando houver.
+    pub download: bool,
+    /// Quando instalar o que foi baixado.
+    pub install: InstallMode,
     pub channel: UpdateChannel,
 }
 impl Default for UpdateSettings {
     fn default() -> Self {
         Self {
-            auto: true,
+            check: true,
+            download: true,
+            install: InstallMode::Auto,
             channel: UpdateChannel::Estavel,
         }
     }
+}
+
+/// Quando instalar a atualização já baixada. Serde: `"ask"` | `"on_exit"` | `"auto"`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InstallMode {
+    /// Pergunta ao usuário.
+    Ask,
+    /// Instala ao fechar o app.
+    OnExit,
+    /// Instala sozinho quando o usuário não estiver numa sala (o app decide pelo tempo ocioso).
+    #[default]
+    Auto,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -139,12 +169,61 @@ impl Default for Settings {
     }
 }
 
+impl Settings {
+    /// Regras que dependem de mais de um campo, aplicadas por `load` e por `Core::update_settings`:
+    /// com o Online desligado, `open_in` é sempre `Local`.
+    pub fn normalize(&mut self) {
+        if !self.server.enabled {
+            self.open_in = RoomMode::Local;
+        }
+    }
+}
+
+/// Migra um `settings.json` antigo (já lido como JSON) para o formato atual, **antes** de
+/// desserializar em `Settings`. Tarefa core-01. Regras:
+/// - `server` sem a chave `enabled`: `enabled = !server.password.is_empty()` (sem `server`, nada);
+/// - `update` com a chave `auto` e sem `check`: `auto: true` vira `check = true`, `download = true`,
+///   `install = "auto"`; `auto: false` vira `check = false`, `download = false`, `install = "ask"`.
+///   A chave `auto` é removida. `update` sem `auto` nem `check` fica como está (o padrão do struct,
+///   tudo ligado e `auto`, vale para instalação nova).
+pub(crate) fn migrate(raw: &mut serde_json::Value) {
+    let Some(raiz) = raw.as_object_mut() else {
+        return;
+    };
+    if let Some(server) = raiz.get_mut("server").and_then(|v| v.as_object_mut()) {
+        if !server.contains_key("enabled") {
+            // Quem já tinha senha usava o Online: continua ligado.
+            let tem_senha = server
+                .get("password")
+                .and_then(|v| v.as_str())
+                .is_some_and(|p| !p.is_empty());
+            server.insert("enabled".into(), serde_json::Value::Bool(tem_senha));
+        }
+    }
+    if let Some(update) = raiz.get_mut("update").and_then(|v| v.as_object_mut()) {
+        if update.contains_key("auto") && !update.contains_key("check") {
+            // Valor não booleano conta como ligado (o padrão antigo).
+            let auto = update.get("auto").and_then(|v| v.as_bool()).unwrap_or(true);
+            update.insert("check".into(), serde_json::Value::Bool(auto));
+            update.insert("download".into(), serde_json::Value::Bool(auto));
+            update.insert(
+                "install".into(),
+                serde_json::Value::String(if auto { "auto" } else { "ask" }.into()),
+            );
+            update.remove("auto");
+        }
+    }
+}
+
 /// Lê `<dir>/settings.json`. Ausente ou corrompido: padrão (e loga). Sempre devolve
 /// `install_id` e `name` preenchidos (nome padrão = "Jogador" + 4 dígitos aleatórios).
 pub fn load(dir: &Path) -> Settings {
     let caminho = dir.join("settings.json");
     let mut s = match std::fs::read(&caminho) {
-        Ok(bytes) => match serde_json::from_slice::<Settings>(&bytes) {
+        Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes).and_then(|mut raw| {
+            migrate(&mut raw);
+            serde_json::from_value::<Settings>(raw)
+        }) {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("settings.json inválido ({e}); usando padrão");
@@ -164,6 +243,7 @@ pub fn load(dir: &Path) -> Settings {
     if s.name.is_empty() {
         s.name = format!("Jogador{:04}", rand::random::<u16>() % 10000);
     }
+    s.normalize();
     s
 }
 
@@ -182,6 +262,7 @@ pub fn apply_patch(s: &Settings, patch: &serde_json::Value) -> Result<Settings, 
     let mut novo: Settings = serde_json::from_value(base).map_err(|e| CoreError::Invalid(e.to_string()))?;
     // A identidade da instalação não pode ser trocada por um patch.
     novo.install_id = s.install_id.clone();
+    novo.normalize();
     Ok(novo)
 }
 
@@ -334,6 +415,109 @@ mod tests {
         let s = load(&DirTemp::novo().0);
         let r = apply_patch(&s, &json!({"local": {"port": "x"}}));
         assert!(matches!(r, Err(CoreError::Invalid(_))));
+    }
+
+    /// Grava um `settings.json` bruto num diretório temporário e carrega.
+    fn carregar_json(v: serde_json::Value) -> Settings {
+        let t = DirTemp::novo();
+        std::fs::write(t.0.join("settings.json"), v.to_string()).expect("escrever");
+        load(&t.0)
+    }
+
+    #[test]
+    fn migra_server_sem_enabled_com_senha_liga() {
+        let s = carregar_json(json!({"server": {"address": "a:1", "password": "x"}}));
+        assert!(s.server.enabled);
+    }
+
+    #[test]
+    fn migra_server_sem_enabled_sem_senha_fica_desligado() {
+        let s = carregar_json(json!({"server": {"address": "a:1", "password": ""}}));
+        assert!(!s.server.enabled);
+    }
+
+    #[test]
+    fn server_com_enabled_explicito_nao_e_alterado() {
+        let a = carregar_json(json!({"server": {"enabled": false, "password": "x"}}));
+        assert!(!a.server.enabled);
+        let b = carregar_json(json!({"server": {"enabled": true, "password": ""}}));
+        assert!(b.server.enabled);
+    }
+
+    #[test]
+    fn migra_update_auto_true() {
+        let s = carregar_json(json!({"update": {"auto": true, "channel": "estavel"}}));
+        assert!(s.update.check && s.update.download);
+        assert_eq!(s.update.install, InstallMode::Auto);
+    }
+
+    #[test]
+    fn migra_update_auto_false() {
+        let s = carregar_json(json!({"update": {"auto": false, "channel": "estavel"}}));
+        assert!(!s.update.check && !s.update.download);
+        assert_eq!(s.update.install, InstallMode::Ask);
+    }
+
+    #[test]
+    fn update_novo_formato_nao_migra() {
+        let s = carregar_json(json!({"update": {"check": true, "download": false, "install": "on_exit"}}));
+        assert!(s.update.check && !s.update.download);
+        assert_eq!(s.update.install, InstallMode::OnExit);
+    }
+
+    #[test]
+    fn instalacao_nova_padrao_tudo_ligado_e_auto() {
+        let t = DirTemp::novo();
+        let s = load(&t.0.join("inexistente"));
+        assert!(s.update.check && s.update.download);
+        assert_eq!(s.update.install, InstallMode::Auto);
+        assert!(!s.server.enabled);
+    }
+
+    #[test]
+    fn install_mode_serde() {
+        assert_eq!(
+            serde_json::from_str::<InstallMode>("\"on_exit\"").expect("ler"),
+            InstallMode::OnExit
+        );
+        for (m, txt) in [
+            (InstallMode::Ask, "\"ask\""),
+            (InstallMode::OnExit, "\"on_exit\""),
+            (InstallMode::Auto, "\"auto\""),
+        ] {
+            assert_eq!(serde_json::to_string(&m).expect("gravar"), txt);
+            assert_eq!(serde_json::from_str::<InstallMode>(txt).expect("ler"), m);
+        }
+    }
+
+    #[test]
+    fn open_in_vira_local_com_online_desligado() {
+        let desligado = carregar_json(json!({"open_in": "online", "server": {"enabled": false}}));
+        assert_eq!(desligado.open_in, RoomMode::Local);
+        let ligado = carregar_json(json!({"open_in": "online", "server": {"enabled": true}}));
+        assert_eq!(ligado.open_in, RoomMode::Online);
+    }
+
+    #[test]
+    fn apply_patch_desligando_online_normaliza() {
+        let mut s = Settings::default();
+        s.server.enabled = true;
+        s.open_in = RoomMode::Online;
+        let r = apply_patch(&s, &json!({"server": {"enabled": false}})).expect("patch válido");
+        assert!(!r.server.enabled);
+        assert_eq!(r.open_in, RoomMode::Local);
+    }
+
+    #[test]
+    fn camera_defaults() {
+        let v = VideoSettings::default();
+        assert_eq!(v.camera_preset, Preset::P720p30);
+        assert_eq!(v.camera_layout, zap_proto::CameraLayout::default());
+        // Arquivo antigo sem os campos de câmera carrega com os padrões.
+        let s = carregar_json(json!({"video": {"smoothing_ms": 300}}));
+        assert_eq!(s.video.smoothing_ms, 300);
+        assert_eq!(s.video.camera_preset, Preset::P720p30);
+        assert_eq!(s.video.camera_layout, zap_proto::CameraLayout::default());
     }
 
     #[test]

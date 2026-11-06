@@ -3,7 +3,7 @@ import type * as Core from '@tauri-apps/api/core'
 import { mockDiagReport, mockDiagText } from './mockDiag'
 import { mockSettings, mockSnapshot, mockSources } from './mock'
 import { decodeThumbnail } from './thumbnail'
-import type { CreateRoom, DiagReport, FirewallResult, UpdateInfo, JoinTarget, MusicReport, ServerTestResult, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId } from './types'
+import type { CameraLayout, CreateRoom, DiagReport, FirewallResult, UpdateInfo, JoinTarget, MusicReport, Preset, ServerTestResult, Settings, ShareRequest, Snapshot, Sources, Thumbnail, TileId, UpdateAplicada } from './types'
 
 export const isTauri = (): boolean => '__TAURI_INTERNALS__' in globalThis
 
@@ -90,6 +90,18 @@ export const api = {
   cameraSet: async (on: boolean): Promise<void> => {
     if (!isTauri()) return
     await call('camera_set', { on })
+  },
+
+  // Qualidade da câmera ao vivo (camera_ladder), sem mexer na trilha da tela.
+  cameraQualitySet: async (preset: Preset): Promise<void> => {
+    if (!isTauri()) return
+    await call('camera_quality_set', { preset })
+  },
+
+  // Jeito da câmera ao vivo (canto ou solta): o núcleo manda `trilha.atualizar`, sem republicar.
+  cameraLayoutSet: async (layout: CameraLayout): Promise<void> => {
+    if (!isTauri()) return
+    await call('camera_layout_set', { layout })
   },
 
   watch: async (
@@ -239,6 +251,16 @@ export const api = {
   updateInstallOnExit: async (): Promise<void> => {
     if (!isTauri()) return
     await call('update_install_on_exit')
+  },
+  // "Adiar 1 h" do aviso de instalação sozinha.
+  updatePostpone: async (): Promise<void> => {
+    if (!isTauri()) return
+    await call('update_postpone')
+  },
+  // "Atualizado para a vX" detectado na abertura (entrega uma vez só; depois devolve null).
+  updateAppliedTake: async (): Promise<UpdateAplicada | null> => {
+    if (!isTauri()) return null
+    return call<UpdateAplicada | null>('update_applied_take')
   },
   diagnosticsRun: async (): Promise<DiagReport> => {
     if (!isTauri()) return mockDiagReport()

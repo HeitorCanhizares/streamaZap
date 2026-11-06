@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api, isTauri } from '../../bridge/api'
 import { barraServidor } from '../../bridge/serverModel'
+import { useOnlineEnabled } from '../../bridge/onlineStore'
 import { useSnapshot } from '../../bridge/store'
-import type { Preset, RoomMode, SourceItem, Sources } from '../../bridge/types'
+import type { Corner, Preset, RoomMode, SourceItem, Sources } from '../../bridge/types'
+import { cantoDoLayout, layoutDe, type CameraJeito } from './cameraModel'
 import { CriarFontes, type FonteTab } from './CriarFontes'
 import { CriarModo } from './CriarModo'
 import { CriarNomeAcesso } from './CriarNomeAcesso'
 import { CriarQualidade } from './CriarQualidade'
 import { CriarResumo } from './CriarResumo'
 import { CriarSom } from './CriarSom'
-import { cenaDaFonte, erroDoPedido, listaDaAba, modoHint, montarPedido, qualidadeTexto, somTexto, type Acesso, type SomModo } from './criarModel'
+import { cenaDaFonte, erroDoPedido, listaDaAba, modoHint, montarPedido, qualidadeTexto, semTransmitir, somTexto, textoBotaoCriar, type Acesso, type SomModo } from './criarModel'
 import './criar.css'
 
 export interface CriarScreenProps { onCreated: () => void; onCancel: () => void }
@@ -23,15 +25,20 @@ const listaDa = (sources: Sources, tab: FonteTab): SourceItem[] => listaDaAba(so
 export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNode {
   const snap = useSnapshot()
   const servidor = barraServidor(snap.server)
+  const online = useOnlineEnabled()
 
   const [sources, setSources] = useState<Sources>(SOURCES_VAZIO)
-  const [modo, setModo] = useState<RoomMode>('local')
+  const [modoEscolhido, setModo] = useState<RoomMode>('local')
+  // Com o Online desligado só existe o modo local, seja qual for a escolha guardada.
+  const modo: RoomMode = online ? modoEscolhido : 'local'
   const [nome, setNome] = useState(`Sala de ${snap.me.name}`)
   const [acesso, setAcesso] = useState<Acesso>('aberta')
   const [senha, setSenha] = useState('')
   const [tab, setTab] = useState<FonteTab>('telas')
   const [selected, setSelected] = useState<string | null>(null)
-  const [cameraCorner, setCameraCorner] = useState(false)
+  const [cameraJeito, setCameraJeito] = useState<CameraJeito>('off')
+  const [cameraCanto, setCameraCanto] = useState<Corner>('inf_dir')
+  const [cameraPreset, setCameraPreset] = useState<Preset>('720p30')
   const [cameraId, setCameraId] = useState<string | null>(null)
   const [sound, setSound] = useState<SomModo>('none')
   const [marcados, setMarcados] = useState<string[]>([])
@@ -70,6 +77,8 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
         if (!vivo) return
         setPreset(cfg.video.default_preset)
         setCameraId(cfg.video.camera_id)
+        setCameraPreset(cfg.video.camera_preset)
+        setCameraCanto(cantoDoLayout(cfg.video.camera_layout))
       })
       .catch(() => {
         // Sem configuração: fica com a qualidade padrão.
@@ -90,6 +99,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
   const lista = listaDa(sources, tab)
   const indice = lista.findIndex((f) => f.id === selected)
   const fonte = tab === 'audio' ? 'Só o som' : indice >= 0 ? lista[indice].name : ''
+  const nada = semTransmitir(tab)
   const nomesApps = sources.apps.filter((a) => marcados.includes(a.id)).map((a) => a.name)
 
   async function iniciar(): Promise<void> {
@@ -104,7 +114,8 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
     }
     const falta = erroDoPedido(tab, selected, sound, marcados)
     const pedido = montarPedido(tab, selected, sound, marcados, preset, encoder)
-    if (falta !== null || pedido === null) {
+    // "Nada por enquanto" não tem pedido de transmissão: só cria a sala.
+    if (falta !== null || (pedido === null && !nada)) {
       setErro(falta ?? 'Escolha o que compartilhar.')
       return
     }
@@ -113,14 +124,21 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
     setBusy(true)
     try {
       await api.roomCreate({ name: nome, mode: modo, password: acesso === 'senha' ? senha : null })
+      if (nada || pedido === null) {
+        onCreated()
+        return
+      }
       await api.shareStart(pedido)
       // Webcam no canto: grava a câmera escolhida e liga. Falha na câmera não impede a sala.
-      if (cameraCorner && (tab === 'telas' || tab === 'janelas')) {
+      if (cameraJeito !== 'off' && (tab === 'telas' || tab === 'janelas')) {
         try {
           const escolhida = cameraId ?? sources.cameras[0]?.id ?? null
           if (escolhida !== null) {
             const cfg = await api.settingsGet()
-            await api.settingsSet({ video: { ...cfg.video, camera_id: escolhida } })
+            // Uma gravação só, antes de ligar: câmera, qualidade e jeito vão juntos.
+            await api.settingsSet({
+              video: { ...cfg.video, camera_id: escolhida, camera_preset: cameraPreset, camera_layout: layoutDe(cameraJeito, cameraCanto) },
+            })
           }
           await api.cameraSet(true)
         } catch {
@@ -167,13 +185,19 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           onTab={trocarAba}
           selected={selected}
           onSelect={setSelected}
-          cameraCorner={cameraCorner}
-          onCameraCorner={setCameraCorner}
+          cameraCorner={cameraJeito !== 'off'}
+          onCameraCorner={() => {}}
+          cameraJeito={cameraJeito}
+          onCameraJeito={setCameraJeito}
+          cameraCanto={cameraCanto}
+          onCameraCanto={setCameraCanto}
+          mostrarNada
           cameraId={cameraId}
           onCameraId={setCameraId}
           onRefresh={() => void carregar()}
         />
 
+        {!nada && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>
           <CriarSom apps={sources.apps} sound={sound} onSound={setSound} marcados={marcados} onMarcados={setMarcados} onRefresh={() => void carregar()} />
           <CriarQualidade
@@ -184,8 +208,12 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
             onEncoder={setEncoder}
             adaptavel={adaptavel}
             onAdaptavel={setAdaptavel}
+            cameraPreset={cameraPreset}
+            onCameraPreset={setCameraPreset}
+            cameraInfo={sources.cameras.find((c) => c.id === (cameraId ?? sources.cameras[0]?.id))}
           />
         </div>
+        )}
 
         {erro !== null && (
           <p role="alert" style={{ margin: 0, color: 'var(--vermelho)', fontSize: 14 }}>
@@ -214,7 +242,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           <button
             type="button"
             className="zp-criar-cta"
-            disabled={busy || (selected === null && tab !== 'audio')}
+            disabled={busy || (selected === null && tab !== 'audio' && !nada)}
             onClick={() => void iniciar()}
             style={{
               height: 52,
@@ -236,7 +264,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M13.6 2 4.5 14h6.6l-1.9 8 9.3-12.3h-6.7z" />
             </svg>
-            {busy ? 'Iniciando…' : 'Iniciar transmissão'}
+            {textoBotaoCriar(tab, busy)}
           </button>
         </div>
       </div>
@@ -247,13 +275,14 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
         acesso={acesso}
         fonte={fonte}
         cena={cenaDaFonte(tab, Math.max(indice, 0))}
-        mostrarPip={cameraCorner && (tab === 'telas' || tab === 'janelas')}
+        mostrarPip={cameraJeito === 'canto' && (tab === 'telas' || tab === 'janelas')}
         som={somTexto(sound, nomesApps)}
         qualidade={qualidadeTexto(preset, adaptavel)}
         radminIp={snap.network.radmin_ip}
         // No navegador o código do design aparece; no app ele só existe depois de criar a sala.
         codigo={isTauri() ? (snap.room?.code ?? null) : 'ZAP-7K2Q'}
         servidor={modo === 'online' ? servidor : null}
+        semTransmitir={nada}
       />
     </main>
   )

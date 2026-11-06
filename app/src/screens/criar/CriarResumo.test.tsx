@@ -104,4 +104,22 @@ describe('CriarResumo', () => {
     act(() => { vi.advanceTimersByTime(1500) })
     expect(screen.getByText('Copiar convite')).toBeTruthy()
   })
+
+  it('semTransmitir true troca a prévia e esconde som e vídeo', () => {
+    render(<CriarResumo {...props({ semTransmitir: true, som: 'Sem som', qualidade: '720p30 · 2,5 Mbps' })} />)
+    expect(screen.getByText('Você entra na sala sem transmitir')).toBeTruthy()
+    expect(screen.getByText('Sem transmissão por enquanto')).toBeTruthy()
+    expect(screen.queryByText(/Todo o som do PC|Sem som|720p30/)).toBeNull()
+    expect(screen.queryByText('Fonte')).toBeNull()
+    expect(screen.getByText('Modo')).toBeTruthy()
+    expect(screen.getByText('Acesso')).toBeTruthy()
+  })
+
+  it('sem semTransmitir a prévia e o som/qualidade seguem como antes', () => {
+    render(<CriarResumo {...props({ som: 'Sem som', qualidade: '720p30 · 2,5 Mbps' })} />)
+    expect(screen.queryByText('Sem transmissão por enquanto')).toBeNull()
+    expect(screen.queryByText('Você entra na sala sem transmitir')).toBeNull()
+    expect(screen.getByText('Sem som')).toBeTruthy()
+    expect(screen.getByText('720p30 · 2,5 Mbps')).toBeTruthy()
+  })
 })

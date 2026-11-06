@@ -1,18 +1,31 @@
-import type { ReactNode } from 'react'
-import type { Preset } from '../../bridge/types'
+import { useEffect, type ReactNode } from 'react'
+import type { Preset, SourceItem } from '../../bridge/types'
 import { PRESETS_UI } from './criarModel'
+import { CameraQualidade } from './CameraQualidade'
+import { presetAjustado } from './cameraModel'
 
-export interface CriarQualidadeProps { encoders: string[]; preset: Preset; onPreset: (p: Preset) => void; encoder: string; onEncoder: (e: string) => void; adaptavel: boolean; onAdaptavel: (v: boolean) => void; numero?: string }
+export interface CriarQualidadeProps { encoders: string[]; preset: Preset; onPreset: (p: Preset) => void; encoder: string; onEncoder: (e: string) => void; adaptavel: boolean; onAdaptavel: (v: boolean) => void; numero?: string; cameraPreset?: Preset; onCameraPreset?: (p: Preset) => void; cameraInfo?: SourceItem }
 
 // Seção 06 "Qualidade" (2-criar-sala.html 167-191).
 
 const MONO = "'JetBrains Mono', monospace"
 
-export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder, adaptavel, onAdaptavel, numero = '06' }: CriarQualidadeProps): ReactNode {
+export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder, adaptavel, onAdaptavel, numero = '06', cameraPreset, onCameraPreset, cameraInfo }: CriarQualidadeProps): ReactNode {
   const bloco = { display: 'flex', flexDirection: 'column' as const, gap: 12, padding: 20, borderRadius: 18, background: 'var(--superficie)', border: '1px solid var(--borda)' }
 
   // Opção "auto" é o padrão: o servidor escolhe o codificador disponível.
   const opcoes = [{ value: 'auto', label: 'Automático' }, ...encoders.map((e) => ({ value: e, label: e }))]
+
+  // Dois seletores (Tela e Câmera) só quando quem chama passa as props da câmera.
+  const doisSeletores = onCameraPreset !== undefined && cameraPreset !== undefined
+  const subtitulo = { fontSize: 12.5, color: 'var(--texto-2)' }
+
+  // A escolha nunca fica numa qualidade que a câmera não faz.
+  useEffect(() => {
+    if (!onCameraPreset || cameraPreset === undefined || !cameraInfo) return
+    const ajustado = presetAjustado(cameraPreset, cameraInfo)
+    if (ajustado !== cameraPreset) onCameraPreset(ajustado)
+  }, [cameraInfo, cameraPreset, onCameraPreset])
 
   return (
     <section style={{ ...bloco, flex: '1 1 320px', minWidth: 0 }}>
@@ -20,7 +33,8 @@ export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder,
         <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--verde)' }}>{numero}</span>
         Qualidade
       </h2>
-      <div role="radiogroup" aria-label="Qualidade" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
+      {doisSeletores && <div style={subtitulo}>Tela</div>}
+      <div role="radiogroup" aria-label={doisSeletores ? 'Qualidade da tela' : 'Qualidade'} style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
         {PRESETS_UI.map((p) => {
           const ativo = preset === p.value
           return (
@@ -44,6 +58,12 @@ export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder,
           )
         })}
       </div>
+      {doisSeletores && (
+        <>
+          <div style={subtitulo}>Câmera</div>
+          <CameraQualidade preset={cameraPreset} onPreset={onCameraPreset} camera={cameraInfo} />
+        </>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <label htmlFor="encoder" style={{ fontSize: 13, color: 'var(--texto-2)', whiteSpace: 'nowrap' }}>Codificador</label>
         {/* Select compartilhado não aceita id/aria-label, então usa o <select> nativo. */}

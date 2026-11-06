@@ -164,7 +164,10 @@ mod tests {
         let (ana, da) = criar(srv.cert_fingerprint.clone()).await;
         let (bia, db) = criar(srv.cert_fingerprint.clone()).await;
         for c in [&ana, &bia] {
-            c.update_settings(|s| s.server.address = srv.base_url.clone());
+            c.update_settings(|s| {
+                s.server.address = srv.base_url.clone();
+                s.server.enabled = true;
+            });
         }
         assert!(ate(10, || online(&ana) && online(&bia)).await, "os dois no servidor");
 

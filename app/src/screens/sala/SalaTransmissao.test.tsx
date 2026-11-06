@@ -1,6 +1,6 @@
 // Painel "Transmissão" da sala: começar, trocar e parar sem sair da sala.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { api } from '../../bridge/api'
 import { mockSources } from '../../bridge/mock'
@@ -69,5 +69,77 @@ describe('SalaTransmissao', () => {
     render(<SalaTransmissao share={null} camOn={false} onToggleCamera={onToggleCamera} onCameraTrocada={vi.fn()} onClose={vi.fn()} />)
     fireEvent.click(screen.getByRole('switch', { name: 'Minha câmera' }))
     expect(onToggleCamera).toHaveBeenCalled()
+  })
+
+  describe('câmera: qualidade e jeito', () => {
+    function cam() {
+      base()
+      const q = vi.spyOn(api, 'cameraQualitySet').mockResolvedValue(undefined)
+      const l = vi.spyOn(api, 'cameraLayoutSet').mockResolvedValue(undefined)
+      const set = vi.spyOn(api, 'settingsSet').mockResolvedValue(undefined as never)
+      return { q, l, set }
+    }
+    const mostrar = async (camOn: boolean, onToggle = vi.fn()) => {
+      render(<SalaTransmissao share={null} camOn={camOn} onToggleCamera={onToggle} onCameraTrocada={vi.fn()} onClose={vi.fn()} />)
+      await screen.findByRole('option', { name: /Webcam/ })
+    }
+    const qualidade = () => within(screen.getByRole('radiogroup', { name: 'Qualidade da câmera' }))
+    const guardou = (set: ReturnType<typeof cam>['set'], f: (v: any) => boolean) => set.mock.calls.some((c) => f((c[0] as any).video))
+
+    it('mostra a qualidade e o jeito da câmera', async () => {
+      cam()
+      await mostrar(false)
+      expect(screen.getByRole('radiogroup', { name: 'Qualidade da câmera' })).toBeTruthy()
+      for (const n of ['Desligada', 'No canto', 'Solta']) expect(screen.getByRole('radio', { name: n })).toBeTruthy()
+    })
+
+    it('qualidade com câmera ligada aplica e guarda', async () => {
+      const { q, set } = cam()
+      await mostrar(true)
+      fireEvent.click(qualidade().getByRole('radio', { name: /1080p30/ }))
+      await waitFor(() => expect(q).toHaveBeenCalledWith('1080p30'))
+      expect(guardou(set, (v) => v?.camera_preset === '1080p30')).toBe(true)
+    })
+
+    it('qualidade com câmera desligada só guarda', async () => {
+      const { q, set } = cam()
+      await mostrar(false)
+      fireEvent.click(qualidade().getByRole('radio', { name: /1080p30/ }))
+      await waitFor(() => expect(guardou(set, (v) => v?.camera_preset === '1080p30')).toBe(true))
+      expect(q).not.toHaveBeenCalled()
+    })
+
+    it('jeito e canto com câmera ligada chamam cameraLayoutSet', async () => {
+      const { l } = cam()
+      await mostrar(true)
+      fireEvent.click(screen.getByRole('radio', { name: 'Solta' }))
+      await waitFor(() => expect(l).toHaveBeenCalledWith({ modo: 'solta' }))
+      fireEvent.click(screen.getByRole('radio', { name: 'No canto' }))
+      fireEvent.click(await screen.findByRole('radio', { name: 'Superior esquerdo' }))
+      await waitFor(() => expect(l).toHaveBeenCalledWith({ modo: 'canto', canto: 'sup_esq' }))
+    })
+
+    it('trocar o jeito com câmera desligada só guarda', async () => {
+      const { l, set } = cam()
+      await mostrar(false)
+      fireEvent.click(screen.getByRole('radio', { name: 'Solta' }))
+      await waitFor(() => expect(guardou(set, (v) => v?.camera_layout?.modo === 'solta')).toBe(true))
+      expect(l).not.toHaveBeenCalled()
+    })
+
+    it('"Desligada" com câmera ligada chama onToggleCamera', async () => {
+      cam()
+      const onToggle = vi.fn()
+      await mostrar(true, onToggle)
+      fireEvent.click(screen.getByRole('radio', { name: 'Desligada' }))
+      expect(onToggle).toHaveBeenCalled()
+    })
+
+    it('câmera 720p/30 deixa 1080p60 desabilitado', async () => {
+      base()
+      vi.spyOn(api, 'sourcesList').mockResolvedValue({ ...mockSources(), cameras: [{ id: 'camera:0', kind: 'camera', name: 'Webcam simples', max_height: 720, max_fps: 30 }] })
+      await mostrar(false)
+      expect((qualidade().getByRole('radio', { name: /1080p60/ }) as HTMLButtonElement).disabled).toBe(true)
+    })
   })
 })

@@ -1,13 +1,15 @@
 // Tarefa criar-04
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import type { SourceItem, Sources, SceneKind } from '../../bridge/types'
+import type { Corner, SourceItem, Sources, SceneKind } from '../../bridge/types'
 import { api, isTauri } from '../../bridge/api'
 import { ScenePreview } from '../../components/ScenePreview'
+import type { CameraJeito } from './cameraModel'
+import { CameraJeito as CameraJeitoSeletor } from './CameraJeito'
 import { cenaDaFonte, fonteMeta, listaDaAba, type FonteTab } from './criarModel'
 
 export type { FonteTab } from './criarModel'
 // cameraId/onCameraId: câmera escolhida para o canto (id da lista de fontes); sem eles, sem seletor.
-export interface CriarFontesProps { sources: Sources; tab: FonteTab; onTab: (t: FonteTab) => void; selected: string | null; onSelect: (id: string) => void; cameraCorner: boolean; onCameraCorner: (v: boolean) => void; onRefresh?: () => void; cameraId?: string | null; onCameraId?: (id: string) => void; numero?: string; mostrarCanto?: boolean }
+export interface CriarFontesProps { sources: Sources; tab: FonteTab; onTab: (t: FonteTab) => void; selected: string | null; onSelect: (id: string) => void; cameraCorner: boolean; onCameraCorner: (v: boolean) => void; onRefresh?: () => void; cameraId?: string | null; onCameraId?: (id: string) => void; numero?: string; mostrarCanto?: boolean; cameraJeito?: CameraJeito; onCameraJeito?: (j: CameraJeito) => void; cameraCanto?: Corner; onCameraCanto?: (c: Corner) => void; mostrarNada?: boolean }
 
 // Miniatura pedida ao Rust: RGBA 320x180 (foto real da fonte; ver source_thumbnail no lado Tauri).
 const THUMB_W = 320
@@ -96,8 +98,11 @@ function estiloAba(ativo: boolean): CSSProperties {
 }
 
 // Grade de fontes da aba escolhida. Cada cartão é um botão com aria-pressed.
-export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCorner, onCameraCorner, onRefresh, cameraId, onCameraId, numero = '04', mostrarCanto = true }: CriarFontesProps): ReactNode {
+export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCorner, onCameraCorner, onRefresh, cameraId, onCameraId, numero = '04', mostrarCanto = true, cameraJeito, onCameraJeito, cameraCanto, onCameraCanto, mostrarNada = false }: CriarFontesProps): ReactNode {
   const itens: SourceItem[] = listaDaAba(sources, tab)
+  const abas = mostrarNada ? [...ABAS, { value: 'nada' as FonteTab, label: 'Nada por enquanto' }] : ABAS
+  const novoJeito = cameraJeito !== undefined && onCameraJeito !== undefined
+  const emTelaOuJanela = mostrarCanto && (tab === 'telas' || tab === 'janelas')
   // Câmera do canto: a escolhida, ou a primeira da lista.
   const cameraAtual = cameraId && sources.cameras.some((c) => c.id === cameraId) ? cameraId : (sources.cameras[0]?.id ?? '')
 
@@ -109,7 +114,7 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
         </h2>
         <span style={{ flex: 1 }} />
         <div role="tablist" aria-label="Tipo de fonte" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--borda)' }}>
-          {ABAS.map((a) => (
+          {abas.map((a) => (
             <button key={a.value} type="button" role="tab" aria-selected={tab === a.value} onClick={() => onTab(a.value)} style={estiloAba(tab === a.value)}>
               {a.label}
             </button>
@@ -130,7 +135,11 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
         </button>
       </div>
 
-      {tab === 'audio' ? (
+      {tab === 'nada' ? (
+        <div role="note" style={{ padding: '16px 18px', borderRadius: 14, border: '1px solid var(--borda)', background: 'var(--bg)' }}>
+          <span style={{ fontSize: 14, color: 'var(--texto-2)', lineHeight: 1.4 }}>Você cria a sala agora e começa a transmitir quando quiser, pelo botão Compartilhar dentro da sala.</span>
+        </div>
+      ) : tab === 'audio' ? (
         <div role="note" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', borderRadius: 14, border: '1px solid var(--borda)', background: 'var(--bg)' }}>
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--verde)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flex: '0 0 28px' }}>
             <path d="M4 9v6h4l5 4V5L8 9z" />
@@ -187,7 +196,12 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
         </div>
       )}
 
-      {mostrarCanto && (tab === 'telas' || tab === 'janelas') && (
+      {emTelaOuJanela && novoJeito && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <CameraJeitoSeletor jeito={cameraJeito} onJeito={onCameraJeito} canto={cameraCanto ?? 'inf_dir'} onCanto={onCameraCanto ?? (() => {})} />
+        </div>
+      )}
+      {emTelaOuJanela && !novoJeito && (
         <button
           type="button"
           role="switch"
@@ -208,7 +222,7 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
           </svg>
         </button>
       )}
-      {mostrarCanto && (tab === 'telas' || tab === 'janelas') && cameraCorner && onCameraId && sources.cameras.length > 0 && (
+      {emTelaOuJanela && (novoJeito ? cameraJeito !== 'off' : cameraCorner) && onCameraId && sources.cameras.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 4px' }}>
           <label htmlFor="camera-canto" style={{ fontSize: 13, color: 'var(--texto-2)', whiteSpace: 'nowrap' }}>Câmera</label>
           <select

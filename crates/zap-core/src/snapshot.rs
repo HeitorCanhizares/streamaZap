@@ -166,6 +166,10 @@ pub struct TrackView {
     pub kind: TrackViewKind,
     pub title: String,
     pub number: u16,
+    /// Só trilha `camera`: canto da tela de quem transmite ou solta. Ausente = canto inferior
+    /// direito (a interface aplica o padrão).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_layout: Option<zap_proto::CameraLayout>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -453,6 +457,7 @@ impl Snapshot {
                     kind: TrackViewKind::Screen,
                     title: "Tela inteira".into(),
                     number: 1,
+                    camera_layout: None,
                 }],
                 chat: vec![crate::types::ChatLine {
                     id: "c3".into(),

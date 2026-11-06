@@ -4,7 +4,8 @@ import type { ReactNode } from 'react'
 const pStyle = { margin: 0, color: '#C6D9CF', lineHeight: 1.55 } as const
 const bStyle = { color: 'var(--texto)' } as const
 
-export function ComoLer(): ReactNode {
+// Decisão: com Online desligado o parágrafo sobre o servidor some (a tela não cita o modo Online).
+export function ComoLer({ online = true }: { online?: boolean }): ReactNode {
   return (
     <section
       aria-labelledby="h-ler"
@@ -55,10 +56,12 @@ export function ComoLer(): ReactNode {
         firewall, use <b style={bStyle}>Corrigir firewall</b>. Não funcionou? É antivírus ou o Radmin —
         veja se a conexão no Radmin está “direta”.
       </p>
-      <p style={pStyle}>
-        No modo <b style={bStyle}>Online</b> nada disso importa tanto: o servidor faz a ponte quando a
-        conexão direta falha.
-      </p>
+      {online && (
+        <p style={pStyle}>
+          No modo <b style={bStyle}>Online</b> nada disso importa tanto: o servidor faz a ponte quando a
+          conexão direta falha.
+        </p>
+      )}
     </section>
   )
 }

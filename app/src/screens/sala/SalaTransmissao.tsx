@@ -2,7 +2,10 @@
 // som), o som, a qualidade e a câmera, sem sair da sala. Usa as mesmas seções de Criar sala.
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { api } from '../../bridge/api'
-import type { Preset, ShareView, SourceItem, Sources } from '../../bridge/types'
+import type { Corner, Preset, ShareView, SourceItem, Sources } from '../../bridge/types'
+import { CameraJeito } from '../criar/CameraJeito'
+import { CameraQualidade } from '../criar/CameraQualidade'
+import { cantoDoLayout, jeitoDoLayout, layoutDe, presetAjustado, type CameraJeito as Jeito, type JeitoLigado } from '../criar/cameraModel'
 import { CriarFontes } from '../criar/CriarFontes'
 import { CriarQualidade } from '../criar/CriarQualidade'
 import { CriarSom } from '../criar/CriarSom'
@@ -39,6 +42,10 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
   const [encoder, setEncoder] = useState(pedido?.encoder ?? 'auto')
   const [adaptavel, setAdaptavel] = useState(true)
   const [cameraId, setCameraId] = useState<string | null>(null)
+  const [cameraPreset, setCameraPreset] = useState<Preset>('720p30')
+  const [cameraCanto, setCameraCanto] = useState<Corner>('inf_dir')
+  const [cameraJeito2, setCameraJeito2] = useState<JeitoLigado>('canto')
+  const [cfgPronta, setCfgPronta] = useState(false)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -65,6 +72,10 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
       .then((cfg) => {
         if (!vivo) return
         setCameraId(cfg.video.camera_id)
+        setCameraPreset(cfg.video.camera_preset ?? '720p30')
+        setCameraCanto(cantoDoLayout(cfg.video.camera_layout))
+        setCameraJeito2(jeitoDoLayout(cfg.video.camera_layout))
+        setCfgPronta(true)
         if (!pedido) setPreset(cfg.video.default_preset)
       })
       .catch(() => {})
@@ -101,6 +112,39 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
     }
   }
 
+  async function mudarPreset(p: Preset): Promise<void> {
+    setCameraPreset(p)
+    try {
+      const cfg = await api.settingsGet()
+      await api.settingsSet({ video: { ...cfg.video, camera_preset: p } })
+      if (camOn) await api.cameraQualitySet(p)
+    } catch (e) {
+      setErro(String(e))
+    }
+  }
+
+  async function mudarLayout(jeito: JeitoLigado, canto: Corner): Promise<void> {
+    setCameraJeito2(jeito)
+    setCameraCanto(canto)
+    const layout = layoutDe(jeito, canto)
+    try {
+      const cfg = await api.settingsGet()
+      await api.settingsSet({ video: { ...cfg.video, camera_layout: layout } })
+      if (camOn) await api.cameraLayoutSet(layout)
+    } catch (e) {
+      setErro(String(e))
+    }
+  }
+
+  function trocarJeito(j: Jeito): void {
+    // "Desligada" desliga a câmera; os outros só guardam o jeito (liga-se pelo interruptor).
+    if (j === 'off') {
+      if (camOn) onToggleCamera()
+      return
+    }
+    void mudarLayout(j, cameraCanto)
+  }
+
   async function aplicar(): Promise<void> {
     const falta = erroDoPedido(tab, selected, sound, marcados)
     const novo = montarPedido(tab, selected, sound, marcados, preset, encoder)
@@ -134,6 +178,16 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
   }
 
   const cameraAtual = cameraId && sources.cameras.some((c) => c.id === cameraId) ? cameraId : (sources.cameras[0]?.id ?? '')
+
+  const cameraInfo = sources.cameras.find((c) => c.id === cameraAtual)
+
+  // Câmera que não faz a qualidade guardada: usa a maior que ela faz e guarda.
+  useEffect(() => {
+    if (!cfgPronta || !cameraInfo) return
+    const ajustado = presetAjustado(cameraPreset, cameraInfo)
+    if (ajustado !== cameraPreset) void mudarPreset(ajustado)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfgPronta, cameraInfo, cameraPreset])
 
   return (
     <div
@@ -224,6 +278,19 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
           ) : (
             <span style={{ fontSize: 13, color: 'var(--texto-3)' }}>Nenhuma câmera encontrada</span>
           )}
+          <div style={{ flex: '1 1 100%', display: 'flex', flexWrap: 'wrap', gap: 18 }}>
+            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+              <CameraQualidade preset={cameraPreset} camera={cameraInfo} onPreset={(p) => void mudarPreset(p)} />
+            </div>
+            <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+              <CameraJeito
+                jeito={camOn ? cameraJeito2 : 'off'}
+                onJeito={trocarJeito}
+                canto={cameraCanto}
+                onCanto={(c) => void mudarLayout(cameraJeito2, c)}
+              />
+            </div>
+          </div>
         </section>
 
         {erro !== null && (

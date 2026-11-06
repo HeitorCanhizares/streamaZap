@@ -2,6 +2,7 @@
 // lógica `modes` do script). Os estilos ficam inline para bater com o design pixel a pixel.
 import type { CSSProperties, ReactNode } from 'react'
 import type { RoomMode } from '../../bridge/types'
+import { useOnlineEnabled } from '../../bridge/onlineStore'
 import { IconeGlobo, IconeWifi } from './icons'
 
 export interface ModoAbasProps { modo: RoomMode; onModo: (m: RoomMode) => void; contagemOnline: number; contagemLocal: number }
@@ -45,6 +46,9 @@ function estiloSub(ativo: boolean): CSSProperties {
 
 export function ModoAbas(props: ModoAbasProps): ReactNode {
   const { modo, onModo, contagemOnline, contagemLocal } = props
+  const habilitado = useOnlineEnabled()
+  // Online desligado: só a lista Local, sem abas.
+  if (!habilitado) return null
   const abas: { id: RoomMode; label: string; sub: string; icone: ReactNode; contagem: number }[] = [
     { id: 'online', label: 'Online', sub: 'via servidor', icone: <IconeGlobo size={20} />, contagem: contagemOnline },
     { id: 'local', label: 'Local', sub: 'Radmin / rede local', icone: <IconeWifi size={20} />, contagem: contagemLocal },

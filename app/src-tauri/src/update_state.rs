@@ -1,8 +1,13 @@
 //! Estado compartilhado do updater, gerenciado pelo Tauri (`app.manage`).
 
+use std::collections::HashSet;
+use std::time::Duration;
+
 use parking_lot::Mutex;
 use tauri_plugin_updater::Update;
 
+use crate::update_agenda::RelogioSistema;
+use crate::update_aplicada::Aplicada;
 use crate::updater::EstadoUpdate;
 
 /// Guarda a atualização encontrada, os bytes baixados (assinatura já verificada pelo plugin no
@@ -12,6 +17,16 @@ pub struct UpdateState {
     pub update: Mutex<Option<Update>>,
     pub bytes: Mutex<Option<Vec<u8>>>,
     pub instalar_ao_sair: Mutex<bool>,
+    /// Não instalar sozinho antes deste instante (relógio monotônico desde a abertura).
+    pub adiado_ate: Mutex<Option<Duration>>,
+    /// Instante em que o aviso de 30 s foi aberto (`None` = sem aviso em curso).
+    pub aviso_em: Mutex<Option<Duration>>,
+    /// Tiles de prévia de sala abertos (`room_preview`), para `ContextoInstalacao.previa_aberta`.
+    pub previas: Mutex<HashSet<u32>>,
+    /// "Atualizado para a vX" detectado na abertura, até a interface buscar (`update_applied_take`).
+    pub aplicada: Mutex<Option<Aplicada>>,
+    /// Relógio monotônico desde a abertura (base de `adiado_ate` e `aviso_em`).
+    pub relogio: RelogioSistema,
 }
 
 impl Default for UpdateState {
@@ -26,6 +41,11 @@ impl Default for UpdateState {
             update: Mutex::new(None),
             bytes: Mutex::new(None),
             instalar_ao_sair: Mutex::new(false),
+            adiado_ate: Mutex::new(None),
+            aviso_em: Mutex::new(None),
+            previas: Mutex::new(HashSet::new()),
+            aplicada: Mutex::new(None),
+            relogio: RelogioSistema::novo(),
         }
     }
 }

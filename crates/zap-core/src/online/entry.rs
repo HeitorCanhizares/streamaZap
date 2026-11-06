@@ -10,6 +10,9 @@ use crate::room::ActiveRoom;
 use crate::types::{CreateRoom, TileId};
 use crate::CoreError;
 
+/// Mensagem quando o modo Online está desligado nas configurações.
+const DESLIGADO: &str = "Modo Online desligado";
+
 /// Resultado de "Testar conexão" (Configurações). Sempre devolvido (falha vira `ok = false`).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct ServerTestResult {
@@ -27,6 +30,9 @@ pub struct ServerTestResult {
 /// guarda `ActiveRoom::Online` em `shared.room`, `ensure_media_server` se
 /// `media.direct_allowed`, `refresh_room_view`, `notifier.flush()`. Falha: nada fica guardado.
 pub(crate) async fn create_online(shared: &Arc<Shared>, req: CreateRoom) -> Result<(), CoreError> {
+    if !shared.online_enabled() {
+        return Err(CoreError::Invalid(DESLIGADO.into()));
+    }
     if shared.current_room().is_some() {
         return Err(CoreError::AlreadyInRoom);
     }
@@ -37,6 +43,9 @@ pub(crate) async fn create_online(shared: &Arc<Shared>, req: CreateRoom) -> Resu
 /// `JoinTarget::Code`: `convert::parse_code` + `OnlineRoom::join`; mesmo acabamento de
 /// `create_online`. Já em sala → `AlreadyInRoom`.
 pub(crate) async fn join_online(shared: &Arc<Shared>, code: String, password: Option<String>) -> Result<(), CoreError> {
+    if !shared.online_enabled() {
+        return Err(CoreError::Invalid(DESLIGADO.into()));
+    }
     if shared.current_room().is_some() {
         return Err(CoreError::AlreadyInRoom);
     }
@@ -72,6 +81,14 @@ impl Core {
     /// do servidor incorreta"`). Endereço vazio → `ok = false, code = "invalido", message =
     /// "Informe o endereço do servidor"`. Rede → `code = "conexao"`.
     pub async fn server_test(&self, address: String, password: String) -> ServerTestResult {
+        if !self.shared.online_enabled() {
+            return ServerTestResult {
+                ok: false,
+                code: Some("desligado".into()),
+                message: DESLIGADO.into(),
+                ..Default::default()
+            };
+        }
         let shared = self.shared.clone();
         let falha = ServerTestResult {
             ok: false,
@@ -88,6 +105,9 @@ impl Core {
     }
     /// Abre a prévia da sala (`code` digitado/da lista) no `tile`. Ver `preview::start`.
     pub async fn room_preview(&self, code: String, tile: TileId) -> Result<(), CoreError> {
+        if !self.shared.online_enabled() {
+            return Err(CoreError::Invalid(DESLIGADO.into()));
+        }
         let shared = self.shared.clone();
         shared
             .rt
@@ -265,6 +285,7 @@ mod tests {
         if let Some(url) = url {
             core.update_settings(|s| {
                 s.server.address = url;
+                s.server.enabled = true;
                 s.server.use_relay = false;
             });
             core.shared.online.start(&core.shared);
@@ -310,6 +331,7 @@ mod tests {
         .await
         .unwrap();
         let (core, d) = novo_core(None).await;
+        core.update_settings(|s| s.server.enabled = true);
         let r = core.server_test(srv.base_url.clone(), String::new()).await;
         assert!(r.ok, "{r:?}");
         assert_eq!(r.name.as_deref(), Some("Servidor X"));
@@ -321,6 +343,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn server_test_endereco_vazio() {
         let (core, d) = novo_core(None).await;
+        core.update_settings(|s| s.server.enabled = true);
         let r = core.server_test("  ".into(), String::new()).await;
         assert!(!r.ok);
         assert_eq!(r.code.as_deref(), Some("invalido"));
@@ -337,6 +360,7 @@ mod tests {
         .await
         .unwrap();
         let (core, d) = novo_core(None).await;
+        core.update_settings(|s| s.server.enabled = true);
         let r = core.server_test(srv.base_url.clone(), String::new()).await;
         assert!(!r.ok);
         assert_eq!(r.code.as_deref(), Some("senha_servidor"));
@@ -354,6 +378,7 @@ mod tests {
             l.local_addr().unwrap().port()
         };
         let (core, d) = novo_core(None).await;
+        core.update_settings(|s| s.server.enabled = true);
         let r = core
             .server_test(format!("http://127.0.0.1:{porta}"), String::new())
             .await;
@@ -372,6 +397,70 @@ mod tests {
         let r = core.server_test(outro.base_url.clone(), String::new()).await;
         assert!(r.ok);
         assert_eq!(core.snapshot().server, antes);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn create_online_desligado_recusa() {
+        let (core, d) = novo_core(None).await;
+        let r = core.create_room(pedido("Sala")).await;
+        assert!(
+            matches!(r, Err(CoreError::Invalid(ref m)) if m == "Modo Online desligado"),
+            "{r:?}"
+        );
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn join_online_desligado_recusa() {
+        let (core, d) = novo_core(None).await;
+        let r = core
+            .join_room(
+                JoinTarget::Code {
+                    code: "ZAP-ABCD".into(),
+                },
+                None,
+            )
+            .await;
+        assert!(
+            matches!(r, Err(CoreError::Invalid(ref m)) if m == "Modo Online desligado"),
+            "{r:?}"
+        );
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn room_preview_desligado_recusa() {
+        let (core, d) = novo_core(None).await;
+        let r = core.room_preview("ZAP-ABCD".into(), TileId::default()).await;
+        assert!(
+            matches!(r, Err(CoreError::Invalid(ref m)) if m == "Modo Online desligado"),
+            "{r:?}"
+        );
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn server_test_desligado_nao_faz_requisicao() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let porta = l.local_addr().unwrap().port();
+        let contador = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let c2 = contador.clone();
+        let tarefa = tokio::spawn(async move {
+            while l.accept().await.is_ok() {
+                c2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        let (core, d) = novo_core(None).await;
+        let r = core
+            .server_test(format!("http://127.0.0.1:{porta}"), String::new())
+            .await;
+        assert!(!r.ok);
+        assert_eq!(r.code.as_deref(), Some("desligado"));
+        assert_eq!(r.message, "Modo Online desligado");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(contador.load(std::sync::atomic::Ordering::SeqCst), 0);
+        tarefa.abort();
         encerrar(core, d).await;
     }
 

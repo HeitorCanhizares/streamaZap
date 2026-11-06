@@ -135,11 +135,12 @@ impl ActiveRoom {
         track_id: &str,
         title: Option<String>,
         layers: Option<Vec<zap_proto::LayerSpec>>,
+        camera_layout: Option<zap_proto::CameraLayout>,
     ) -> Result<(), CoreError> {
         match self {
-            ActiveRoom::Owner(o) => o.update_track(track_id, title, layers).await,
-            ActiveRoom::Member(m) => m.update_track(track_id, title, layers).await,
-            ActiveRoom::Online(o) => o.update_track(track_id, title, layers).await,
+            ActiveRoom::Owner(o) => o.update_track(track_id, title, layers, camera_layout).await,
+            ActiveRoom::Member(m) => m.update_track(track_id, title, layers, camera_layout).await,
+            ActiveRoom::Online(o) => o.update_track(track_id, title, layers, camera_layout).await,
         }
     }
     pub async fn remove_track(&self, track_id: &str) -> Result<(), CoreError> {

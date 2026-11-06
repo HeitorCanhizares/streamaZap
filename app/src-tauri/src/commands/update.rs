@@ -6,8 +6,10 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::state::AppState;
+use crate::update_agenda::Relogio;
+use crate::update_aplicada::Pendente;
 use crate::update_state::UpdateState;
-use crate::updater::{self, EstadoUpdate, UpdateInfo};
+use crate::updater::{self, AvisoInstalacao, EstadoUpdate, UpdateInfo};
 
 /// Extrai `plugins.updater.pubkey` do JSON de configuração.
 #[cfg(test)]
@@ -42,7 +44,7 @@ fn pubkey_ok(app: &AppHandle) -> bool {
 }
 
 /// Lógica de `update_check`, reutilizada pela checagem automática.
-async fn checar(app: &AppHandle, state: &AppState, upd: &UpdateState) -> Result<UpdateInfo, String> {
+pub(crate) async fn checar(app: &AppHandle, state: &AppState, upd: &UpdateState) -> Result<UpdateInfo, String> {
     use tauri_plugin_updater::UpdaterExt;
 
     if !pubkey_ok(app) {
@@ -85,7 +87,7 @@ pub async fn update_check(
 }
 
 /// Grava a fase em `upd.estado` e emite `zap://update`; falha de emit só vai para o log.
-fn publicar(app: &AppHandle, upd: &UpdateState, e: EstadoUpdate) {
+pub(crate) fn publicar(app: &AppHandle, upd: &UpdateState, e: EstadoUpdate) {
     *upd.estado.lock() = e.clone();
     if let Err(err) = app.emit(updater::EVENT_UPDATE, e) {
         tracing::warn!("falha ao emitir zap://update: {err}");
@@ -104,7 +106,7 @@ pub async fn update_download(app: AppHandle, upd: State<'_, UpdateState>) -> Res
 }
 
 /// Lógica de `update_download`, reutilizada pela atualização automática.
-async fn baixar(app: &AppHandle, upd: &UpdateState) -> Result<(), String> {
+pub(crate) async fn baixar(app: &AppHandle, upd: &UpdateState) -> Result<(), String> {
     let update = upd
         .update
         .lock()
@@ -149,6 +151,38 @@ pub async fn update_install_now(
     state: State<'_, Arc<AppState>>,
     upd: State<'_, UpdateState>,
 ) -> Result<(), String> {
+    instalar_agora_interno(&app, &state, &upd).await
+}
+
+/// Monta o registro gravado antes de instalar (lido na abertura seguinte).
+fn pendente_de(versao_atual: &str, versao_nova: &str, notas: Option<String>) -> Pendente {
+    Pendente {
+        de: versao_atual.to_string(),
+        para: versao_nova.to_string(),
+        notas,
+    }
+}
+
+/// Grava o pendente em `app_data_dir`; falha só vai para o log (não impede instalar).
+fn gravar_pendente_do_app(app: &AppHandle, update: &tauri_plugin_updater::Update) {
+    let Ok(dir) = app.path().app_data_dir() else {
+        tracing::warn!("sem diretório de dados: o aviso de 'Atualizado' não será gravado");
+        return;
+    };
+    let p = pendente_de(
+        &app.package_info().version.to_string(),
+        &update.version,
+        update.body.clone(),
+    );
+    if let Err(e) = crate::update_aplicada::gravar_pendente(&dir, &p) {
+        tracing::warn!("falha ao gravar a atualização pendente: {e}");
+    }
+}
+
+/// Instala e reinicia: recusa em sala (`updater::checar_instalar_agora`), exige update baixado,
+/// grava o pendente, publica `EstadoUpdate::instalando`, instala e `app.restart()`.
+/// Compartilhada por `update_install_now` e pela instalação sozinha.
+pub(crate) async fn instalar_agora_interno(app: &AppHandle, state: &AppState, upd: &UpdateState) -> Result<(), String> {
     let em_sala = state.core.snapshot().room.is_some();
     updater::checar_instalar_agora(em_sala)?;
     let update = upd.update.lock().clone();
@@ -156,13 +190,54 @@ pub async fn update_install_now(
     let (Some(update), Some(bytes)) = (update, bytes) else {
         return Err("A atualização ainda não foi baixada.".into());
     };
-    publicar(&app, &upd, EstadoUpdate::instalando(&update.version));
+    gravar_pendente_do_app(app, &update);
+    publicar(app, upd, EstadoUpdate::instalando(&update.version));
     if let Err(e) = update.install(bytes) {
         let msg = format!("Falha ao instalar a atualização: {e}");
-        publicar(&app, &upd, EstadoUpdate::erro(&msg));
+        publicar(app, upd, EstadoUpdate::erro(&msg));
         return Err(msg);
     }
     app.restart()
+}
+
+/// "Adiar 1 h": `adiado_ate = relogio.agora() + ADIAR`, limpa `aviso_em` e emite
+/// `zap://update-aviso` com `segundos = 0` (fecha o aviso).
+#[tauri::command]
+pub async fn update_postpone(app: AppHandle, upd: State<'_, UpdateState>) -> Result<(), String> {
+    let agora = upd.relogio.agora();
+    *upd.adiado_ate.lock() = Some(agora + updater::ADIAR);
+    *upd.aviso_em.lock() = None;
+    let versao = upd.estado.lock().versao.clone().unwrap_or_default();
+    if let Err(e) = app.emit(updater::EVENT_UPDATE_AVISO, AvisoInstalacao { versao, segundos: 0 }) {
+        tracing::warn!("falha ao emitir o fechamento do aviso: {e}");
+    }
+    Ok(())
+}
+
+/// Entrega (uma vez) o "Atualizado para a vX" detectado na abertura: `upd.aplicada.lock().take()`.
+#[tauri::command]
+pub async fn update_applied_take(
+    upd: State<'_, UpdateState>,
+) -> Result<Option<crate::update_aplicada::Aplicada>, String> {
+    Ok(upd.aplicada.lock().take())
+}
+
+/// Na abertura: `update_aplicada::detectar(app_data_dir, versão atual do app)`; se achou, guarda em
+/// `upd.aplicada` e emite `zap://update-aplicada`. Chamada por `setup::init`.
+pub fn anunciar_aplicada(app: &AppHandle) {
+    let Ok(dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let versao = app.package_info().version.to_string();
+    let Some(a) = crate::update_aplicada::detectar(&dir, &versao) else {
+        return;
+    };
+    if let Some(upd) = app.try_state::<UpdateState>() {
+        *upd.aplicada.lock() = Some(a.clone());
+    }
+    if let Err(e) = app.emit(updater::EVENT_UPDATE_APLICADA, a) {
+        tracing::warn!("falha ao emitir zap://update-aplicada: {e}");
+    }
 }
 
 /// Marca para instalar quando o app fechar (`RunEvent::Exit`).
@@ -175,45 +250,9 @@ pub async fn update_install_on_exit(upd: State<'_, UpdateState>) -> Result<(), S
     Ok(())
 }
 
-/// Ao abrir: se `settings.update.auto`, espera 10 s, checa, baixa e marca instalar ao fechar.
+/// Ao abrir: liga a checagem/instalação automática (ver `update_auto`).
 pub fn agendar_auto(app: &AppHandle) {
-    let Some(state) = app.try_state::<Arc<AppState>>() else {
-        return;
-    };
-    let state: Arc<AppState> = state.inner().clone();
-    // Sem pubkey real nem agenda: a checagem sempre falharia.
-    if !auto_habilitado(state.core.settings().update.auto, pubkey_ok(app)) {
-        return;
-    }
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-        // O usuário pode ter desligado a opção durante a espera.
-        if !state.core.settings().update.auto {
-            return;
-        }
-        let Some(upd) = app.try_state::<UpdateState>() else {
-            return;
-        };
-        match checar(&app, &state, &upd).await {
-            Ok(info) if info.disponivel => {}
-            Ok(_) => return,
-            Err(e) => {
-                tracing::warn!("checagem automática de atualização falhou: {e}");
-                return;
-            }
-        }
-        // Falha de download já emite o estado de erro dentro de `baixar`.
-        match baixar(&app, &upd).await {
-            Ok(()) => *upd.instalar_ao_sair.lock() = true,
-            Err(e) => tracing::warn!("download automático da atualização falhou: {e}"),
-        }
-    });
-}
-
-/// Atualização automática só roda com a opção ligada e uma chave pública real.
-fn auto_habilitado(auto: bool, pubkey_ok: bool) -> bool {
-    auto && pubkey_ok
+    crate::update_auto::iniciar(app);
 }
 
 /// No `RunEvent::Exit`: se `deve_instalar_ao_sair`, instala a atualização baixada (sem reiniciar).
@@ -229,6 +268,8 @@ pub fn instalar_ao_sair(app: &AppHandle) {
     let update = upd.update.lock().clone();
     let bytes = upd.bytes.lock().clone();
     if let (Some(update), Some(bytes)) = (update, bytes) {
+        // Grava antes para a próxima abertura anunciar "Atualizado".
+        gravar_pendente_do_app(app, &update);
         if let Err(e) = update.install(bytes) {
             tracing::warn!("falha ao instalar a atualização ao sair: {e}");
         }
@@ -262,11 +303,20 @@ mod tests {
     }
 
     #[test]
-    fn auto_habilitado_combinacoes() {
-        assert!(auto_habilitado(true, true));
-        assert!(!auto_habilitado(true, false));
-        assert!(!auto_habilitado(false, true));
-        assert!(!auto_habilitado(false, false));
+    fn msg_instalar_em_sala() {
+        assert!(updater::checar_instalar_agora(true).is_err());
+    }
+
+    #[test]
+    fn pendente_de_monta_campos() {
+        assert_eq!(
+            pendente_de("3.2.1", "3.4.0", Some("n".into())),
+            Pendente {
+                de: "3.2.1".into(),
+                para: "3.4.0".into(),
+                notas: Some("n".into())
+            }
+        );
     }
 
     #[test]

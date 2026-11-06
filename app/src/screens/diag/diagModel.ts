@@ -16,8 +16,9 @@ export interface Check {
 }
 export interface Veredito { titulo: string; sub: string; cor: string; avisos: number }
 
-/** As 5 checagens, nesta ordem: srv, net, fw, peers, rooms. */
-export function montarChecks(snap: Snapshot): Check[] {
+/** As 5 checagens, nesta ordem: srv, net, fw, peers, rooms. Com `online` falso o card 'srv' não
+ * entra (4 itens) e nenhum texto cita o modo Online. */
+export function montarChecks(snap: Snapshot, online = true): Check[] {
   const interfaces = snap.network.interfaces
   const radmin = snap.network.radmin_ip
 
@@ -31,7 +32,7 @@ export function montarChecks(snap: Snapshot): Check[] {
     linhasRede.push({
       tom: 'warn',
       text: 'Radmin não detectado',
-      sub: 'O modo Online continua funcionando sem ele.',
+      ...(online ? { sub: 'O modo Online continua funcionando sem ele.' } : {}),
     })
   }
 
@@ -55,14 +56,14 @@ export function montarChecks(snap: Snapshot): Check[] {
         sub: `${r.mode === 'online' ? 'online' : 'local'} · ${r.room_id}`,
       }))
 
-  return [
-    {
-      id: 'srv',
-      title: 'Servidor online',
-      short: 'Servidor',
-      status: 'soon',
-      lines: [{ tom: 'info', text: 'Disponível em breve' }],
-    },
+  const srv: Check = {
+    id: 'srv',
+    title: 'Servidor online',
+    short: 'Servidor',
+    status: 'soon',
+    lines: [{ tom: 'info', text: 'Disponível em breve' }],
+  }
+  const lista: Check[] = [
     {
       id: 'net',
       title: 'Rede',
@@ -92,15 +93,16 @@ export function montarChecks(snap: Snapshot): Check[] {
       lines: linhasSalas,
     },
   ]
+  return online ? [srv, ...lista] : lista
 }
 
 /** Veredito do resumo. `verificando` = true durante o "Verificar de novo". */
-export function calcularVeredito(checks: Check[], verificando: boolean, semRede: boolean): Veredito {
+export function calcularVeredito(checks: Check[], verificando: boolean, semRede: boolean, online = true): Veredito {
   const avisos = checks.filter((c) => c.status === 'warn').length
   if (verificando) {
     return {
       titulo: 'Verificando sua conexão…',
-      sub: 'Olhando servidor, Radmin, firewall e quem está online.',
+      sub: online ? 'Olhando servidor, Radmin, firewall e quem está online.' : 'Olhando Radmin, firewall e quem está por aqui.',
       cor: '#A3BDB1',
       avisos,
     }

@@ -26,6 +26,8 @@ export interface SalaPrincipalProps {
   volumeDe: (ownerId: string) => VolumePessoa
   onVolumePessoa: (ownerId: string, v: VolumePessoa) => void
   onMover: (trackId: string, lugar: Lugar) => void
+  /** Câmera de quem está com a tela: 'canto' (no canto da tela) ou 'solta' (célula própria). */
+  onJeito?: (trackId: string, jeito: 'canto' | 'solta') => void
   smoothingAuto: boolean
   onSmoothingAuto: (v: boolean) => void
   onToggleCamera: () => void
@@ -107,9 +109,18 @@ interface CelulaProps {
   volume: VolumePessoa
   onVolumePessoa: (ownerId: string, v: VolumePessoa) => void
   onMover: (trackId: string, lugar: Lugar) => void
+  onJeito?: (trackId: string, jeito: 'canto' | 'solta') => void
 }
 
-function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume, onVolumePessoa, onMover }: CelulaProps): ReactNode {
+function IconeSolta({ size }: { size: number }): ReactNode {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 4h6v6M20 4l-8 8M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
+    </svg>
+  )
+}
+
+function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume, onVolumePessoa, onMover, onJeito }: CelulaProps): ReactNode {
   const s = celula.stream
   const eu = !!s.mine
   const pessoa = room.participants.find((x) => x.id === s.ownerId)
@@ -125,6 +136,13 @@ function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume
   const lado = varias ? 34 : 40
   const somLabel = (volume.muted ? 'Ativar som de ' : 'Silenciar ') + nome
   const pip = celula.pip
+  const canto = celula.corner ?? 'inf_dir'
+  const posPip: CSSProperties = {
+    ...(canto.endsWith('esq') ? { left: margem } : { right: margem }),
+    ...(canto.startsWith('sup') ? { top: margem + 44 } : { bottom: varias ? margem : 96 }),
+  }
+  const rotuloCanto = eu ? 'Pôr minha câmera no canto' : `Pôr a câmera de ${nome} no canto`
+  const rotuloSolta = eu ? 'Soltar minha câmera' : `Soltar a câmera de ${nome}`
 
   return (
     <div data-testid="celula-principal" style={{ position: 'relative', minWidth: 0, minHeight: 0, background: '#0A100E', borderRadius: varias ? 12 : 0, overflow: 'hidden' }}>
@@ -140,6 +158,12 @@ function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume
       <span style={{ ...some, position: 'absolute', right: margem, top: margem - 4, display: 'flex', alignItems: 'center', gap: 6 }}>
         {!varias && (
           <span style={{ ...PILULA, height: 30, padding: '0 12px', fontFamily: MONO, fontSize: 11.5, color: 'var(--texto-2)', whiteSpace: 'nowrap' }}>{rotulo}</span>
+        )}
+        {celula.podeCanto && onJeito && (
+          <button type="button" className="zp-x" onClick={() => onJeito(s.trackId, 'canto')} aria-label={rotuloCanto} title="Pôr no canto"
+            style={{ ...BTN, height: lado, borderRadius: 12, padding: '0 12px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>
+            Pôr no canto
+          </button>
         )}
         {!eu && (
           <button type="button" className="zp-x" onClick={() => onVolumePessoa(s.ownerId, { ...volume, muted: !volume.muted })} aria-label={somLabel} title={somLabel}
@@ -158,13 +182,19 @@ function CelulaPrincipal({ room, celula, tile, canvasDe, visivel, varias, volume
       </span>
 
       {pip && (
-        <span style={{ position: 'absolute', right: margem, bottom: varias ? margem : 96, width: varias ? '30%' : '22%', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden', border: '2px solid #0A100E', boxShadow: '0 0 0 1px #3BF08A, 0 10px 30px rgba(0,0,0,0.5)', background: '#0A100E' }}>
+        <span style={{ position: 'absolute', ...posPip, width: varias ? '30%' : '22%', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden', border: '2px solid #0A100E', boxShadow: '0 0 0 1px #3BF08A, 0 10px 30px rgba(0,0,0,0.5)', background: '#0A100E' }}>
           <CanvasSlot canvas={canvasDe(pip.trackId)} label={eu ? 'Sua câmera' : `Câmera de ${nome}`} />
           <span style={{ position: 'absolute', left: 6, bottom: 6, padding: '2px 8px', borderRadius: 6, background: 'rgba(10,16,14,0.8)', fontSize: 11.5, pointerEvents: 'none' }}>{`cam · ${nome}`}</span>
           <button type="button" className="zp-x" onClick={() => onMover(pip.trackId, 'faixa')} aria-label={eu ? 'Tirar minha câmera do canto' : `Tirar a câmera de ${nome} do canto`} title="Mandar a câmera para a faixa de baixo"
             style={{ ...BTN, ...some, position: 'absolute', right: 6, top: 6, width: 32, height: 32, borderRadius: 10 }}>
             <IconeX size={15} />
           </button>
+          {onJeito && (
+            <button type="button" className="zp-x" onClick={() => onJeito(pip.trackId, 'solta')} aria-label={rotuloSolta} title="Soltar a câmera"
+              style={{ ...BTN, ...some, position: 'absolute', right: 44, top: 6, width: 32, height: 32, borderRadius: 10 }}>
+              <IconeSolta size={15} />
+            </button>
+          )}
         </span>
       )}
     </div>
@@ -253,6 +283,7 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
                   volume={p.volumeDe(c.stream.ownerId)}
                   onVolumePessoa={p.onVolumePessoa}
                   onMover={p.onMover}
+                  onJeito={p.onJeito}
                 />
               ))}
             </div>

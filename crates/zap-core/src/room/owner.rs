@@ -179,6 +179,7 @@ impl OwnerRoom {
         track_id: &str,
         title: Option<String>,
         layers: Option<Vec<zap_proto::LayerSpec>>,
+        camera_layout: Option<zap_proto::CameraLayout>,
     ) -> Result<(), CoreError> {
         let track = {
             let mut model = self.model.lock();
@@ -187,7 +188,7 @@ impl OwnerRoom {
                 _ => return Err(CoreError::TrackNotFound),
             }
             model
-                .update_track(track_id, title, layers, None)
+                .update_track(track_id, title, layers, camera_layout)
                 .ok_or(CoreError::TrackNotFound)?
         };
         self.send_all(vec![Outgoing {
@@ -496,6 +497,77 @@ mod tests {
         sala.close().await;
         let m = le_ate(&mut rx, |m| matches!(m, ControlMsg::RoomClosed { .. })).await;
         assert!(matches!(m, ControlMsg::RoomClosed { reason } if reason == "dono"));
+    }
+
+    fn spec_camera() -> TrackSpec {
+        TrackSpec {
+            local_id: "local".into(),
+            kind: zap_proto::TrackKind::Camera,
+            title: "Câmera".into(),
+            layers: Vec::new(),
+            audio: None,
+            address: None,
+            camera_layout: None,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn update_track_com_camera_layout_muda_so_o_jeito() {
+        use zap_proto::CameraLayout;
+        let sala = OwnerRoom::start(ctx(), req(None)).await.expect("start");
+        let t = sala.publish_track(spec_camera()).await.expect("publicar");
+        sala.update_track(&t.id, None, None, Some(CameraLayout::Free))
+            .await
+            .expect("atualizar");
+        let depois = sala.model.lock().track_by_id(&t.id).cloned().expect("trilha");
+        assert_eq!(depois.id, t.id);
+        assert_eq!(depois.camera_layout, Some(CameraLayout::Free));
+        assert_eq!(depois.title, t.title);
+        assert_eq!(depois.layers, t.layers);
+        sala.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn update_track_sem_camera_layout_preserva() {
+        use zap_proto::CameraLayout;
+        let sala = OwnerRoom::start(ctx(), req(None)).await.expect("start");
+        let t = sala.publish_track(spec_camera()).await.expect("publicar");
+        sala.update_track(&t.id, None, None, Some(CameraLayout::Free))
+            .await
+            .expect("atualizar");
+        sala.update_track(&t.id, Some("X".into()), None, None)
+            .await
+            .expect("atualizar título");
+        let depois = sala.model.lock().track_by_id(&t.id).cloned().expect("trilha");
+        assert_eq!(depois.title, "X");
+        assert_eq!(depois.camera_layout, Some(CameraLayout::Free));
+        sala.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn update_track_de_trilha_alheia_falha() {
+        let sala = OwnerRoom::start(ctx(), req(None)).await.expect("start");
+        let (_c, _t, _rx) = entra(&sala, "Ana", None).await.expect("ana");
+        espera_membros(&sala, 2).await;
+        let ana = sala
+            .model
+            .lock()
+            .participants
+            .iter()
+            .find(|p| p.name == "Ana")
+            .map(|p| p.id.clone())
+            .expect("ana");
+        let t = sala.model.lock().add_track(&ana, spec_camera()).expect("trilha");
+        let r = sala
+            .update_track(&t.id, None, None, Some(zap_proto::CameraLayout::Free))
+            .await;
+        assert!(matches!(r, Err(CoreError::TrackNotFound)));
+        assert_eq!(sala.model.lock().track_by_id(&t.id).expect("t").camera_layout, None);
+        let r = sala
+            .update_track("t_nao_existe", None, None, Some(zap_proto::CameraLayout::Free))
+            .await;
+        assert!(matches!(r, Err(CoreError::TrackNotFound)));
+        sala.close().await;
     }
 
     #[tokio::test(flavor = "multi_thread")]

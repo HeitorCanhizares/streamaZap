@@ -17,6 +17,7 @@ import {
   ownTracks,
   streamsDaSala,
   volumeInicial,
+  type JeitosCamera,
   type Lugar,
   type VolumePessoa,
 } from './salaModel'
@@ -48,6 +49,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   // Onde o usuário pôs cada transmissão (principal, faixa ou fechada); sem escolha vale o padrão.
   const [escolhas, setEscolhas] = useState<Record<string, Lugar>>({})
   // Volume que escolhi para cada pessoa (0..100).
+  // Como quero ver cada câmera (no canto da tela ou solta); só local, não vai ao núcleo.
+  const [jeitos, setJeitos] = useState<JeitosCamera>({})
   const [volumes, setVolumes] = useState<Record<string, VolumePessoa>>({})
   const [smoothingAuto, setSmoothingAuto] = useState(true)
   const [cameraOn, setCameraOn] = useState(false)
@@ -82,7 +85,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   // sobre a tela).
   const streams = room ? streamsDaSala(room, meId) : []
   const lugares = lugaresDasStreams(streams, escolhas)
-  const celulas = celulasDaPrincipal(streams, lugares)
+  const celulas = celulasDaPrincipal(streams, lugares, jeitos)
   const cantos = new Set(celulas.flatMap((c) => (c.pip ? [c.pip.trackId] : [])))
   // A minha miniatura com o cartão Você oculto não é assinada (não gasta codificação à toa).
   const pedidos: PedidoStream[] = streams
@@ -141,7 +144,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     setEscolhas((e) => {
       const atuais = lugaresDasStreams(streams, e)
       const extra: Record<string, Lugar> = {}
-      const canto = celulasDaPrincipal(streams, atuais).find((c) => c.stream.trackId === trackId)?.pip
+      const canto = celulasDaPrincipal(streams, atuais, jeitos).find((c) => c.stream.trackId === trackId)?.pip
       if (canto && lugar !== 'principal') extra[canto.trackId] = 'faixa'
       const st = streams.find((x) => x.trackId === trackId)
       if (st?.mine && st.kind !== 'camera' && lugar === 'principal' && minhaCam && atuais[minhaCam.trackId] === 'faixa') {
@@ -150,6 +153,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
       return { ...atuais, ...extra, [trackId]: lugar }
     })
   }
+
+  const onJeito = (trackId: string, jeito: 'canto' | 'solta') => setJeitos((j) => ({ ...j, [trackId]: jeito }))
 
   const volumeDe = (ownerId: string): VolumePessoa =>
     volumes[ownerId] ?? volumeInicial(room.participants.find((p) => p.id === ownerId))
@@ -251,6 +256,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
             volumeDe={volumeDe}
             onVolumePessoa={onVolumePessoa}
             onMover={onMover}
+            onJeito={onJeito}
             share={snap.share}
             smoothingAuto={smoothingAuto}
             onSmoothingAuto={onSmoothingAuto}

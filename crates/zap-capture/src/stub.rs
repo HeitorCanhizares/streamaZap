@@ -1,5 +1,5 @@
 //! Stub para plataformas sem captura: tudo devolve `CaptureError::Unsupported`.
-use crate::{CameraInfo, CaptureError, CaptureHandle, FrameSink, MonitorInfo, WindowInfo};
+use crate::{CameraInfo, CameraMode, CaptureError, CaptureHandle, FrameSink, MonitorInfo, WindowInfo};
 use zap_gpu::GpuDevice;
 
 pub fn list_monitors() -> Result<Vec<MonitorInfo>, CaptureError> {
@@ -10,6 +10,10 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, CaptureError> {
 }
 pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
     Err(CaptureError::Unsupported)
+}
+/// Sem Media Foundation: nenhum modo.
+pub fn camera_modes(_id: &str) -> Result<Vec<CameraMode>, CaptureError> {
+    Ok(Vec::new())
 }
 pub fn wgc_supported() -> bool {
     false
@@ -52,6 +56,14 @@ mod tests {
             Err(zap_gpu::GpuError::Unsupported) => {}
             Err(outro) => panic!("erro inesperado do GPU: {outro:?}"),
             Ok(_) => {}
+        }
+    }
+
+    #[test]
+    fn camera_modes_vazio_no_stub() {
+        match camera_modes("qualquer") {
+            Ok(modos) => assert!(modos.is_empty()),
+            Err(e) => panic!("camera_modes no stub deveria ser Ok: {e:?}"),
         }
     }
 }

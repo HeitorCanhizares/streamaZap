@@ -299,7 +299,10 @@ mod tests {
                 ..Default::default()
             };
             let core = Core::start_with(d.clone(), TestSink::new(), opts).unwrap();
-            core.update_settings(|s| s.server.address = url);
+            core.update_settings(|s| {
+                s.server.address = url;
+                s.server.enabled = true;
+            });
             (core, d)
         })
         .await

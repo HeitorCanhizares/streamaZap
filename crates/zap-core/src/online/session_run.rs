@@ -213,7 +213,10 @@ mod tests {
     }
 
     fn iniciar(core: &Core, url: String) {
-        core.update_settings(|s| s.server.address = url);
+        core.update_settings(|s| {
+            s.server.address = url;
+            s.server.enabled = true;
+        });
         core.shared.online.start(&core.shared);
     }
 

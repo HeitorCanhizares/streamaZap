@@ -1,5 +1,6 @@
 // Funcoes puras da tela da sala (tarefa ui-ligacao-06).
-import type { NetworkStatus, Participant, RoomView, TileView, TrackView } from '../../bridge/types'
+import { cantoDoLayout, jeitoDoLayout } from '../criar/cameraModel'
+import type { CameraLayout, Corner, NetworkStatus, Participant, RoomView, TileView, TrackView } from '../../bridge/types'
 
 /** Ids de tile reservados para o "Voce" (a propria tela e a propria camera, camada 2). */
 export const LOCAL_SCREEN_TILE = 9000
@@ -79,6 +80,8 @@ export interface Stream {
   tile: number
   /** Minha transmissão (a tela ou a câmera que eu estou mandando). */
   mine?: boolean
+  /** Só câmera: o jeito que quem transmite escolheu (`TrackView.camera_layout`); ausente = canto inf. direito. */
+  cameraLayout?: CameraLayout
 }
 
 // Tiles das transmissões: abaixo dos reservados do "Você" (9000) e da prévia da lista (1_000_000).
@@ -110,7 +113,7 @@ export function streamsDaSala(room: RoomView, meId: string): Stream[] {
   const videos = dosOutros.filter((t) => ehVideo(t.kind)).sort(porTipo)
   const soSom = dosOutros.filter((t) => t.kind === 'audio' && !comVideo.has(t.owner_id))
   const meus = room.tracks.filter((t) => t.owner_id === meId && ehVideo(t.kind)).sort(porTipo)
-  const vira = (t: TrackView, mine: boolean): Stream => ({ trackId: t.id, ownerId: t.owner_id, kind: t.kind, tile: tileDaTrilha(t.id), ...(mine ? { mine } : {}) })
+  const vira = (t: TrackView, mine: boolean): Stream => ({ trackId: t.id, ownerId: t.owner_id, kind: t.kind, tile: tileDaTrilha(t.id), ...(mine ? { mine } : {}), ...(t.kind === 'camera' && t.camera_layout !== undefined ? { cameraLayout: t.camera_layout } : {}) })
   const musica: Stream[] = room.music?.current ? [{ trackId: MUSICA, ownerId: '', kind: 'musica', tile: -1 }] : []
   return [...videos.map((t) => vira(t, false)), ...musica, ...soSom.map((t) => vira(t, false)), ...meus.map((t) => vira(t, true))]
 }
@@ -119,7 +122,8 @@ export function streamsDaSala(room: RoomView, meId: string): Stream[] {
  * Lugar de cada transmissão. A escolha do usuário vale (o som sozinho nunca vai para a principal).
  * Sem escolha: se nada estiver na principal, a primeira tela/janela (ou câmera) dos outros vai para
  * lá; sem vídeo dos outros, a minha (quem só tem a própria transmissão vê ela grande). A câmera de
- * quem está com a tela na principal vai junto (no canto da tela); o resto, na faixa.
+ * quem está com a tela na principal vai junto (no canto da tela); o resto, na faixa. A câmera vai
+ * para a principal nos dois jeitos (canto ou solta): quem diferencia é `celulasDaPrincipal`.
  */
 export function lugaresDasStreams(streams: Stream[], escolhas: Record<string, Lugar>): Record<string, Lugar> {
   const out: Record<string, Lugar> = {}
@@ -145,19 +149,39 @@ export function lugaresDasStreams(streams: Stream[], escolhas: Record<string, Lu
 }
 
 /** Uma célula da tela principal: a transmissão e, se for a tela de alguém, a câmera dele no canto. */
-export interface Celula { stream: Stream; pip: Stream | null }
+export interface Celula {
+  stream: Stream
+  pip: Stream | null
+  /** Só com `pip`: o canto da tela onde a câmera fica. */
+  corner?: Corner
+  /** Só câmera solta cuja dona está com a tela na principal: mostra "Pôr no canto". */
+  podeCanto?: boolean
+}
+
+/** Escolha de quem assiste para a câmera de uma pessoa (só dele, como as `escolhas`): por `trackId` da câmera. */
+export type JeitosCamera = Record<string, 'canto' | 'solta'>
 
 /** Células da principal, na ordem das transmissões. A câmera de quem também está com a tela (ou
- *  janela) na principal vira o canto dessa tela em vez de outra célula. */
-export function celulasDaPrincipal(streams: Stream[], lugares: Record<string, Lugar>): Celula[] {
+ *  janela) na principal vira o canto dessa tela (jeito 'canto') ou uma célula logo depois dela
+ *  (jeito 'solta'). O jeito que quem assiste escolheu (`jeitos`) vale mais que o de quem transmite. */
+export function celulasDaPrincipal(streams: Stream[], lugares: Record<string, Lugar>, jeitos?: JeitosCamera): Celula[] {
   const naPrincipal = streams.filter((s) => lugares[s.trackId] === 'principal' && ehVideo(s.kind))
+  const jeitoDe = (c: Stream): 'canto' | 'solta' => jeitos?.[c.trackId] ?? jeitoDoLayout(c.cameraLayout)
   const usadas = new Set<string>()
   const celulas: Celula[] = []
   for (const s of naPrincipal) {
     if (s.kind === 'camera') continue
-    const pip = naPrincipal.find((c) => c.kind === 'camera' && c.ownerId === s.ownerId && !usadas.has(c.trackId)) ?? null
-    if (pip) usadas.add(pip.trackId)
-    celulas.push({ stream: s, pip })
+    const cam = naPrincipal.find((c) => c.kind === 'camera' && c.ownerId === s.ownerId && !usadas.has(c.trackId))
+    if (!cam) {
+      celulas.push({ stream: s, pip: null })
+      continue
+    }
+    usadas.add(cam.trackId)
+    if (jeitoDe(cam) === 'canto') {
+      celulas.push({ stream: s, pip: cam, corner: cantoDoLayout(cam.cameraLayout) })
+    } else {
+      celulas.push({ stream: s, pip: null }, { stream: cam, pip: null, podeCanto: true })
+    }
   }
   for (const s of naPrincipal) {
     if (s.kind === 'camera' && !usadas.has(s.trackId)) celulas.push({ stream: s, pip: null })

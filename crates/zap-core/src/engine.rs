@@ -217,6 +217,14 @@ pub struct Core {
     pub(crate) runtime: Option<tokio::runtime::Runtime>,
 }
 
+impl Shared {
+    /// Modo Online ligado nas configurações (`settings.server.enabled`). Desligado, nenhuma rotina
+    /// do núcleo fala com o servidor.
+    pub(crate) fn online_enabled(&self) -> bool {
+        self.settings.read().server.enabled
+    }
+}
+
 impl Core {
     /// `start_with` com `CoreOptions::default()` e o servidor de produção como endereço da
     /// primeira execução. É o ponto de entrada do app; os testes usam `start_with`.
@@ -332,7 +340,7 @@ impl Core {
         rt.spawn(crate::engine_room::pump_room_events(shared.clone(), rx));
         rt.spawn(crate::engine_tick::run(shared.clone()));
         // Sessão Online: só sobe com a opção ligada (testes sem o modo Online deixam desligada).
-        if options.online {
+        if options.online && shared.online_enabled() {
             shared.online.start(&shared);
         }
         shared.notifier.flush();
@@ -348,12 +356,21 @@ impl Core {
     /// Aplica `f`, salva (`settings::save`), atualiza `Me` e o nome/presença da descoberta e
     /// faz `touch()`. Erro de gravação: `push_error`.
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) {
-        let (novo, servidor_mudou) = {
+        let (novo, antes, depois) = {
             let mut guard = self.shared.settings.write();
-            let antes = (guard.server.address.clone(), guard.server.password.clone());
+            let antes = (
+                guard.server.enabled,
+                guard.server.address.clone(),
+                guard.server.password.clone(),
+            );
             f(&mut guard);
-            let mudou = antes != (guard.server.address.clone(), guard.server.password.clone());
-            (guard.clone(), mudou)
+            guard.normalize();
+            let depois = (
+                guard.server.enabled,
+                guard.server.address.clone(),
+                guard.server.password.clone(),
+            );
+            (guard.clone(), antes, depois)
         };
         if let Err(e) = crate::settings::save(&self.shared.data_dir, &novo) {
             self.shared
@@ -361,9 +378,9 @@ impl Core {
                 .lock()
                 .push_error(format!("Não foi possível salvar as configurações: {e}"));
         }
-        // Só endereço e senha do servidor reiniciam a sessão (trocar `use_relay` não).
-        if servidor_mudou && self.shared.options.online {
-            self.shared.online.restart(&self.shared);
+        // Só ligar/desligar, endereço e senha mexem na sessão (trocar `use_relay` não).
+        if self.shared.options.online {
+            self.aplicar_online(&antes, &depois);
         }
         self.shared.refresh_me();
         let discovery = self.shared.discovery.lock().clone();
@@ -375,6 +392,34 @@ impl Core {
             ));
         }
         self.shared.notifier.touch();
+    }
+    /// Liga, desliga ou reinicia a sessão Online conforme `(enabled, address, password)` mudou.
+    /// Desligado nos dois lados: nada, mesmo que endereço e senha mudem.
+    fn aplicar_online(&self, antes: &(bool, String, String), depois: &(bool, String, String)) {
+        let shared = &self.shared;
+        match (antes.0, depois.0) {
+            (false, true) => shared.online.restart(shared),
+            (true, false) => {
+                let em_sala_online = matches!(shared.current_room().as_deref(), Some(ActiveRoom::Online(_)));
+                if em_sala_online {
+                    // Sai da sala antes: `leave` ainda precisa do WebSocket para avisar o servidor.
+                    let shared = shared.clone();
+                    shared.rt.clone().spawn(async move {
+                        Core {
+                            shared: shared.clone(),
+                            runtime: None,
+                        }
+                        .leave_room()
+                        .await;
+                        shared.online.stop_and_clear(&shared);
+                    });
+                } else {
+                    shared.online.stop_and_clear(shared);
+                }
+            }
+            (true, true) if antes.1 != depois.1 || antes.2 != depois.2 => shared.online.restart(shared),
+            _ => {}
+        }
     }
     pub fn sources(&self) -> Sources {
         crate::sources::list_sources()
@@ -726,7 +771,10 @@ mod tests {
             .await
             .unwrap();
         let (core, d) = criar(opts()).await;
-        core.update_settings(|s| s.server.address = srv.base_url.clone());
+        core.update_settings(|s| {
+            s.server.address = srv.base_url.clone();
+            s.server.enabled = true;
+        });
         assert!(
             ate(5, || esta_online(&core)).await,
             "status: {:?}",
@@ -737,13 +785,146 @@ mod tests {
         encerrar(core, d).await;
     }
 
+    /// Cria um Core já com `settings.json` gravado por `f`.
+    async fn criar_com(f: impl FnOnce(&mut Settings) + Send + 'static) -> (Core, PathBuf) {
+        tokio::task::spawn_blocking(move || {
+            let d = dir();
+            std::fs::create_dir_all(&d).unwrap();
+            let mut s = crate::settings::load(&d);
+            f(&mut s);
+            crate::settings::save(&d, &s).unwrap();
+            let core = Core::start_with(d.clone(), TestSink::new(), opts()).unwrap();
+            (core, d)
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn online_desligado_nao_abre_conexao() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let porta = listener.local_addr().unwrap().port();
+        let conta = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let c2 = conta.clone();
+        let aceitador = tokio::spawn(async move {
+            while listener.accept().await.is_ok() {
+                c2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+        let (core, d) = criar_com(move |s| {
+            s.server.address = format!("http://127.0.0.1:{porta}");
+            s.server.enabled = false;
+        })
+        .await;
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        assert_eq!(conta.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(core.snapshot().server.is_none());
+        aceitador.abort();
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ligar_sobe_a_sessao_em_ate_2s() {
+        let srv = zap_test_server::spawn(zap_test_server::Config::default())
+            .await
+            .unwrap();
+        let (core, d) = criar(opts()).await;
+        core.update_settings(|s| {
+            s.server.address = srv.base_url.clone();
+            s.server.enabled = true;
+        });
+        assert!(ate(2, || esta_online(&core)).await, "{:?}", core.snapshot().server);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn desligar_fecha_websocket_e_zera_estado() {
+        let srv = zap_test_server::spawn(zap_test_server::Config::default())
+            .await
+            .unwrap();
+        let (core, d) = criar(opts()).await;
+        core.update_settings(|s| {
+            s.server.address = srv.base_url.clone();
+            s.server.enabled = true;
+        });
+        assert!(ate(5, || esta_online(&core)).await);
+        let com_ws = |srv: &zap_test_server::Handle| srv.hub.inner.lock().participants.values().any(|p| p.ws.is_some());
+        assert!(com_ws(&srv), "o servidor deveria ter a sessão ativa antes de desligar");
+        core.update_settings(|s| s.server.enabled = false);
+        assert!(core.snapshot().server.is_none());
+        assert!(core.shared.online.rooms().is_empty());
+        assert!(core.shared.online.task.lock().is_none());
+        assert!(core.shared.online.ws.lock().is_none());
+        assert!(ate(3, || !com_ws(&srv)).await, "o servidor ainda vê o WebSocket aberto");
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn mudar_endereco_com_online_desligado_nao_sobe() {
+        let srv = zap_test_server::spawn(zap_test_server::Config::default())
+            .await
+            .unwrap();
+        let (core, d) = criar(opts()).await;
+        core.update_settings(|s| {
+            s.server.enabled = false;
+            s.server.address = srv.base_url.clone();
+        });
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        assert!(core.shared.online.task.lock().is_none());
+        assert!(core.snapshot().server.is_none());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn desligar_normaliza_open_in() {
+        let (core, d) = criar(opts()).await;
+        core.update_settings(|s| {
+            s.server.enabled = true;
+            s.open_in = RoomMode::Online;
+        });
+        assert_eq!(core.settings().open_in, RoomMode::Online);
+        core.update_settings(|s| s.server.enabled = false);
+        assert_eq!(core.settings().open_in, RoomMode::Local);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn desligar_com_sala_online_aberta_sai_da_sala() {
+        let srv = zap_test_server::spawn(zap_test_server::Config::default())
+            .await
+            .unwrap();
+        let (core, d) = criar(opts()).await;
+        core.update_settings(|s| {
+            s.server.address = srv.base_url.clone();
+            s.server.enabled = true;
+        });
+        assert!(ate(5, || esta_online(&core)).await);
+        core.create_room(CreateRoom {
+            name: "Sala on".into(),
+            mode: RoomMode::Online,
+            password: None,
+        })
+        .await
+        .expect("criar sala online");
+        assert!(core.snapshot().room.is_some());
+        core.update_settings(|s| s.server.enabled = false);
+        assert!(
+            ate(3, || core.snapshot().room.is_none() && core.snapshot().server.is_none()).await,
+            "sala ainda aberta"
+        );
+        encerrar(core, d).await;
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn update_settings_use_relay_nao_reinicia() {
         let srv = zap_test_server::spawn(zap_test_server::Config::default())
             .await
             .unwrap();
         let (core, d) = criar(opts()).await;
-        core.update_settings(|s| s.server.address = srv.base_url.clone());
+        core.update_settings(|s| {
+            s.server.address = srv.base_url.clone();
+            s.server.enabled = true;
+        });
         assert!(ate(5, || esta_online(&core)).await);
         // Deixa o primeiro WebSocket assentar antes de medir a época.
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;

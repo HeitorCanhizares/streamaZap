@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import './diag.css'
 import { useSnapshot } from '../../bridge/store'
 import { api } from '../../bridge/api'
+import { useOnlineEnabled } from '../../bridge/onlineStore'
 import type { DiagReport } from '../../bridge/types'
 import { calcularVeredito, montarRelatorio } from './diagModel'
 import { montarChecksReal } from './diagReal'
@@ -14,6 +15,7 @@ import { ComoLer } from './ComoLer'
 
 export function DiagScreen(): ReactNode {
   const snap = useSnapshot()
+  const online = useOnlineEnabled()
   const [rel, setRel] = useState<DiagReport | null>(null)
   const [verificando, setVerificando] = useState(false)
   const [copiado, setCopiado] = useState(false)
@@ -45,9 +47,9 @@ export function DiagScreen(): ReactNode {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const checks = montarChecksReal(rel, snap)
+  const checks = montarChecksReal(rel, snap, online)
   const semRede = (rel ? rel.network.interfaces.length : snap.network.interfaces.length) === 0
-  const veredito = calcularVeredito(checks, verificando, semRede)
+  const veredito = calcularVeredito(checks, verificando, semRede, online)
 
   const onRecheck = async (): Promise<void> => {
     setVerificando(true)
@@ -116,7 +118,7 @@ export function DiagScreen(): ReactNode {
         {checks.map((c) => (
           <CardCheck key={c.id} check={c} verificando={verificando} onFixFirewall={() => void onFixFirewall()} corrigindo={corrigindo} />
         ))}
-        <ComoLer />
+        <ComoLer online={online} />
       </div>
     </div>
   )

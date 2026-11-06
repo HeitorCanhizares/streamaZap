@@ -1,16 +1,18 @@
 // Tarefa salas-14: compõe a tela Salas (ListaSalas + DetalheSala) e liga à ponte.
 import { useState, type ReactNode } from 'react'
 import { api } from '../../bridge/api'
+import { useOnlineEnabled } from '../../bridge/onlineStore'
 import { useSnapshot } from '../../bridge/store'
 import type { JoinTarget, RoomMode } from '../../bridge/types'
 import { Button } from '../../components/Button'
 import { TextField } from '../../components/TextField'
+import { AtualizadoCard } from './AtualizadoCard'
 import { DetalheSala } from './DetalheSala'
 import { EntrarCodigo } from './EntrarCodigo'
 import { ListaSalas } from './ListaSalas'
 import { contar, filtrarSalas, salasDoModo, type FiltroSala } from './model'
 
-export interface SalasScreenProps { onCreate: () => void; onEntered: () => void }
+export interface SalasScreenProps { onCreate: () => void; onEntered: () => void; onAbrirConfig?: () => void }
 
 // Porta padrão do protocolo local quando o usuário digita só o IP.
 const PORTA_PADRAO = 47800
@@ -28,11 +30,14 @@ function lerAlvoManual(texto: string): JoinTarget | null {
   return { ip, port }
 }
 
-export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNode {
+export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenProps): ReactNode {
   const snap = useSnapshot()
 
   const modoInicial: RoomMode = snap.rooms[0]?.mode ?? 'local'
-  const [modo, setModo] = useState<RoomMode>(modoInicial)
+  const habilitado = useOnlineEnabled()
+  const [modoEstado, setModo] = useState<RoomMode>(modoInicial)
+  // Online desligado: o modo efetivo é sempre local (o estado é ignorado).
+  const modo: RoomMode = habilitado ? modoEstado : 'local'
   const [filtro, setFiltro] = useState<FiltroSala>('todas')
   const [busca, setBusca] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -123,7 +128,7 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
         modo={modo}
         onModo={trocarModo}
         salas={visiveis}
-        contagemOnline={salasDoModo(snap.rooms, 'online').length}
+        contagemOnline={habilitado ? salasDoModo(snap.rooms, 'online').length : 0}
         contagemLocal={salasDoModo(snap.rooms, 'local').length}
         contagens={contagens}
         filtro={filtro}
@@ -136,10 +141,11 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
         onApelido={setApelido}
         onApelidoConfirmar={confirmarApelido}
         onCriar={onCreate}
-        servidor={snap.server}
+        servidor={habilitado ? snap.server : undefined}
+        onAbrirConfig={onAbrirConfig}
         onEntrarManual={() => {
           setErro(null)
-          if (modo === 'online') {
+          if (habilitado && modo === 'online') {
             setPromptManual(false)
             setPromptCodigo(true)
           } else {
@@ -150,7 +156,8 @@ export function SalasScreen({ onCreate, onEntered }: SalasScreenProps): ReactNod
       />
       {/* O detalhe rola sozinho, sem levar a lista junto. */}
       <div data-testid="detalhe-coluna" style={{ flex: '999 1 560px', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-        {promptCodigo ? (
+        <AtualizadoCard />
+        {habilitado && promptCodigo ? (
           <EntrarCodigo
             onEntrar={entrarPorCodigo}
             onCancelar={() => {

@@ -4,6 +4,7 @@ import {
   ACESSOS,
   MODOS,
   PRESETS_UI,
+  TEXTO_SEM_TRANSMITIR,
   acessoTexto,
   cenaDaFonte,
   fonteMeta,
@@ -55,6 +56,14 @@ describe('criarModel: fonte', () => {
     expect(fonteMeta({ id: 'w1', kind: 'window', name: 'Counter-Strike 2' })).toBe('Janela')
     expect(fonteMeta({ id: 'c1', kind: 'camera', name: 'Webcam USB' })).toBe('Webcam')
     expect(fonteMeta({ id: 'a1', kind: 'app', name: 'Spotify.exe' })).toBe('Spotify.exe')
+  })
+
+  it('cena_da_fonte_nada', () => {
+    expect(cenaDaFonte('nada', 0)).toBe('desktop')
+  })
+
+  it('texto_sem_transmitir', () => {
+    expect(TEXTO_SEM_TRANSMITIR).toBe('Você entra na sala sem transmitir')
   })
 
   it('cena_da_fonte', () => {

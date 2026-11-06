@@ -1,6 +1,6 @@
 // Tarefa config-04
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 vi.mock('../../video/player', () => ({
   VideoPlayer: class { push() {} close() {} },
@@ -9,9 +9,12 @@ vi.mock('../../video/player', () => ({
 import { api } from '../../bridge/api'
 import { ConfigVideo } from './ConfigVideo'
 import { mockSettings, mockSources } from '../../bridge/mock'
-import type { Settings } from '../../bridge/types'
+import type { Settings, SourceItem } from '../../bridge/types'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+const tela = () => within(screen.getByRole('radiogroup', { name: 'Qualidade padrão das suas salas' }))
+const cam = () => within(screen.getByRole('radiogroup', { name: 'Qualidade padrão da câmera' }))
 
 function com(video: Partial<Settings['video']>): Settings {
   const s = mockSettings()
@@ -22,22 +25,21 @@ describe('ConfigVideo', () => {
   it('renderiza título e os 4 presets', () => {
     render(<ConfigVideo settings={mockSettings()} onChange={vi.fn()} sources={mockSources()} />)
     expect(screen.getByText('Vídeo e câmera')).toBeTruthy()
-    expect(screen.getAllByRole('radio')).toHaveLength(4)
-    expect(screen.getByText('30 fps · Radmin')).toBeTruthy()
-    expect(screen.getAllByText('1080p')).toHaveLength(2)
+    expect(tela().getAllByRole('radio')).toHaveLength(4)
+    expect(screen.getAllByText('30 fps · Radmin').length).toBeGreaterThan(0)
   })
 
   it('clicar no 2º preset manda 720p60', () => {
     const onChange = vi.fn()
     const s = mockSettings()
     render(<ConfigVideo settings={s} onChange={onChange} sources={mockSources()} />)
-    fireEvent.click(screen.getAllByRole('radio')[1])
+    fireEvent.click(tela().getAllByRole('radio')[1])
     expect(onChange).toHaveBeenCalledWith({ video: { ...s.video, default_preset: '720p60' } })
   })
 
   it('marca o preset atual', () => {
     render(<ConfigVideo settings={com({ default_preset: '720p30' })} onChange={vi.fn()} sources={mockSources()} />)
-    const r = screen.getAllByRole('radio')
+    const r = tela().getAllByRole('radio')
     expect(r[0].getAttribute('aria-checked')).toBe('true')
     expect(r[1].getAttribute('aria-checked')).toBe('false')
   })
@@ -46,20 +48,20 @@ describe('ConfigVideo', () => {
     const onChange = vi.fn()
     const s = mockSettings()
     render(<ConfigVideo settings={s} onChange={onChange} sources={mockSources()} />)
-    fireEvent.click(screen.getAllByRole('radio')[2])
+    fireEvent.click(tela().getAllByRole('radio')[2])
     expect(onChange).toHaveBeenCalledWith({ video: { ...s.video, default_preset: '1080p30' } })
   })
 
   it('default_preset 1080p30 marca o 3o card e nao o 4o', () => {
     render(<ConfigVideo settings={com({ default_preset: '1080p30' })} onChange={vi.fn()} sources={mockSources()} />)
-    const r = screen.getAllByRole('radio')
+    const r = tela().getAllByRole('radio')
     expect(r[2].getAttribute('aria-checked')).toBe('true')
     expect(r[3].getAttribute('aria-checked')).toBe('false')
   })
 
   it('default_preset 1080p60 marca o 4o card', () => {
     render(<ConfigVideo settings={com({ default_preset: '1080p60' })} onChange={vi.fn()} sources={mockSources()} />)
-    const r = screen.getAllByRole('radio')
+    const r = tela().getAllByRole('radio')
     expect(r[3].getAttribute('aria-checked')).toBe('true')
     expect(r[2].getAttribute('aria-checked')).toBe('false')
   })
@@ -127,5 +129,49 @@ describe('ConfigVideo', () => {
     expect(screen.getByText('120 ms')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Suavização fixa em milissegundos'), { target: { value: '300' } })
     expect(onChange.mock.calls[0][0].video.smoothing_ms).toBe(300)
+  })
+
+  it('qualidade da câmera: mostra o rótulo e o grupo com 4 radios', () => {
+    render(<ConfigVideo settings={mockSettings()} onChange={vi.fn()} sources={mockSources()} />)
+    expect(screen.getByText('Qualidade padrão da câmera')).toBeTruthy()
+    expect(cam().getAllByRole('radio')).toHaveLength(4)
+    expect(tela().getAllByRole('radio')).toHaveLength(4)
+  })
+
+  it('qualidade da câmera: clicar em 1080p30 manda camera_preset', () => {
+    const onChange = vi.fn()
+    const s = mockSettings()
+    render(<ConfigVideo settings={s} onChange={onChange} sources={mockSources()} />)
+    fireEvent.click(cam().getAllByRole('radio')[2])
+    expect(onChange).toHaveBeenCalledWith({ video: { ...s.video, camera_preset: '1080p30' } })
+  })
+
+  it('qualidade da câmera: câmera 720p30 desliga os outros três', () => {
+    const src = mockSources()
+    const c720: SourceItem = { ...src.cameras[0], max_height: 720, max_fps: 30 }
+    render(<ConfigVideo settings={mockSettings()} onChange={vi.fn()} sources={{ ...src, cameras: [c720] }} />)
+    const r = cam().getAllByRole('radio') as HTMLButtonElement[]
+    expect(r[0].disabled).toBe(false)
+    expect(r[1].disabled).toBe(true)
+    expect(r[2].disabled).toBe(true)
+    expect(r[3].disabled).toBe(true)
+  })
+
+  it('preset guardado que a câmera não faz é ajustado uma vez', () => {
+    const onChange = vi.fn()
+    const src = mockSources()
+    const c720: SourceItem = { ...src.cameras[0], max_height: 720, max_fps: 30 }
+    const s = com({ camera_preset: '1080p60' })
+    render(<ConfigVideo settings={s} onChange={onChange} sources={{ ...src, cameras: [c720] }} />)
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith({ video: { ...s.video, camera_preset: '720p30' } })
+  })
+
+  it('câmera que faz 1080p60 não dispara ajuste sozinho', () => {
+    const onChange = vi.fn()
+    const src = mockSources()
+    const c: SourceItem = { ...src.cameras[0], max_height: 1080, max_fps: 60 }
+    render(<ConfigVideo settings={com({ camera_preset: '1080p60' })} onChange={onChange} sources={{ ...src, cameras: [c] }} />)
+    expect(onChange).not.toHaveBeenCalled()
   })
 })

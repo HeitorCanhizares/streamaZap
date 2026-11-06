@@ -152,12 +152,13 @@ impl MemberRoom {
         track_id: &str,
         title: Option<String>,
         layers: Option<Vec<zap_proto::LayerSpec>>,
+        camera_layout: Option<zap_proto::CameraLayout>,
     ) -> Result<(), CoreError> {
         self.send(ControlMsg::TrackUpdate {
             track_id: track_id.into(),
             title,
             layers,
-            camera_layout: None,
+            camera_layout,
         })
         .await
     }

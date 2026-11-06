@@ -1,6 +1,8 @@
 // Tarefa salas-05: coluna da lista completa (design 1-salas.html linhas 63-140).
 import type { CSSProperties, ReactNode } from 'react'
 import type { RoomMode, ServerStatus } from '../../bridge/types'
+import { useOnlineEnabled } from '../../bridge/onlineStore'
+import { CartaoOnline } from './CartaoOnline'
 import { IconeChave, IconeLupa, IconeMais } from './icons'
 import { ModoAbas } from './ModoAbas'
 import { SalaItem } from './SalaItem'
@@ -23,6 +25,8 @@ export interface ListaSalasProps {
   onEntrarManual: () => void
   /** Estado do servidor (modo online). Ausente = não configurado. */
   servidor?: ServerStatus
+  /** Abre as Configurações (usado pelo cartão do Online desligado). */
+  onAbrirConfig?: () => void
 }
 
 function estiloFiltro(ativo: boolean): CSSProperties {
@@ -48,7 +52,11 @@ function textoRodape(servidor: ServerStatus | undefined): string {
 }
 
 export function ListaSalas(props: ListaSalasProps): ReactNode {
-  const { modo, salas, contagens, filtro, busca, apelido, servidor } = props
+  const habilitado = useOnlineEnabled()
+  const { salas, contagens, filtro, busca, apelido } = props
+  // Online desligado: sempre o modo local e sem estado de servidor.
+  const modo: RoomMode = habilitado ? props.modo : 'local'
+  const servidor = habilitado ? props.servidor : undefined
   const filtros: { id: FiltroSala; label: string }[] = [
     { id: 'todas', label: `Todas · ${contagens.todas}` },
     { id: 'abertas', label: `Abertas · ${contagens.abertas}` },
@@ -122,6 +130,7 @@ export function ListaSalas(props: ListaSalasProps): ReactNode {
         {salas.length === 0 ? (
           <p style={{ margin: 0, padding: '28px 20px', color: '#A3BDB1', textAlign: 'center' }}>{props.busca.trim() ? 'Nenhuma sala com esse nome.' : online ? (servidor?.state === 'online' ? 'Nenhuma sala no servidor agora.' : 'Sem conexão com o servidor.') : 'Nenhuma sala na rede ainda. Crie uma ou peça o IP de quem está transmitindo.'}</p>
         ) : null}
+        {habilitado ? null : <div style={{ paddingTop: 12 }}><CartaoOnline onAbrirConfig={props.onAbrirConfig} /></div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '18px 20px' }}>
           <span style={{ position: 'relative', width: 24, height: 24, flex: '0 0 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <span className={pontoAtivo ? 'zp-pulse' : undefined} style={{ position: 'absolute', width: 12, height: 12, borderRadius: '50%', border: `1px solid ${corPonto}` }}></span>

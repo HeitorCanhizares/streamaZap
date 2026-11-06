@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
-use zap_core::ShareRequest;
+use zap_core::{Preset, ShareRequest};
+use zap_proto::CameraLayout;
 
 use crate::convert;
 use crate::state::AppState;
@@ -33,6 +34,18 @@ pub async fn camera_set(state: State<'_, Arc<AppState>>, on: bool) -> Result<(),
     state.core.set_camera(on).await.map_err(convert::err_string)
 }
 
+/// `core.set_camera_quality(preset)`: qualidade da câmera à parte da tela, ao vivo se ligada.
+#[tauri::command]
+pub async fn camera_quality_set(state: State<'_, Arc<AppState>>, preset: Preset) -> Result<(), String> {
+    state.core.set_camera_quality(preset).await.map_err(convert::err_string)
+}
+
+/// `core.set_camera_layout(layout)`: canto ou solta, ao vivo se a câmera está ligada.
+#[tauri::command]
+pub async fn camera_layout_set(state: State<'_, Arc<AppState>>, layout: CameraLayout) -> Result<(), String> {
+    state.core.set_camera_layout(layout).await.map_err(convert::err_string)
+}
+
 /// Prévia da câmera nas configurações: `videos.register(tile, channel)` ANTES de
 /// `core.camera_preview(camera_id, tile)`; se o núcleo falhar, `videos.remove(tile)`.
 #[tauri::command]
@@ -58,4 +71,75 @@ pub async fn camera_preview_stop(state: State<'_, Arc<AppState>>, tile: u32) -> 
     state.core.camera_preview_stop(tile);
     state.videos.remove(tile);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{from_value, json, to_value};
+    use zap_proto::Corner;
+
+    // A interface manda os argumentos em JSON; o Tauri desserializa com serde.
+    // Estes testes travam o formato do contrato para os comandos de câmera.
+
+    #[test]
+    fn preset_da_camera_aceita_os_quatro_valores() {
+        assert_eq!(from_value::<Preset>(json!("720p30")).ok(), Some(Preset::P720p30));
+        assert_eq!(from_value::<Preset>(json!("720p60")).ok(), Some(Preset::P720p60));
+        assert_eq!(from_value::<Preset>(json!("1080p30")).ok(), Some(Preset::P1080p30));
+        assert_eq!(from_value::<Preset>(json!("1080p60")).ok(), Some(Preset::P1080p60));
+        assert!(from_value::<Preset>(json!("4k")).is_err());
+    }
+
+    #[test]
+    fn layout_canto_aceita_os_quatro_cantos() {
+        let canto = |c: &str| json!({"modo": "canto", "canto": c});
+        assert_eq!(
+            from_value::<CameraLayout>(canto("sup_esq")).ok(),
+            Some(CameraLayout::Corner {
+                corner: Corner::TopLeft
+            })
+        );
+        assert_eq!(
+            from_value::<CameraLayout>(canto("sup_dir")).ok(),
+            Some(CameraLayout::Corner {
+                corner: Corner::TopRight
+            })
+        );
+        assert_eq!(
+            from_value::<CameraLayout>(canto("inf_esq")).ok(),
+            Some(CameraLayout::Corner {
+                corner: Corner::BottomLeft
+            })
+        );
+        assert_eq!(
+            from_value::<CameraLayout>(canto("inf_dir")).ok(),
+            Some(CameraLayout::Corner {
+                corner: Corner::BottomRight
+            })
+        );
+    }
+
+    #[test]
+    fn layout_solta() {
+        assert_eq!(
+            from_value::<CameraLayout>(json!({"modo": "solta"})).ok(),
+            Some(CameraLayout::Free)
+        );
+    }
+
+    #[test]
+    fn layout_invalido_falha() {
+        assert!(from_value::<CameraLayout>(json!({"modo": "canto", "canto": "meio"})).is_err());
+        assert!(from_value::<CameraLayout>(json!({"modo": "flutuante"})).is_err());
+    }
+
+    #[test]
+    fn layout_serializa_igual_ao_contrato() {
+        assert_eq!(to_value(CameraLayout::Free).ok(), Some(json!({"modo": "solta"})));
+        assert_eq!(
+            to_value(CameraLayout::default()).ok(),
+            Some(json!({"modo": "canto", "canto": "inf_dir"}))
+        );
+    }
 }

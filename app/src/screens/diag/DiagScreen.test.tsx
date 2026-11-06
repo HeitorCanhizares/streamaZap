@@ -5,11 +5,13 @@ import { mockSnapshot } from '../../bridge/mock'
 import { useSnapshot } from '../../bridge/store'
 import { api } from '../../bridge/api'
 import { mockDiagReport } from '../../bridge/mockDiag'
+import { resetOnlineEnabled, setOnlineEnabled } from '../../bridge/onlineStore'
 import { DiagScreen } from './DiagScreen'
 
 vi.mock('../../bridge/store', () => ({ useSnapshot: vi.fn() }))
 vi.mock('../../bridge/api', () => ({
   api: { diagnosticsRun: vi.fn(), diagnosticsText: vi.fn(), firewallFix: vi.fn() },
+  isTauri: () => false,
 }))
 
 const run = vi.mocked(api.diagnosticsRun)
@@ -34,6 +36,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  resetOnlineEnabled()
   vi.useRealTimers()
   vi.unstubAllGlobals()
 })
@@ -123,5 +126,14 @@ describe('DiagScreen', () => {
     const al = await screen.findByRole('alert')
     expect(al.textContent).toContain('boom')
     expect(screen.getByText('Como ler isso')).toBeTruthy()
+  })
+
+  it('online_desligado_sem_servidor_online', async () => {
+    setOnlineEnabled(false)
+    const { container } = render(<DiagScreen />)
+    await screen.findByText('Radmin VPN · 26.100.5.20')
+    expect(screen.queryByText(/servidor online/i)).toBeNull()
+    expect(container.textContent ?? '').not.toMatch(/online/i)
+    expect(container.querySelectorAll('section[data-estado]').length).toBe(5)
   })
 })

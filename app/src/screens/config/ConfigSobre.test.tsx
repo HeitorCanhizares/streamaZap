@@ -45,21 +45,60 @@ describe('ConfigSobre', () => {
     expect(screen.getByAltText('Logo do streamaZap')).toBeTruthy()
   })
 
-  it('alternar o switch de atualização preserva o canal', () => {
+  const base = { check: true, download: true, install: 'auto' as const, channel: 'estavel' as const }
+  const sBase = () => ({ ...mockSettings(), update: base })
+
+  it('Procurar atualizações sozinho alterna check', () => {
     const onChange = vi.fn()
-    const s = { ...mockSettings(), update: { auto: true, channel: 'beta' as const } }
-    render(<ConfigSobre settings={s} onChange={onChange} />)
-    const sw = screen.getByRole('switch')
+    render(<ConfigSobre settings={sBase()} onChange={onChange} />)
+    const sw = screen.getByRole('switch', { name: 'Procurar atualizações sozinho' })
     expect(sw.getAttribute('aria-checked')).toBe('true')
     fireEvent.click(sw)
-    expect(onChange).toHaveBeenCalledWith({ update: { auto: false, channel: 'beta' } })
+    expect(onChange).toHaveBeenCalledWith({ update: { check: false, download: true, install: 'auto', channel: 'estavel' } })
+  })
+
+  it('Baixar sozinho alterna download', () => {
+    const onChange = vi.fn()
+    render(<ConfigSobre settings={sBase()} onChange={onChange} />)
+    fireEvent.click(screen.getByRole('switch', { name: 'Baixar sozinho' }))
+    expect(onChange).toHaveBeenCalledWith({ update: { check: true, download: false, install: 'auto', channel: 'estavel' } })
+  })
+
+  it('com check desligado, Baixar sozinho fica desabilitado', () => {
+    const onChange = vi.fn()
+    render(<ConfigSobre settings={{ ...mockSettings(), update: { ...base, check: false } }} onChange={onChange} />)
+    const sw = screen.getByRole('switch', { name: 'Baixar sozinho' }) as HTMLButtonElement
+    expect(sw.disabled).toBe(true)
+    fireEvent.click(sw)
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('seletor Instalar tem as 3 opções e troca o modo', () => {
+    const onChange = vi.fn()
+    render(<ConfigSobre settings={sBase()} onChange={onChange} />)
+    const sel = screen.getByRole('combobox', { name: 'Instalar' }) as HTMLSelectElement
+    expect(Array.from(sel.options).map((o) => o.text)).toEqual([
+      'Perguntar', 'Ao fechar o app', 'Sozinho, quando eu não estiver em sala',
+    ])
+    fireEvent.change(sel, { target: { value: 'on_exit' } })
+    expect(onChange).toHaveBeenCalledWith({ update: { check: true, download: true, install: 'on_exit', channel: 'estavel' } })
+  })
+
+  it('a dica do modo auto menciona 30 s', () => {
+    render(<ConfigSobre settings={sBase()} onChange={vi.fn()} />)
+    expect(screen.getByText(/30 s/)).toBeTruthy()
   })
 
   it('trocar o canal chama onChange com o update.channel novo', () => {
     const onChange = vi.fn()
-    render(<ConfigSobre settings={{ ...mockSettings(), update: { auto: true, channel: 'estavel' } }} onChange={onChange} />)
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'beta' } })
-    expect(onChange).toHaveBeenCalledWith({ update: { auto: true, channel: 'beta' } })
+    render(<ConfigSobre settings={sBase()} onChange={onChange} />)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Canal de atualização' }), { target: { value: 'beta' } })
+    expect(onChange).toHaveBeenCalledWith({ update: { check: true, download: true, install: 'auto', channel: 'beta' } })
+  })
+
+  it('não existe o texto antigo Atualizar sozinho ao abrir', () => {
+    render(<ConfigSobre settings={sBase()} onChange={vi.fn()} />)
+    expect(screen.queryByText(/Atualizar sozinho ao abrir/)).toBeNull()
   })
 
   it('Procurar atualização mostra a busca e depois a nova versão com botão Baixar', async () => {

@@ -169,6 +169,8 @@ export const mockSettings = (): Settings => ({
     smoothing_auto: true,
     smoothing_ms: 200,
     encoder: 'Automatico',
+    camera_preset: '720p30',
+    camera_layout: { modo: 'canto', canto: 'inf_dir' },
   },
   sound: {
     initial_volume: 0.8,
@@ -176,8 +178,9 @@ export const mockSettings = (): Settings => ({
     notify_room_open: true,
     mute_when_minimized: true,
   },
-  update: { auto: true, channel: 'estavel' },
-  server: { address: '', password: '', use_relay: true },
+  update: { check: true, download: true, install: 'auto', channel: 'estavel' },
+  // No navegador (mock) o Online fica ligado, para o design mostrar tudo.
+  server: { enabled: true, address: '', password: '', use_relay: true },
 })
 
 export const mockSources = (): Sources => ({
@@ -190,7 +193,7 @@ export const mockSources = (): Sources => ({
     { id: 'window:chrome', kind: 'window', name: 'Chrome — Filminho' },
     { id: 'window:vscode', kind: 'window', name: 'VS Code — live de Python' },
   ],
-  cameras: [{ id: 'camera:0', kind: 'camera', name: 'Webcam (Logitech C920)' }],
+  cameras: [{ id: 'camera:0', kind: 'camera', name: 'Webcam (Logitech C920)', max_height: 1080, max_fps: 60 }],
   apps: [
     { id: 'app:spotify', kind: 'app', name: 'Spotify', sound: 'playing' },
     { id: 'app:discord', kind: 'app', name: 'Discord', sound: 'ready' },

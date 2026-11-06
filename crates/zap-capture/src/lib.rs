@@ -48,7 +48,7 @@ pub use types::{CameraInfo, CapturedFrame, FrameSink, MonitorInfo, WindowInfo};
 #[cfg(windows)]
 pub use camera::capture_camera;
 #[cfg(windows)]
-pub use camera_enum::list_cameras;
+pub use camera_enum::{camera_modes, list_cameras};
 #[cfg(windows)]
 pub use dxgi::capture_monitor;
 #[cfg(windows)]
@@ -60,5 +60,6 @@ pub use windows_list::list_windows;
 
 #[cfg(not(windows))]
 pub use stub::{
-    capture_camera, capture_monitor, capture_window, list_cameras, list_monitors, list_windows, wgc_supported,
+    camera_modes, capture_camera, capture_monitor, capture_window, list_cameras, list_monitors, list_windows,
+    wgc_supported,
 };

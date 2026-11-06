@@ -258,7 +258,7 @@ mod tests {
         let pipeline = VideoPipeline::start(cfg, tx)?;
         Ok(Arc::new(VideoShared {
             track: 1,
-            pipeline,
+            pipeline: pipeline.into(),
             allocator: Mutex::new(Allocator::new(escada())),
             viewers: Mutex::new(Vec::new()),
             ladder: Mutex::new(escada()),

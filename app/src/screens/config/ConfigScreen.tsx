@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api } from '../../bridge/api'
+import { setOnlineEnabled } from '../../bridge/onlineStore'
 import { useSnapshot } from '../../bridge/store'
 import type { Settings, Sources } from '../../bridge/types'
 import { ConfigConexao } from './ConfigConexao'
@@ -32,7 +33,10 @@ export function ConfigScreen(): ReactNode {
     api
       .settingsGet()
       .then((s) => {
-        if (vivo) setSettings(s)
+        if (vivo) {
+          setSettings(s)
+          setOnlineEnabled(s.server?.enabled ?? false)
+        }
       })
       .catch((e: unknown) => {
         if (vivo) setErro(String(e))
@@ -66,6 +70,7 @@ export function ConfigScreen(): ReactNode {
       .then((s) => {
         setErro(null)
         setSettings(s)
+        setOnlineEnabled(s.server?.enabled ?? false)
         setSalvamentos((n) => n + 1)
       })
       .catch(async (e: unknown) => {

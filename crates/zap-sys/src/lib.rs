@@ -11,12 +11,14 @@ pub mod firewall;
 mod firewall_api;
 #[cfg(windows)]
 mod firewall_com;
+pub mod idle;
 pub mod net;
 pub mod platform;
 pub mod vpn;
 
 pub use firewall::{Acao, Coleta, Direcao, FirewallStatus, PerfilBruto, RegraBruta, RegraResumo, Resultado};
 pub use firewall_api::{corrigir, corrigir_elevado, status};
+pub use idle::idle_time;
 pub use net::Interface;
 
 /// Erro das operações de sistema.

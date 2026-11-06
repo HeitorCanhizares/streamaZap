@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import type { RoomMode, SceneKind } from '../../bridge/types'
 import { ScenePreview } from '../../components/ScenePreview'
 import { VideoFrame } from '../../components/VideoFrame'
-import { acessoTexto, modoTexto, seguroTexto, type Acesso } from './criarModel'
+import { acessoTexto, modoTexto, seguroTexto, TEXTO_SEM_TRANSMITIR, type Acesso } from './criarModel'
 import { conviteTexto, type BarraServidor } from '../../bridge/serverModel'
 
 export interface CriarResumoProps {
@@ -21,6 +21,8 @@ export interface CriarResumoProps {
   codigo?: string | null
   /** Status do servidor para a frase de apoio do modo online. */
   servidor?: BarraServidor | null
+  /** "Nada por enquanto" (B1): o resumo diz "Você entra na sala sem transmitir" e esconde som e vídeo. */
+  semTransmitir?: boolean
 }
 
 // Endereço da rede local ainda não vem do backend.
@@ -49,7 +51,7 @@ function Endereco({ valor, rotulo }: { valor: string; rotulo: string }): ReactNo
 }
 
 // Painel direito: prévia, ficha da sala e código/endereços (2-criar-sala.html 200-239).
-export function CriarResumo({ modo, nome, acesso, fonte, cena, mostrarPip, som, qualidade, radminIp, codigo = null, servidor = null }: CriarResumoProps): ReactNode {
+export function CriarResumo({ modo, nome, acesso, fonte, cena, mostrarPip, som, qualidade, radminIp, codigo = null, servidor = null, semTransmitir = false }: CriarResumoProps): ReactNode {
   const [copiado, setCopiado] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
@@ -85,23 +87,37 @@ export function CriarResumo({ modo, nome, acesso, fonte, cena, mostrarPip, som, 
         <h2 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>É isso que a galera vai ver</h2>
       </div>
 
-      <VideoFrame corners radius={14}>
-        <ScenePreview scene={cena} />
-        {mostrarPip && (
-          <span style={{ position: 'absolute', right: 16, bottom: 16, width: '30%', borderRadius: 10, overflow: 'hidden', border: '2px solid var(--bg)', boxShadow: '0 0 0 1px var(--verde)' }}>
-            <ScenePreview scene="camc" />
-          </span>
-        )}
-      </VideoFrame>
+      {semTransmitir ? (
+        // Sem transmissão: a prévia vira um bloco vazio do mesmo tamanho.
+        <VideoFrame corners={false} radius={14} style={{ background: '#0A100E', border: '1px solid var(--borda)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 13, color: 'var(--texto-2)' }}>Sem transmissão por enquanto</span>
+        </VideoFrame>
+      ) : (
+        <VideoFrame corners radius={14}>
+          <ScenePreview scene={cena} />
+          {mostrarPip && (
+            <span style={{ position: 'absolute', right: 16, bottom: 16, width: '30%', borderRadius: 10, overflow: 'hidden', border: '2px solid var(--bg)', boxShadow: '0 0 0 1px var(--verde)' }}>
+              <ScenePreview scene="camc" />
+            </span>
+          )}
+        </VideoFrame>
+      )}
 
       <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '10px 16px', fontSize: 13 }}>
         <Linha rotulo="Modo">{modoTexto(modo)}</Linha>
         <Linha rotulo="Sala" estilo={{ fontWeight: 600 }}>{nome.trim() === '' ? 'Sua sala' : nome}</Linha>
         <Linha rotulo="Acesso">{acessoTexto(acesso)}</Linha>
-        <Linha rotulo="Fonte">{fonte}</Linha>
-        <Linha rotulo="Som">{som}</Linha>
-        <Linha rotulo="Vídeo" estilo={{ fontFamily: MONO, fontSize: 12.5 }}>{qualidade}</Linha>
+        {!semTransmitir && (
+          <>
+            <Linha rotulo="Fonte">{fonte}</Linha>
+            <Linha rotulo="Som">{som}</Linha>
+            <Linha rotulo="Vídeo" estilo={{ fontFamily: MONO, fontSize: 12.5 }}>{qualidade}</Linha>
+          </>
+        )}
       </dl>
+      {semTransmitir && (
+        <span style={{ fontSize: 13, color: 'var(--texto)' }}>{TEXTO_SEM_TRANSMITIR}</span>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 14, borderRadius: 14, background: 'var(--bg)', border: '1px solid var(--borda)' }}>
         {online ? (

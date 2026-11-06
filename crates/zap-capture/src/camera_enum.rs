@@ -126,8 +126,6 @@ pub fn list_cameras() -> Result<Vec<CameraInfo>, CaptureError> {
 
 /// Modos nativos da câmera `id` (só tipos de vídeo com tamanho e fps legíveis).
 /// `CameraNotFound` se o id não existir; `CameraBusy` se não abrir por estar em uso.
-// Usada por camera.rs (capture-11); até lá fica sem chamador.
-#[allow(dead_code)]
 pub(crate) fn native_modes(id: &str) -> Result<Vec<CameraMode>, CaptureError> {
     // MTA preso: MFShutdown/COM de outra thread não derrubam a plataforma
     zap_gpu::pin_mta();
@@ -152,6 +150,12 @@ pub(crate) fn native_modes(id: &str) -> Result<Vec<CameraMode>, CaptureError> {
     // SAFETY: encerra a fonte ativada acima, uma única vez.
     let _ = unsafe { source.Shutdown() };
     modos
+}
+
+/// Modos nativos da câmera `id`, para quem está fora do crate (a escada de qualidade da câmera
+/// depende do modo real). Mesmos erros de `native_modes`; câmera sem modos legíveis dá lista vazia.
+pub fn camera_modes(id: &str) -> Result<Vec<CameraMode>, CaptureError> {
+    native_modes(id)
 }
 
 fn ler_modos(source: &IMFMediaSource) -> Result<Vec<CameraMode>, CaptureError> {
@@ -205,6 +209,19 @@ mod tests {
         if let Some(c) = cams.first() {
             let modos = native_modes(&c.id).expect("native_modes");
             assert!(modos.iter().all(|m| m.width > 0 && m.height > 0));
+        }
+    }
+
+    #[test]
+    fn camera_modes_publica_igual_nativa() {
+        let cams = list_cameras().expect("list_cameras");
+        // Sem câmera não há o que comparar: pula, como o teste acima.
+        let Some(c) = cams.first() else { return };
+        match (camera_modes(&c.id), native_modes(&c.id)) {
+            (Ok(publico), Ok(nativo)) => assert_eq!(publico, nativo),
+            // Câmera em uso por outro app: não dá para ler os modos agora.
+            (Err(CaptureError::CameraBusy), _) | (_, Err(CaptureError::CameraBusy)) => {}
+            (publico, nativo) => panic!("resultados inesperados: {publico:?} / {nativo:?}"),
         }
     }
 }

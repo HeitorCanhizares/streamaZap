@@ -332,6 +332,7 @@ mod tests {
         .unwrap();
         core.update_settings(|s| {
             s.server.address = url;
+            s.server.enabled = true;
             s.server.use_relay = false;
         });
         core.shared.online.start(&core.shared);

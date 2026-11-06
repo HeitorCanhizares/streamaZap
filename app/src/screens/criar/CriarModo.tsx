@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { RoomMode } from '../../bridge/types'
+import { useOnlineEnabled } from '../../bridge/onlineStore'
 import { MODOS, type ModoInfo } from './criarModel'
 
 export interface CriarModoProps { modo: RoomMode; onModo: (m: RoomMode) => void }
@@ -7,6 +8,9 @@ export interface CriarModoProps { modo: RoomMode; onModo: (m: RoomMode) => void 
 // Seção 01 "Onde a sala vai rodar" (2-criar-sala.html 68-85).
 
 const MONO = "'JetBrains Mono', monospace"
+
+// Com o Online desligado a dica do Local não cita o servidor (a seção some o Online por completo).
+const HINT_LOCAL_SEM_ONLINE = 'Direto entre os PCs, pelo Radmin VPN ou pela rede de casa.'
 
 function Icone({ info }: { info: ModoInfo }): ReactNode {
   // Ícone 44x44 com fundo translúcido da cor do modo (o tom fica igual ao do protótipo).
@@ -34,6 +38,9 @@ function Icone({ info }: { info: ModoInfo }): ReactNode {
 }
 
 export function CriarModo({ modo, onModo }: CriarModoProps): ReactNode {
+  const onlineLigado = useOnlineEnabled()
+  // Online desligado: só o cartão Local, em uma coluna.
+  const modos = onlineLigado ? MODOS : MODOS.filter((m) => m.value === 'local')
   return (
     <section
       style={{
@@ -48,9 +55,13 @@ export function CriarModo({ modo, onModo }: CriarModoProps): ReactNode {
       <div
         role="radiogroup"
         aria-label="Modo da sala"
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: onlineLigado ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)',
+          gap: 12,
+        }}
       >
-        {MODOS.map((info) => {
+        {modos.map((info) => {
           const ativo = modo === info.value
           const sombra = info.value === 'online' ? 'rgba(59,240,138,0.15)' : 'rgba(92,214,255,0.15)'
           return (
@@ -73,7 +84,9 @@ export function CriarModo({ modo, onModo }: CriarModoProps): ReactNode {
               <Icone info={info} />
               <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <span style={{ fontWeight: 700, fontSize: 15 }}>{info.label}</span>
-                <span style={{ fontSize: 12.5, color: 'var(--texto-2)', lineHeight: 1.4 }}>{info.hint}</span>
+                <span style={{ fontSize: 12.5, color: 'var(--texto-2)', lineHeight: 1.4 }}>
+                  {onlineLigado ? info.hint : HINT_LOCAL_SEM_ONLINE}
+                </span>
                 <span style={{ fontFamily: MONO, fontSize: 11, color: ativo ? info.cor : 'var(--texto-3)' }}>{info.tech}</span>
               </span>
             </button>

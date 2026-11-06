@@ -26,6 +26,15 @@ fn conf_updater_artifacts_e_nsis_usuario() {
 }
 
 #[test]
+fn conf_updater_instala_em_modo_passivo() {
+    let c = conf();
+    // Atualização passiva: mostra só o progresso, sem pedir interação do usuário.
+    assert_eq!(c["plugins"]["updater"]["windows"]["installMode"], "passive");
+    // Coexiste com a instalação por usuário do NSIS (são configurações diferentes).
+    assert_eq!(c["bundle"]["windows"]["nsis"]["installMode"], "currentUser");
+}
+
+#[test]
 fn conf_endpoint_estavel_igual_constante() {
     let c = conf();
     let endpoints = c["plugins"]["updater"]["endpoints"]

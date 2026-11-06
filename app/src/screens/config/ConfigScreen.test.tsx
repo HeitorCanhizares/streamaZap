@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { api } from '../../bridge/api'
 import { mockSettings, mockSnapshot } from '../../bridge/mock'
 import { useSnapshot } from '../../bridge/store'
+import { getOnlineEnabled, setOnlineEnabled } from '../../bridge/onlineStore'
 import { ConfigScreen } from './ConfigScreen'
 
 vi.mock('../../bridge/store', () => ({ useSnapshot: vi.fn() }))
@@ -67,5 +68,17 @@ describe('ConfigScreen', () => {
     })
     expect(screen.queryByText('Salvo')).toBeNull()
     expect(screen.getByText('Tudo salva sozinho')).toBeTruthy()
+  })
+
+  it('desligar o modo Online atualiza o onlineStore', async () => {
+    setOnlineEnabled(true)
+    // Sem sala Online, desligar não pede confirmação.
+    vi.mocked(useSnapshot).mockReturnValue({ ...mockSnapshot(), room: null })
+    vi.spyOn(api, 'settingsSet').mockImplementation(async (patch) => ({ ...mockSettings(), ...patch }))
+    render(<ConfigScreen />)
+    const sw = await screen.findByRole('switch', { name: 'Usar o modo Online' })
+    expect(getOnlineEnabled()).toBe(true)
+    fireEvent.click(sw)
+    await waitFor(() => expect(getOnlineEnabled()).toBe(false))
   })
 })

@@ -1,6 +1,6 @@
 // Pedido de transmissão montado pela tela: aba da fonte, som e "só o som".
 import { describe, expect, it } from 'vitest'
-import { abaDaFonte, erroDoPedido, listaDaAba, montarPedido, somDoPedido } from './criarModel'
+import { abaDaFonte, erroDoPedido, listaDaAba, montarPedido, semTransmitir, somDoPedido, textoBotaoCriar } from './criarModel'
 import type { Sources } from '../../bridge/types'
 
 const fontes: Sources = {
@@ -45,5 +45,29 @@ describe('criarModel: pedido de transmissão', () => {
     expect(erroDoPedido('telas', 'screen:1', 'apps', [])).toMatch(/Marque pelo menos um app/)
     expect(erroDoPedido('telas', null, 'none', [])).toMatch(/Escolha o que compartilhar/)
     expect(erroDoPedido('janelas', 'window:42', 'none', [])).toBeNull()
+  })
+
+  it('"nada" (B1): não monta pedido e não dá erro, mesmo com som apps sem marcados', () => {
+    expect(montarPedido('nada', null, 'none', [], '720p30', 'auto')).toBeNull()
+    expect(montarPedido('nada', 'screen:0', 'all', [], '720p30', 'auto')).toBeNull()
+    expect(erroDoPedido('nada', null, 'none', [])).toBeNull()
+    expect(erroDoPedido('nada', null, 'apps', [])).toBeNull()
+  })
+
+  it('erroDoPedido de telas sem fonte continua pedindo a escolha', () => {
+    expect(erroDoPedido('telas', null, 'none', [])).toBe('Escolha o que compartilhar.')
+  })
+
+  it('textoBotaoCriar e semTransmitir seguem a aba', () => {
+    expect(textoBotaoCriar('nada', false)).toBe('Criar sala')
+    expect(textoBotaoCriar('nada', true)).toBe('Criando…')
+    expect(textoBotaoCriar('telas', false)).toBe('Iniciar transmissão')
+    expect(textoBotaoCriar('audio', true)).toBe('Iniciando…')
+    expect(semTransmitir('nada')).toBe(true)
+    expect(semTransmitir('telas')).toBe(false)
+  })
+
+  it('listaDaAba de "nada" é vazia', () => {
+    expect(listaDaAba(fontes, 'nada')).toEqual([])
   })
 })

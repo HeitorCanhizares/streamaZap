@@ -1,10 +1,12 @@
 // Tarefa ui-28: navegação pelo trilho lateral e pelas telas (porte do esqueleto de docs/design).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { isTauri } from './bridge/api'
+import { carregarOnlineEnabled } from './bridge/onlineStore'
 import { useSnapshot } from './bridge/store'
 import { NavRail } from './components/NavRail'
 import { TitleBar } from './components/TitleBar'
 import { SalaMetrics } from './components/shell/SalaMetrics'
+import { UpdateAviso } from './components/shell/UpdateAviso'
 import { UpdateBanner } from './components/shell/UpdateBanner'
 import type { NavTarget } from './components/shell/types'
 import { SalasScreen } from './screens/salas/SalasScreen'
@@ -31,6 +33,11 @@ export function App(): ReactNode {
   const snap = useSnapshot()
   const [view, setView] = useState<View>('salas')
   const temSala = snap.room !== null
+
+  // Lê se o modo Online está ligado (a barra de título e as telas dependem disso).
+  useEffect(() => {
+    void carregarOnlineEnabled()
+  }, [])
 
   // Só reage à transição da sala (entrou ou saiu), não ao estado inicial:
   // se o app abre já com uma sala, a tela inicial continua sendo Salas.
@@ -87,6 +94,7 @@ export function App(): ReactNode {
         onClose={() => acaoJanela((w) => w.close())}
       />
       <UpdateBanner onOpenConfig={() => setView('config')} />
+      <UpdateAviso />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <NavRail active={view} onNavigate={onNavigate} inRoom={temSala} profileName={snap.me.name} />
         <main style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>{tela}</main>

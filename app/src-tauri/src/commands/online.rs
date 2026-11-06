@@ -6,6 +6,17 @@ use zap_core::ServerTestResult;
 
 use crate::convert;
 use crate::state::AppState;
+use crate::update_state::UpdateState;
+
+/// Marca a prévia do tile como aberta, para a instalação sozinha saber que há prévia na tela.
+fn registrar_previa(upd: &UpdateState, tile: u32) {
+    upd.previas.lock().insert(tile);
+}
+
+/// Tira a marca da prévia do tile. Tile que não existe não faz nada.
+fn remover_previa(upd: &UpdateState, tile: u32) {
+    upd.previas.lock().remove(&tile);
+}
 
 /// "Testar conexão": `core.server_test(address, password)`. Nunca falha: o resultado leva
 /// `ok`, `code` e `message` (tarefa tauri-online-01).
@@ -24,6 +35,7 @@ pub async fn server_test(
 #[tauri::command]
 pub async fn room_preview(
     state: State<'_, Arc<AppState>>,
+    upd: State<'_, UpdateState>,
     code: String,
     tile: u32,
     channel: Channel<InvokeResponseBody>,
@@ -31,7 +43,10 @@ pub async fn room_preview(
     // O canal precisa existir antes do primeiro quadro da prévia chegar.
     state.videos.register(tile, channel);
     match state.core.room_preview(code, tile).await {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            registrar_previa(&upd, tile);
+            Ok(())
+        }
         Err(e) => {
             state.videos.remove(tile);
             Err(convert::err_string(e))
@@ -41,15 +56,38 @@ pub async fn room_preview(
 
 /// `core.room_preview_stop(tile)` e `videos.remove(tile)` (tarefa tauri-online-01).
 #[tauri::command]
-pub async fn room_preview_stop(state: State<'_, Arc<AppState>>, tile: u32) -> Result<(), String> {
+pub async fn room_preview_stop(
+    state: State<'_, Arc<AppState>>,
+    upd: State<'_, UpdateState>,
+    tile: u32,
+) -> Result<(), String> {
     state.core.room_preview_stop(tile);
     state.videos.remove(tile);
+    remover_previa(&upd, tile);
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use zap_core::ServerTestResult;
+
+    use super::{registrar_previa, remover_previa};
+    use crate::update_state::UpdateState;
+
+    #[test]
+    fn registrar_e_remover_previa() {
+        let upd = UpdateState::default();
+        registrar_previa(&upd, 1_000_001);
+        assert_eq!(upd.previas.lock().len(), 1);
+        registrar_previa(&upd, 1_000_001);
+        assert_eq!(upd.previas.lock().len(), 1);
+        registrar_previa(&upd, 1_000_002);
+        assert_eq!(upd.previas.lock().len(), 2);
+        remover_previa(&upd, 1_000_001);
+        assert_eq!(upd.previas.lock().len(), 1);
+        remover_previa(&upd, 9_999_999);
+        assert_eq!(upd.previas.lock().len(), 1);
+    }
 
     #[test]
     fn server_test_result_serializa_chaves_snake_case() {

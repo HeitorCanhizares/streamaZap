@@ -1,6 +1,7 @@
 // Tarefa criar-06
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import type { SourceItem } from '../../bridge/types'
 import { CriarQualidade, type CriarQualidadeProps } from './CriarQualidade'
 
 afterEach(() => cleanup())
@@ -80,5 +81,52 @@ describe('CriarQualidade', () => {
   it('mostra o texto explicativo do switch', () => {
     render(<CriarQualidade {...props()} />)
     expect(screen.getByText(/— baixa sozinha se alguém estiver com a conexão lenta\./)).toBeTruthy()
+  })
+
+  describe('com câmera', () => {
+    it('sem props de câmera só existe o grupo "Qualidade"', () => {
+      render(<CriarQualidade {...props()} />)
+      expect(screen.getAllByRole('radiogroup').length).toBe(1)
+      expect(screen.getByRole('radiogroup', { name: 'Qualidade' })).toBeTruthy()
+      expect(screen.getAllByRole('radio').length).toBe(4)
+    })
+
+    it('com cameraPreset e onCameraPreset mostra os dois grupos', () => {
+      render(<CriarQualidade {...props({ cameraPreset: '720p30', onCameraPreset: vi.fn() })} />)
+      expect(screen.getByRole('radiogroup', { name: 'Qualidade da tela' })).toBeTruthy()
+      expect(screen.getByRole('radiogroup', { name: 'Qualidade da câmera' })).toBeTruthy()
+      expect(screen.getAllByRole('radio').length).toBe(8)
+      expect(screen.getByText('Tela')).toBeTruthy()
+      expect(screen.getByText('Câmera')).toBeTruthy()
+    })
+
+    it('cada grupo chama o seu callback', () => {
+      const onPreset = vi.fn()
+      const onCameraPreset = vi.fn()
+      render(<CriarQualidade {...props({ onPreset, cameraPreset: '720p30', onCameraPreset })} />)
+      const cam = within(screen.getByRole('radiogroup', { name: 'Qualidade da câmera' })).getAllByRole('radio')
+      fireEvent.click(cam[2])
+      expect(onCameraPreset).toHaveBeenLastCalledWith('1080p30')
+      expect(onPreset).not.toHaveBeenCalled()
+      const tela = within(screen.getByRole('radiogroup', { name: 'Qualidade da tela' })).getAllByRole('radio')
+      fireEvent.click(tela[1])
+      expect(onPreset).toHaveBeenLastCalledWith('720p60')
+      expect(onCameraPreset).toHaveBeenCalledTimes(1)
+    })
+
+    it('câmera que só faz 720p30 ajusta o preset uma vez', () => {
+      const onCameraPreset = vi.fn()
+      const cameraInfo = { id: 'c', label: 'Cam', max_height: 720, max_fps: 30 } as unknown as SourceItem
+      render(<CriarQualidade {...props({ cameraPreset: '1080p60', onCameraPreset, cameraInfo })} />)
+      expect(onCameraPreset).toHaveBeenCalledTimes(1)
+      expect(onCameraPreset).toHaveBeenCalledWith('720p30')
+    })
+
+    it('câmera que faz 1080p60 não muda o preset sozinha', () => {
+      const onCameraPreset = vi.fn()
+      const cameraInfo = { id: 'c', label: 'Cam', max_height: 1080, max_fps: 60 } as unknown as SourceItem
+      render(<CriarQualidade {...props({ cameraPreset: '1080p60', onCameraPreset, cameraInfo })} />)
+      expect(onCameraPreset).not.toHaveBeenCalled()
+    })
   })
 })

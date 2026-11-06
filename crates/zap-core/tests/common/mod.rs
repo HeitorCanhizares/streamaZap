@@ -69,6 +69,7 @@ async fn criar(nome: &str, srv: &Handle, use_relay: bool, bridge: Option<SocketA
     core.update_settings(|s| {
         s.name = nome;
         s.server.address = url;
+        s.server.enabled = true;
         s.server.use_relay = use_relay;
     });
     let ok = espera(Duration::from_secs(5), || {
