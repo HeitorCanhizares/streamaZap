@@ -220,9 +220,16 @@ Regras:
   pula o item atual na hora.
 - Quem sai da sala perde o voto, e o limite é recalculado na hora (pode pular).
 - Erros de pedido: `erro` com `codigo: "musica_invalida"` só para quem pediu.
-- **Modo Local**: a fonte é quem criou a sala. **Modo Online**: o servidor ainda não implementa;
-  quando implementar, ele é a fonte com as mesmas regras (o app esconde a música nas salas Online
-  até lá). Apps antigos ignoram `musica.*`.
+- **Quem é a fonte**: no modo Local, quem criou a sala; no Online, o servidor. A regra é uma só,
+  `zap_proto::music::MusicQueue` (pura; o tempo e o id do item vêm de quem chama), usada pelo
+  dono no app e pelo servidor. Referência do lado do servidor: `crates/zap-test-server/src/music.rs`.
+- **Online**: os pedidos vão pelo WebSocket, de quem está na sala (`sala.entrar` feito; senão
+  `erro` `proibido`). O servidor manda `musica.estado` a todos depois do histórico do chat no
+  `sala.entrar`, a cada mudança, quando alguém sai (o voto sai junto) e a cada 10 s com música
+  tocando; o laço de 1 s avança a fila no fim do vídeo. O limite de votos conta os membros da sala.
+  Servidor sem música: o app não recebe `musica.estado` e a aba avisa que o servidor precisa ser
+  atualizado.
+- Apps antigos ignoram `musica.*`.
 
 ## Estatísticas para a interface
 

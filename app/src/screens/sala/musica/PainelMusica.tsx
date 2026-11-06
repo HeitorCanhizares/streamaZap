@@ -55,7 +55,7 @@ export function PainelMusica({ room, meId }: PainelMusicaProps): ReactNode {
     return (
       <div style={{ flex: 1, padding: 20, ...TEXTO_2, fontSize: 13, lineHeight: 1.5 }}>
         {room.mode === 'online'
-          ? 'A música da sala ainda não funciona nas salas Online. Por enquanto, use uma sala Local.'
+          ? 'O servidor desta sala ainda não tem a música da sala: ele precisa ser atualizado. Até lá, use uma sala Local.'
           : 'Quem criou a sala precisa atualizar o streamaZap para a música funcionar.'}
       </div>
     )

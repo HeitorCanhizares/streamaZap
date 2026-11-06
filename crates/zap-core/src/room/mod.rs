@@ -60,11 +60,6 @@ pub struct RoomCtx {
     pub events: UnboundedSender<RoomEvent>,
 }
 
-/// A música da sala ainda não passa pelo servidor do modo Online.
-pub(crate) fn music_unsupported() -> CoreError {
-    CoreError::Unsupported("a música da sala ainda não funciona no modo Online".into())
-}
-
 pub enum ActiveRoom {
     Owner(Arc<OwnerRoom>),
     Member(Arc<MemberRoom>),
@@ -95,12 +90,12 @@ impl ActiveRoom {
             ActiveRoom::Online(o) => o.media_secret.clone(),
         }
     }
-    /// Pedido de música da sala (`musica.*`). No Online o servidor ainda não repassa música.
+    /// Pedido de música da sala (`musica.*`): ao dono (Local) ou ao servidor (Online).
     pub async fn music(&self, msg: ControlMsg) -> Result<(), CoreError> {
         match self {
             ActiveRoom::Owner(o) => o.music(msg).await,
             ActiveRoom::Member(m) => m.music(msg).await,
-            ActiveRoom::Online(_) => Err(music_unsupported()),
+            ActiveRoom::Online(o) => o.music(msg).await,
         }
     }
     pub async fn send_chat(&self, text: String) -> Result<(), CoreError> {

@@ -118,6 +118,7 @@ impl Hub {
                 .position(|m| m == who)
                 .ok_or_else(sala_nao_encontrada)?;
             sala.members.remove(posicao);
+            let musica = crate::music::saiu(sala, who);
             tickets.retain(|_, t| !(t.participant_id == who && t.room_id == sala_id));
             if sala.members.is_empty() {
                 sala.empty_since_ms = Some(now_unix_ms());
@@ -129,8 +130,9 @@ impl Hub {
                     p.quic_room = None;
                 }
             }
-            sala_id
+            (sala_id, musica)
         };
+        let (sala_id, musica) = sala_id;
 
         self.drop_participant_tracks(who, &sala_id);
 
@@ -143,6 +145,9 @@ impl Hub {
             },
             None,
         );
+        if let Some(m) = musica {
+            inner.broadcast_room(&sala_id, m, None);
+        }
         inner.broadcast_room_list();
         Ok(())
     }

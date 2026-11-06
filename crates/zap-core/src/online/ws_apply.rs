@@ -2,6 +2,7 @@
 
 use zap_proto::ControlMsg;
 
+use crate::music::MusicMirror;
 use crate::room::{chat_line_from_msg, RoomEvent, RoomModel};
 
 /// Aplica `msg` ao modelo e devolve os eventos para o `Core`:
@@ -17,6 +18,7 @@ use crate::room::{chat_line_from_msg, RoomEvent, RoomModel};
 /// - `RoomClosed{reason}` → `RoomEvent::Closed(reason)` (o motivo vai como está:
 ///   `dono`/`vazia`/`servidor`);
 /// - `Error{message}` → `RoomEvent::Error(message)`;
+/// - `MusicState` → espelho da música (`MusicMirror`) + `Changed`;
 /// - qualquer outra (ping, camadas.pedidas, midia.rota, ...) → vazio (tratadas em `room_events`).
 pub fn apply_ws_msg(model: &mut RoomModel, msg: ControlMsg) -> Vec<RoomEvent> {
     // Chat tem regra própria (dedupe por id), então sai antes do `match`.
@@ -64,6 +66,11 @@ pub fn apply_ws_msg(model: &mut RoomModel, msg: ControlMsg) -> Vec<RoomEvent> {
         }
         ControlMsg::RoomClosed { reason } => vec![RoomEvent::Closed(reason)],
         ControlMsg::Error { message, .. } => vec![RoomEvent::Error(message)],
+        // No Online o servidor é a fonte da música: guarda o estado como o membro no Local.
+        msg @ ControlMsg::MusicState { .. } => {
+            model.music_mirror = Some(MusicMirror::from_msg(&msg, std::time::Instant::now()));
+            vec![RoomEvent::Changed]
+        }
         _ => Vec::new(),
     }
 }

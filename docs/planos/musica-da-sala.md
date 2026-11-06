@@ -22,10 +22,10 @@ continua junto.
 
 ## Escopo desta entrega
 
-- Modo **Local** (o dono da sala é a autoridade da fila). No modo **Online** quem repassa as
-  mensagens da sala é o servidor, que é outro repositório: as mensagens ficam documentadas em
-  `docs/api/mensagens.md` para o servidor implementar depois. Até lá, a interface esconde a música
-  nas salas Online.
+- Modo **Local** (o dono da sala é a autoridade da fila). No modo **Online** o servidor é a fonte,
+  com a mesma regra: `MusicQueue` mora no `zap-proto` (que o servidor usa). O `zap-test-server`
+  já implementa; o servidor de produção (outro repositório) segue o mesmo modelo. Servidor sem
+  música: a aba avisa que ele precisa ser atualizado.
 - Fila de vídeos únicos (link de vídeo, live, shorts, `music.youtube.com`). Importar playlist fica
   para depois.
 - Sem pausa da sala: cada um tem volume e mudo próprios no player.

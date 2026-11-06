@@ -103,6 +103,7 @@ impl Hub {
                 .is_ok()
         {
             self.sweep(SALA_VAZIA_MS);
+            self.tick_music();
         }
     }
 }

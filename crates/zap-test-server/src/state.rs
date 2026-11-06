@@ -146,6 +146,8 @@ pub struct RoomData {
     pub members: Vec<String>,
     pub tracks: Vec<TrackData>,
     pub chat: VecDeque<ChatEntry>,
+    /// Fila de música: no Online o servidor é a fonte (`crate::music`).
+    pub music: zap_proto::music::MusicQueue,
     pub next_track_number: u16,
     /// Quando ficou vazia (a sala some 2 min depois; no teste, `Hub::sweep`).
     pub empty_since_ms: Option<u64>,
@@ -169,6 +171,8 @@ pub struct Hub {
     pub bridge_addr: OnceLock<String>,
     /// Relógio monotônico para o alocador (`now_us`).
     pub clock: zap_net::Clock,
+    /// Tiques de 1 s da música deste `Hub` (o reenvio do estado é a cada 10).
+    pub music_ticks: std::sync::atomic::AtomicU64,
 }
 
 impl Hub {
@@ -178,6 +182,7 @@ impl Hub {
             inner: Mutex::new(Inner::default()),
             bridge_addr: OnceLock::new(),
             clock: zap_net::Clock::new(),
+            music_ticks: std::sync::atomic::AtomicU64::new(0),
         }
     }
 

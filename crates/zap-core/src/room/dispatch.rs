@@ -148,7 +148,17 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
             channel,
         } => {
             let agora = Instant::now();
-            match model.music.add(&autor, &video_id, title, channel, agora) {
+            let novo = zap_proto::MusicItem {
+                id: new_id("mu_"),
+                video_id,
+                title: title.unwrap_or_default(),
+                channel,
+                duration_ms: None,
+                live: false,
+                added_by: from.into(),
+                added_by_name: autor.name.clone(),
+            };
+            match model.music.add(novo, agora) {
                 Ok(()) => vec![estado_musica(model, agora)],
                 Err(e) => vec![erro(from, "musica_invalida", &e.message())],
             }

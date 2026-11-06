@@ -182,8 +182,18 @@ Música da sala (depois da v3.1.3; plano em `docs/planos/musica-da-sala.md`):
 - Interface: aba **Música** no painel e a música como transmissão (principal, faixa ou fechada),
   com os controles fora da área do player (termos do YouTube). CSP com `frame-src` do YouTube e
   `img-src` do `i.ytimg.com`.
-- **Só no modo Local.** No Online o servidor precisa implementar as mensagens `musica.*` (mesmas
-  regras, ele como fonte); até lá a aba explica e a música não aparece.
+- **Online (depois da v3.2.0):** a fila foi para `zap_proto::music::MusicQueue` (o servidor usa o
+  `zap-proto`), e no Online o servidor é a fonte. O app manda `musica.*` pelo WebSocket e guarda o
+  `musica.estado` que volta (`online/ws_apply.rs`). O `zap-test-server` já faz o papel do
+  servidor (`src/music.rs`), com o teste de duas pessoas `musica_numa_sala_online_passa_pelo_servidor`.
+- **O servidor de produção ainda não tem a música** (repositório `stremaZapi`). Para ter:
+  1. subir o `rev` de `zap-proto`/`zap-rate`/`zap-net` para o commit do app com `zap_proto::music`;
+  2. `MusicQueue` por sala; tratar `musica.adicionar/remover/pular/info` do WebSocket (id do item
+     do servidor, quem pôs = participante; `musica_invalida` para o erro);
+  3. `musica.estado` para todos no `sala.entrar` (depois do chat), a cada mudança, na saída de um
+     membro (`left`) e a cada 10 s com música; `tick` a cada 1 s (o contador de tiques é do
+     servidor ou da sala, nunca um `static` do processo);
+  4. publicar (o push reinicia o servidor e zera as salas). Modelo: `zap-test-server/src/music.rs`.
 - Falta testar com dois PCs de verdade (sincronia, anúncio, live) e no app instalado (o embed com
   a origem `http://tauri.localhost`). Na prévia do navegador o player tocou e respondeu aos
   comandos.

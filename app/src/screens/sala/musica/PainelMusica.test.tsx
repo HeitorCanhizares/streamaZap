@@ -19,7 +19,7 @@ function sala(over: Partial<RoomView> = {}): RoomView {
 describe('PainelMusica', () => {
   it('sem música: explica por quê (Online ou dono com app antigo)', () => {
     const { rerender } = render(<PainelMusica room={sala({ music: null, mode: 'online' })} meId="p-rafa" />)
-    expect(screen.getByText(/ainda não funciona nas salas Online/)).toBeTruthy()
+    expect(screen.getByText(/servidor desta sala ainda não tem a música/)).toBeTruthy()
     rerender(<PainelMusica room={sala({ music: null, mode: 'local' })} meId="p-rafa" />)
     expect(screen.getByText(/precisa atualizar o streamaZap/)).toBeTruthy()
   })

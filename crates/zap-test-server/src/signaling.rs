@@ -88,6 +88,7 @@ impl Hub {
     ///   `ref = cliente_id`); guarda (limite 200) e manda `chat.mensagem` a todos da sala via WS,
     ///   com `cliente_id` só no remetente; atualiza `ultima_mensagem` e dispara `salas.lista`;
     /// - `chat.digitando`: repassa `chat.digitando {participante_id}` aos outros;
+    /// - `musica.*`: fila de música da sala (`crate::music::tratar`): mudou → `musica.estado` a todos;
     /// - `estatisticas`: ignorada (a latência do participante vem do `pong` do QUIC no servidor de
     ///   produção; o de teste não a acompanha);
     /// - `p2p.*`, `conexao.reversa`, `midia.direta_*`: ignoradas (rota direta fora do escopo);
@@ -108,6 +109,10 @@ impl Hub {
             }
             ControlMsg::ProfileUpdate { name, color } => atualizar_perfil(&mut inner, who, name, color),
             ControlMsg::ChatSend { text, client_id } => enviar_chat(&mut inner, who, &text, client_id),
+            msg @ (ControlMsg::MusicAdd { .. }
+            | ControlMsg::MusicRemove { .. }
+            | ControlMsg::MusicSkip { .. }
+            | ControlMsg::MusicInfo { .. }) => crate::music::tratar(&mut inner, who, msg),
             ControlMsg::ChatTyping { .. } => {
                 if let Some(sala) = inner.participants.get(who).and_then(|p| p.ws_room.clone()) {
                     inner.broadcast_room(
@@ -153,10 +158,14 @@ fn entrar_pelo_ws(inner: &mut Inner, who: &str, room_id: &str) {
     };
     let estado = inner.room_state_msg(sala);
     let historico: Vec<ControlMsg> = sala.chat.iter().map(|e| chat_msg(e, None)).collect();
+    let musica = crate::music::estado(sala, std::time::Instant::now());
     inner.send_to(who, estado);
     for m in historico {
         inner.send_to(who, m);
     }
+    // A música vai a todos: quem entra fica sabendo que a sala tem música, os outros veem o
+    // limite de votos mudar.
+    inner.broadcast_room(room_id, musica, None);
 }
 
 /// `perfil.atualizar`: nome com 1 a 32 caracteres; avisa a sala com `participante.atualizou`.
@@ -521,5 +530,74 @@ mod tests {
         let inner = hub.inner.lock();
         assert!(inner.participants[&ana].ws.is_none());
         assert!(inner.participants[&ana].ws_room.is_none());
+    }
+
+    fn estado_musica(msgs: &[ControlMsg]) -> Option<(Vec<zap_proto::MusicItem>, Option<zap_proto::MusicNow>)> {
+        msgs.iter().rev().find_map(|m| match m {
+            ControlMsg::MusicState { queue, current } => Some((queue.clone(), current.clone())),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn musica_entrar_ja_traz_o_estado() {
+        let (hub, sala, _ana, bia, _ra, mut rb) = sala_com_dois();
+        hub.handle_ws_message(&bia, ControlMsg::RoomJoin { room_id: sala });
+        let (fila, atual) = estado_musica(&drenar(&mut rb)).expect("musica.estado ao entrar");
+        assert!(fila.is_empty() && atual.is_none());
+    }
+
+    #[test]
+    fn musica_adicionar_votar_e_permissao() {
+        let (hub, _sala, ana, bia, mut ra, mut rb) = sala_com_dois();
+        hub.handle_ws_message(
+            &bia,
+            ControlMsg::MusicAdd {
+                video_id: "aaaaaaaaaaa".into(),
+                title: Some("Primeira".into()),
+                channel: None,
+            },
+        );
+        // Os dois recebem o mesmo estado: Bia pôs, 2 pessoas, 1 voto pula.
+        let (_, atual_a) = estado_musica(&drenar(&mut ra)).expect("Ana recebeu");
+        let (_, atual_b) = estado_musica(&drenar(&mut rb)).expect("Bia recebeu");
+        let atual = atual_a.expect("tocando");
+        assert_eq!(Some(&atual), atual_b.as_ref());
+        assert_eq!(atual.item.added_by, bia);
+        assert_eq!(atual.item.added_by_name, "Bia");
+        assert_eq!(atual.needed, 1);
+
+        // Link ruim: erro só para quem pediu.
+        hub.handle_ws_message(
+            &ana,
+            ControlMsg::MusicAdd {
+                video_id: "curto".into(),
+                title: None,
+                channel: None,
+            },
+        );
+        assert_eq!(codigos(&drenar(&mut ra)), vec!["musica_invalida".to_string()]);
+        assert!(drenar(&mut rb).is_empty());
+
+        // O voto de Ana (2 pessoas) pula: a fila acaba.
+        hub.handle_ws_message(
+            &ana,
+            ControlMsg::MusicSkip {
+                item_id: atual.item.id.clone(),
+                vote: true,
+            },
+        );
+        let (fila, atual) = estado_musica(&drenar(&mut rb)).expect("estado depois do voto");
+        assert!(fila.is_empty() && atual.is_none());
+    }
+
+    #[test]
+    fn musica_fora_da_sala_e_proibido() {
+        let hub = Hub::new(Config::default());
+        let caio = entrar(&hub, "Caio");
+        let (_tc, mut rc) = conectar(&hub, &caio);
+        drenar(&mut rc);
+        hub.handle_ws_message(&caio, ControlMsg::MusicRemove { item_id: "mu_1".into() });
+        assert_eq!(codigos(&drenar(&mut rc)), vec!["proibido".to_string()]);
     }
 }

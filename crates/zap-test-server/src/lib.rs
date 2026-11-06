@@ -28,6 +28,7 @@
 
 pub mod bridge;
 pub mod media;
+pub mod music;
 pub mod notify;
 pub mod probe;
 pub mod relay;

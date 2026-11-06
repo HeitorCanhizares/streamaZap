@@ -111,6 +111,7 @@ mod tests {
             members: vec!["dona".into()],
             tracks,
             chat: VecDeque::new(),
+            music: Default::default(),
             next_track_number: 2,
             empty_since_ms: None,
         }

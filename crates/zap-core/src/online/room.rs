@@ -208,6 +208,16 @@ impl OnlineRoom {
         ))
     }
 
+    /// Pedido de música da sala (`musica.*`) para o servidor, que é a fonte da fila no Online. O
+    /// estado volta como `musica.estado` (ou `erro`).
+    pub async fn music(&self, msg: ControlMsg) -> Result<(), CoreError> {
+        let ws = self
+            .session
+            .ws()
+            .ok_or_else(|| CoreError::Connect("websocket indisponível".into()))?;
+        ws.send(msg).await.map_err(|e| CoreError::Connect(e.to_string()))
+    }
+
     /// Manda uma mensagem de chat (1 a 1000 caracteres). O eco volta pelo servidor.
     pub async fn send_chat(&self, text: String) -> Result<(), CoreError> {
         let n = text.chars().count();

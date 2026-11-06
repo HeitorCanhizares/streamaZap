@@ -63,6 +63,7 @@ impl Hub {
             members: vec![owner.to_string()],
             tracks: Vec::new(),
             chat: VecDeque::new(),
+            music: crate::music::nova(),
             next_track_number: 1,
             empty_since_ms: None,
         };

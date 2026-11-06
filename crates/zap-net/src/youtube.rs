@@ -26,10 +26,8 @@ pub enum OembedError {
     Network(String),
 }
 
-/// Id de vídeo do YouTube: 11 caracteres de `[A-Za-z0-9_-]`.
-pub fn is_video_id(id: &str) -> bool {
-    id.len() == 11 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
+/// Id de vídeo do YouTube (a regra é do `zap-proto`, que o servidor também usa).
+pub use zap_proto::music::is_video_id;
 
 /// Consulta o oEmbed do vídeo.
 pub async fn oembed(video_id: &str) -> Result<VideoInfo, OembedError> {
@@ -80,16 +78,6 @@ fn interpret(status: u16, corpo: &str) -> Result<VideoInfo, OembedError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn id_de_video() {
-        assert!(is_video_id("dQw4w9WgXcQ"));
-        assert!(is_video_id("a-b_c1234XY"));
-        assert!(!is_video_id("dQw4w9WgXc"), "10 caracteres");
-        assert!(!is_video_id("dQw4w9WgXcQQ"), "12 caracteres");
-        assert!(!is_video_id("dQw4w9WgX&Q"), "caractere de URL");
-        assert!(!is_video_id(""));
-    }
 
     #[test]
     fn resposta_ok() {
