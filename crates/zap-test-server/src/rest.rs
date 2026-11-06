@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::json;
-use zap_net::online::{LoginRequest, QuicInfo, ServerInfo, ServerLimits, SessionResponse};
+use zap_net::online::{LoginRequest, QuicInfo, RenewRequest, ServerInfo, ServerLimits, SessionResponse};
 
 use crate::{
     state::{Hub, HubError},
@@ -96,7 +96,8 @@ fn porta_de(endereco: Option<&String>) -> u16 {
 
 /// `GET /v1/info`: `protocolo_min = protocolo_max = 4`, `requer_senha` pela config, `ponte` pela
 /// config, `quic.porta` = porta de `Hub::bridge_addr` (0 se ainda não definido), `alpn: "zap/4"`,
-/// limites (`participantes_por_sala` da config, 8 trilhas, 12000 kbps), `agora` ISO.
+/// limites (`participantes_por_sala` da config, 8 trilhas, 12000 kbps), `agora` ISO, e
+/// `requer_conta`/`conta` vindos da config (padrão: false/ausente).
 pub async fn info(State(hub): State<Arc<Hub>>) -> Json<ServerInfo> {
     let config = &hub.config;
     Json(ServerInfo {
@@ -106,8 +107,8 @@ pub async fn info(State(hub): State<Arc<Hub>>) -> Json<ServerInfo> {
         protocol_max: PROTOCOLO,
         region: Some("local".to_string()),
         requires_password: config.server_password.is_some(),
-        requires_account: false,
-        account: None,
+        requires_account: config.requires_account,
+        account: config.account.clone(),
         relay: config.relay,
         quic: QuicInfo {
             port: porta_de(hub.bridge_addr.get()),
@@ -133,10 +134,21 @@ pub async fn login(
     Ok((StatusCode::CREATED, Json(sessao)))
 }
 
-/// `POST /v1/sessoes/renovar` (autenticado): `200` com token novo.
-pub async fn renew(State(hub): State<Arc<Hub>>, parts: HeaderToken) -> Result<Json<SessionResponse>, HubError> {
-    let HeaderToken(token) = parts;
-    hub.renew(&token).map(Json)
+/// `POST /v1/sessoes/renovar` (autenticado): `200` com token novo. O corpo é opcional: vazio (ou só
+/// espaços) mantém a conta; JSON `{"acesso_conta": ...}` atualiza o plano (`hub.renew` trata o 403
+/// de outra conta e ignora token inválido). JSON inválido = `400 invalido`. Não exige Content-Type.
+/// O cabeçalho é extraído antes do corpo, então token ausente dá 401 mesmo com corpo ruim.
+pub async fn renew(
+    State(hub): State<Arc<Hub>>,
+    HeaderToken(token): HeaderToken,
+    corpo: axum::body::Bytes,
+) -> Result<Json<SessionResponse>, HubError> {
+    let req = if corpo.iter().all(u8::is_ascii_whitespace) {
+        RenewRequest::default()
+    } else {
+        serde_json::from_slice::<RenewRequest>(&corpo).map_err(|e| HubError::new(400, "invalido", e.to_string()))?
+    };
+    hub.renew(&token, req.account_token.as_deref()).map(Json)
 }
 
 /// Token bruto do cabeçalho `Authorization: Bearer` (a renovação precisa do token, não do id).
@@ -192,6 +204,8 @@ mod tests {
     async fn info_handler() {
         let hub = Arc::new(Hub::new(Config::default()));
         let Json(i) = info(State(hub.clone())).await;
+        assert!(!i.requires_account);
+        assert_eq!(i.account, None);
         assert_eq!((i.protocol_min, i.protocol_max), (4, 4));
         assert!(i.relay);
         assert_eq!(i.quic.alpn, "zap/4");
@@ -202,6 +216,76 @@ mod tests {
         hub.bridge_addr.set("127.0.0.1:47999".into()).unwrap();
         let Json(i) = info(State(hub)).await;
         assert_eq!(i.quic.port, 47999);
+    }
+
+    fn pedido_conta(install_id: &str, token: &str) -> LoginRequest {
+        LoginRequest {
+            name: "Ana".into(),
+            color: "#3366ff".into(),
+            install_id: install_id.into(),
+            protocol: 4,
+            app_version: "3.0.0".into(),
+            server_password: None,
+            account_token: Some(token.into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn info_com_conta() {
+        let provedor = zap_net::online::AccountProvider {
+            provider: "supabase".into(),
+            url: "https://x.supabase.co".into(),
+            key: "sb_publishable_x".into(),
+        };
+        let hub = Arc::new(Hub::new(Config {
+            requires_account: true,
+            account: Some(provedor.clone()),
+            ..Config::default()
+        }));
+        let Json(i) = info(State(hub)).await;
+        assert!(i.requires_account);
+        assert_eq!(i.account, Some(provedor));
+    }
+
+    #[tokio::test]
+    async fn renew_corpo_vazio_mantem() {
+        let hub = Arc::new(Hub::new(Config::default()));
+        let s = hub.login(pedido_conta("i1", "teste:u1:hd"), "ip").unwrap();
+        let Json(r) = renew(State(hub), HeaderToken(s.token), axum::body::Bytes::new())
+            .await
+            .unwrap();
+        assert_eq!(r.account_id.as_deref(), Some("u1"));
+        assert_eq!(r.plan, Some(zap_proto::plan::PlanInfo::of(zap_proto::plan::PlanId::Hd)));
+    }
+
+    #[tokio::test]
+    async fn renew_corpo_json_atualiza_plano() {
+        let hub = Arc::new(Hub::new(Config::default()));
+        let s = hub.login(pedido_conta("i1", "teste:u1:hd"), "ip").unwrap();
+        let corpo = axum::body::Bytes::from_static(br#"{"acesso_conta":"teste:u1:fullhd"}"#);
+        let Json(r) = renew(State(hub), HeaderToken(s.token), corpo).await.unwrap();
+        assert_eq!(
+            r.plan,
+            Some(zap_proto::plan::PlanInfo::of(zap_proto::plan::PlanId::FullHd))
+        );
+    }
+
+    #[tokio::test]
+    async fn renew_corpo_invalido_400() {
+        let hub = Arc::new(Hub::new(Config::default()));
+        let s = hub.login(pedido_conta("i1", "teste:u1:hd"), "ip").unwrap();
+        let corpo = axum::body::Bytes::from_static(b"nao-e-json");
+        let e = renew(State(hub), HeaderToken(s.token), corpo).await.unwrap_err();
+        assert_eq!((e.status, e.code), (400, "invalido"));
+    }
+
+    #[tokio::test]
+    async fn renew_outra_conta_403() {
+        let hub = Arc::new(Hub::new(Config::default()));
+        let s = hub.login(pedido_conta("i1", "teste:u1:hd"), "ip").unwrap();
+        let corpo = axum::body::Bytes::from_static(br#"{"acesso_conta":"teste:u2:hd"}"#);
+        let e = renew(State(hub), HeaderToken(s.token), corpo).await.unwrap_err();
+        assert_eq!((e.status, e.code), (403, "proibido"));
     }
 
     #[test]

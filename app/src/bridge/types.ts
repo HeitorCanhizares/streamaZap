@@ -54,6 +54,22 @@ export interface Snapshot {
   newer_protocol?: number
   /** Estado do servidor Online (barra); ausente = não configurado. */
   server?: ServerStatus
+  /** Conta e plano da sessão Online (o que o servidor pede: conta, senha). Ausente = sem servidor. */
+  account?: AccountView
+}
+/** Como o app faz login: `conta` do /v1/info do servidor (espelha zap-core online::account). */
+export interface AccountProviderView { provider: string; url: string; key: string }
+/** Plano da sessão (resposta do POST /v1/sessoes): id no fio e limites; só o id importa para a tela. */
+export interface PlanView { id: 'nenhum' | 'espectador' | 'hd' | 'fullhd'; pode_entrar: boolean }
+/** `Snapshot.account`: ausente `account_provider` = o servidor não confere contas (sem login). */
+export interface AccountView {
+  account_provider?: AccountProviderView
+  requires_account: boolean
+  requires_password: boolean
+  account_id?: string
+  plan?: PlanView
+  /** 'senha_servidor' | 'conta_necessaria' quando o último login falhou por isso. */
+  login_error?: string
 }
 export interface ServerStatus { state: 'off' | 'connecting' | 'online' | 'error'; name?: string; ping_ms?: number; message?: string }
 export interface ServerTestResult { ok: boolean; name: string | null; ping_ms: number | null; code: string | null; message: string }

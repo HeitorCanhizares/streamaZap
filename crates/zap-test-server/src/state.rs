@@ -14,6 +14,7 @@ use zap_net::online::{LoginRequest, SessionResponse};
 use zap_proto::{Access, AudioSpec, ControlMsg, LayerSpec, RoomCode, TrackKind};
 
 use crate::{
+    account::{account_for_login, account_for_renew, AccountState},
     relay::TrackRelay,
     util::{iso_from_unix_ms, new_id, new_token, now_iso, now_unix_ms},
     Config,
@@ -97,6 +98,8 @@ pub struct ParticipantData {
     /// áudio e sondas (o prazo do keyframe e a admissão dependem de estado por conexão;
     /// `docs/api/midia.md`). Existe também na prévia. `None` sem conexão.
     pub media_tx: Option<std::sync::Arc<zap_net::media_tx::MediaSender>>,
+    /// Conta falsa e contador de renovações (`crate::account`).
+    pub account: crate::account::AccountState,
 }
 
 /// Ingresso emitido por `entrar`/`previa`.
@@ -203,6 +206,8 @@ impl Hub {
                 return Err(HubError::new(401, "senha_servidor", "Senha do servidor incorreta"));
             }
         }
+        // Conta falsa: depois da senha do servidor, antes de validar o nome.
+        let conta = account_for_login(self.config.requires_account, req.account_token.as_deref())?;
         let tamanho_nome = req.name.chars().count();
         if tamanho_nome == 0 || tamanho_nome > 32 {
             return Err(HubError::new(400, "invalido", "nome inválido"));
@@ -253,11 +258,20 @@ impl Hub {
                         public_ip: remote_ip.to_string(),
                         prober: None,
                         media_tx: None,
+                        account: AccountState::default(),
                     },
                 );
                 id
             }
         };
+
+        // Preserva o contador de renovações; conta e plano vêm sempre do login atual.
+        if let Some(p) = inner.participants.get_mut(&participant_id) {
+            p.account = AccountState {
+                renew_count: p.account.renew_count,
+                ..conta.clone()
+            };
+        }
 
         let token = new_token();
         let expira_em = agora + VALIDADE_TOKEN_MS;
@@ -273,17 +287,27 @@ impl Hub {
             expires_at: iso_from_unix_ms(expira_em),
             participant_id,
             public_ip: Some(remote_ip.to_string()),
-            account_id: None,
-            plan: None,
+            account_id: conta.account_id.clone(),
+            plan: conta.plan_info(),
         })
     }
 
     /// `POST /v1/sessoes/renovar`: token novo; o antigo vale mais 5 min.
-    pub fn renew(&self, token: &str) -> Result<SessionResponse, HubError> {
+    ///
+    /// `account_token` é o `acesso_conta` do corpo opcional (tarefa testsrv-02 liga a conta).
+    pub fn renew(&self, token: &str, account_token: Option<&str>) -> Result<SessionResponse, HubError> {
         let agora = now_unix_ms();
         let mut inner = self.inner.lock();
         // Confere e troca tudo sob o mesmo lock, para não haver corrida com outra renovação.
         let participant_id = dono_do_token(&inner, token, agora)?;
+
+        // Calcula a conta antes de mexer em qualquer token: 403 não pode deixar rastro.
+        let atual = inner
+            .participants
+            .get(&participant_id)
+            .map(|p| p.account.clone())
+            .ok_or_else(|| HubError::new(401, "nao_autenticado", "Sessão inválida ou expirada"))?;
+        let nova = account_for_renew(&atual, account_token)?;
 
         if let Some(antigo) = inner.tokens.get_mut(token) {
             antigo.expires_at_ms = antigo.expires_at_ms.min(agora + TOLERANCIA_RENOVACAO_MS);
@@ -299,14 +323,27 @@ impl Hub {
             },
         );
         let public_ip = inner.participants.get(&participant_id).map(|p| p.public_ip.clone());
-        Ok(SessionResponse {
+        let resposta = SessionResponse {
             token: novo,
             expires_at: iso_from_unix_ms(expira_em),
-            participant_id,
+            participant_id: participant_id.clone(),
             public_ip,
-            account_id: None,
-            plan: None,
-        })
+            account_id: nova.account_id.clone(),
+            plan: nova.plan_info(),
+        };
+        if let Some(p) = inner.participants.get_mut(&participant_id) {
+            p.account = nova;
+        }
+        Ok(resposta)
+    }
+
+    /// Conta e contador de renovações do participante (para os testes inspecionarem).
+    pub fn account_of(&self, participant_id: &str) -> Option<crate::account::AccountState> {
+        self.inner
+            .lock()
+            .participants
+            .get(participant_id)
+            .map(|p| p.account.clone())
     }
 
     /// Id do participante dono do token, se válido e não expirado.
@@ -409,7 +446,7 @@ mod tests {
     fn renovar() {
         let hub = Hub::new(Config::default());
         let antigo = hub.login(pedido("inst-1", "Ana", 4, None), "ip").unwrap();
-        let novo = hub.renew(&antigo.token).unwrap();
+        let novo = hub.renew(&antigo.token, None).unwrap();
         assert_ne!(novo.token, antigo.token);
         assert_eq!(novo.participant_id, antigo.participant_id);
         assert_eq!(hub.authenticate(&novo.token).unwrap(), antigo.participant_id);
@@ -421,12 +458,154 @@ mod tests {
         assert_eq!(erro.code, "nao_autenticado");
     }
 
+    fn hub_com_conta() -> Hub {
+        Hub::new(Config {
+            requires_account: true,
+            ..Config::default()
+        })
+    }
+
+    fn pedido_conta(install_id: &str, token: Option<&str>) -> LoginRequest {
+        let mut p = pedido(install_id, "Ana", 4, None);
+        p.account_token = token.map(String::from);
+        p
+    }
+
+    #[test]
+    fn login_com_conta_devolve_conta_id_e_plano() {
+        let hub = Hub::new(Config::default());
+        let r = hub.login(pedido_conta("i1", Some("teste:u1:fullhd")), "ip").unwrap();
+        assert_eq!(r.account_id.as_deref(), Some("u1"));
+        assert_eq!(
+            r.plan,
+            Some(zap_proto::plan::PlanInfo::of(zap_proto::plan::PlanId::FullHd))
+        );
+        let a = hub.account_of(&r.participant_id).unwrap();
+        assert_eq!(a.account_id.as_deref(), Some("u1"));
+        assert_eq!(a.plan, Some(zap_proto::plan::PlanId::FullHd));
+        assert_eq!(a.renew_count, 0);
+    }
+
+    #[test]
+    fn login_sem_conta_sem_campos() {
+        let hub = Hub::new(Config::default());
+        let r = hub.login(pedido_conta("i1", None), "ip").unwrap();
+        assert!(r.account_id.is_none());
+        assert!(r.plan.is_none());
+    }
+
+    #[test]
+    fn login_exige_conta() {
+        let hub = hub_com_conta();
+        for tok in [None, Some("lixo")] {
+            let e = hub.login(pedido_conta("i1", tok), "ip").unwrap_err();
+            assert_eq!((e.status, e.code), (401, "conta_necessaria"));
+        }
+        assert!(hub.login(pedido_conta("i1", Some("teste:u1:hd")), "ip").is_ok());
+    }
+
+    #[test]
+    fn ordem_senha_antes_de_conta() {
+        let hub = Hub::new(Config {
+            server_password: Some("segredo".into()),
+            requires_account: true,
+            ..Config::default()
+        });
+        let e = hub.login(pedido_conta("i1", None), "ip").unwrap_err();
+        assert_eq!(e.code, "senha_servidor");
+        let mut req = pedido_conta("i1", None);
+        req.server_password = Some("segredo".into());
+        let e = hub.login(req, "ip").unwrap_err();
+        assert_eq!(e.code, "conta_necessaria");
+    }
+
+    #[test]
+    fn login_token_invalido_ignorado_sem_exigir() {
+        let hub = Hub::new(Config::default());
+        let r = hub.login(pedido_conta("i1", Some("lixo")), "ip").unwrap();
+        assert!(r.account_id.is_none());
+        assert!(r.plan.is_none());
+    }
+
+    #[test]
+    fn renovar_sem_corpo_mantem_conta_e_conta_o_contador() {
+        let hub = Hub::new(Config::default());
+        let l = hub.login(pedido_conta("i1", Some("teste:u1:hd")), "ip").unwrap();
+        let r = hub.renew(&l.token, None).unwrap();
+        assert_ne!(r.token, l.token);
+        assert_eq!(r.account_id.as_deref(), Some("u1"));
+        assert_eq!(r.plan, l.plan);
+        let a = hub.account_of(&l.participant_id).unwrap();
+        assert_eq!(a.renew_count, 1);
+        assert_eq!(a.account_id.as_deref(), Some("u1"));
+        assert_eq!(hub.authenticate(&l.token).unwrap(), l.participant_id);
+        assert_eq!(hub.authenticate(&r.token).unwrap(), l.participant_id);
+    }
+
+    #[test]
+    fn renovar_atualiza_plano() {
+        use zap_proto::plan::{PlanId, PlanInfo};
+        let hub = Hub::new(Config::default());
+        let l = hub.login(pedido_conta("i1", Some("teste:u1:hd")), "ip").unwrap();
+        let r = hub.renew(&l.token, Some("teste:u1:fullhd")).unwrap();
+        assert_eq!(r.plan, Some(PlanInfo::of(PlanId::FullHd)));
+        assert_eq!(hub.account_of(&l.participant_id).unwrap().plan, Some(PlanId::FullHd));
+    }
+
+    #[test]
+    fn renovar_liga_conta_em_sessao_sem_conta() {
+        let hub = Hub::new(Config::default());
+        let l = hub.login(pedido_conta("i1", None), "ip").unwrap();
+        let r = hub.renew(&l.token, Some("teste:u2:hd")).unwrap();
+        assert_eq!(r.account_id.as_deref(), Some("u2"));
+        assert!(r.plan.is_some());
+        assert_eq!(
+            hub.account_of(&l.participant_id).unwrap().account_id.as_deref(),
+            Some("u2")
+        );
+    }
+
+    #[test]
+    fn renovar_token_invalido_ignorado() {
+        let hub = Hub::new(Config::default());
+        let l = hub.login(pedido_conta("i1", Some("teste:u1:hd")), "ip").unwrap();
+        let r = hub.renew(&l.token, Some("lixo")).unwrap();
+        assert_eq!(r.account_id.as_deref(), Some("u1"));
+        assert_eq!(r.plan, l.plan);
+        assert_eq!(hub.account_of(&l.participant_id).unwrap().renew_count, 1);
+    }
+
+    #[test]
+    fn renovar_outra_conta_403() {
+        let hub = Hub::new(Config::default());
+        let l = hub.login(pedido_conta("i1", Some("teste:u1:hd")), "ip").unwrap();
+        let antes = hub.inner.lock().tokens.len();
+        let e = hub.renew(&l.token, Some("teste:u2:hd")).unwrap_err();
+        assert_eq!((e.status, e.code), (403, "proibido"));
+        assert_eq!(hub.account_of(&l.participant_id).unwrap().renew_count, 0);
+        assert_eq!(hub.inner.lock().tokens.len(), antes);
+        assert_eq!(hub.authenticate(&l.token).unwrap(), l.participant_id);
+    }
+
+    #[test]
+    fn reconectar_mesmo_install_id_preserva_contador() {
+        let hub = Hub::new(Config::default());
+        let l = hub.login(pedido_conta("i1", Some("teste:u1:hd")), "ip").unwrap();
+        hub.renew(&l.token, None).unwrap();
+        let l2 = hub.login(pedido_conta("i1", None), "ip").unwrap();
+        assert_eq!(l2.participant_id, l.participant_id);
+        assert!(l2.account_id.is_none());
+        let a = hub.account_of(&l.participant_id).unwrap();
+        assert!(a.account_id.is_none());
+        assert_eq!(a.renew_count, 1);
+    }
+
     #[test]
     fn token_desconhecido() {
         let hub = Hub::new(Config::default());
         let erro = hub.authenticate("nao-existe").unwrap_err();
         assert_eq!((erro.status, erro.code), (401, "nao_autenticado"));
-        let erro = hub.renew("nao-existe").unwrap_err();
+        let erro = hub.renew("nao-existe", None).unwrap_err();
         assert_eq!((erro.status, erro.code), (401, "nao_autenticado"));
     }
 }

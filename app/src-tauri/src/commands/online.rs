@@ -29,6 +29,19 @@ pub async fn server_test(
     Ok(state.core.server_test(address, password).await)
 }
 
+/// `online_set_account(token)`: entrega ao núcleo o token de acesso da conta (`None` = saiu da
+/// conta) com `core.online_set_account(token)`. Não bloqueia. Nunca logar o token.
+#[tauri::command]
+pub async fn online_set_account(state: State<'_, Arc<AppState>>, token: Option<String>) -> Result<(), String> {
+    state.core.online_set_account(normalizar_token(token));
+    Ok(())
+}
+
+/// Apara o token; vazio ou só espaços vira `None` (saiu da conta).
+fn normalizar_token(token: Option<String>) -> Option<String> {
+    token.map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+}
+
 /// Prévia na lista de salas: `videos.register(tile, channel)` ANTES de
 /// `core.room_preview(code, tile)`; se o núcleo falhar, `videos.remove(tile)` (tarefa
 /// tauri-online-01).
@@ -71,7 +84,7 @@ pub async fn room_preview_stop(
 mod tests {
     use zap_core::ServerTestResult;
 
-    use super::{registrar_previa, remover_previa};
+    use super::{normalizar_token, registrar_previa, remover_previa};
     use crate::update_state::UpdateState;
 
     #[test]
@@ -97,11 +110,15 @@ mod tests {
             ping_ms: Some(12),
             code: None,
             message: "Conectado".into(),
+            ..Default::default()
         };
         let json = serde_json::to_value(&valor).expect("serializa");
         let mut chaves: Vec<&str> = json.as_object().expect("objeto").keys().map(String::as_str).collect();
         chaves.sort_unstable();
-        assert_eq!(chaves, vec!["code", "message", "name", "ok", "ping_ms"]);
+        assert_eq!(
+            chaves,
+            vec!["code", "message", "name", "ok", "ping_ms", "requires_account"]
+        );
         assert_eq!(json["ping_ms"], 12);
     }
 
@@ -111,5 +128,40 @@ mod tests {
         assert!(lib.contains("commands::online::server_test,"));
         assert!(lib.contains("commands::online::room_preview,"));
         assert!(lib.contains("commands::online::room_preview_stop,"));
+        assert!(lib.contains("commands::online::online_set_account,"));
+    }
+
+    #[test]
+    fn normalizar_token_none_continua_none() {
+        assert_eq!(normalizar_token(None), None);
+    }
+
+    #[test]
+    fn normalizar_token_vazio_e_espacos_viram_none() {
+        assert_eq!(normalizar_token(Some(String::new())), None);
+        assert_eq!(normalizar_token(Some("   ".into())), None);
+    }
+
+    #[test]
+    fn normalizar_token_apara() {
+        assert_eq!(
+            normalizar_token(Some(
+                "  abc.def.ghi 
+"
+                .into()
+            )),
+            Some("abc.def.ghi".into())
+        );
+    }
+
+    #[test]
+    fn online_set_account_nao_loga_o_token() {
+        let src = include_str!("online.rs");
+        let ini = src.find("pub async fn online_set_account").expect("fn existe");
+        let resto = &src[ini..];
+        let fim = resto.find("#[tauri::command]").unwrap_or(resto.len());
+        let trecho = &resto[..fim];
+        assert!(!trecho.contains("tracing"));
+        assert!(!trecho.contains("println"));
     }
 }

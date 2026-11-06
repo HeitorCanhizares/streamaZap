@@ -36,6 +36,7 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
         videos,
     }));
     app.manage(crate::update_state::UpdateState::default());
+    crate::deep_link_setup::setup(app)?;
     crate::commands::update::anunciar_aplicada(app.handle());
     crate::commands::update::agendar_auto(app.handle());
     Ok(())

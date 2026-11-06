@@ -24,6 +24,12 @@ pub struct ServerTestResult {
     pub code: Option<String>,
     /// Texto em português para a interface (sucesso ou erro).
     pub message: String,
+    /// `requer_conta` do `/v1/info` (a tela mostra o login).
+    #[serde(default)]
+    pub requires_account: bool,
+    /// `conta` do `/v1/info`; `None` = o servidor não confere contas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_provider: Option<super::account::AccountProviderView>,
 }
 
 /// `Core::create_room` com `mode == Online`: exige que não haja sala; `OnlineRoom::create`,
@@ -78,7 +84,10 @@ impl Core {
     /// tempo), confere o protocolo (mesma regra e mensagem de `OnlineSession::connect`), e se
     /// `requer_senha` ou `password` não é vazia, tenta `login` com `LoginRequest` das
     /// configurações (`senha_servidor` → `ok = false, code = "senha_servidor", message = "Senha
-    /// do servidor incorreta"`). Endereço vazio → `ok = false, code = "invalido", message =
+    /// do servidor incorreta"`). Se o servidor pede conta (`requer_conta`), o login também é
+    /// tentado, com o token da conta (se o servidor confere contas); `conta_necessaria` não é
+    /// falha: `ok = true, code = "conta_necessaria"` (a tela mostra o login). O resultado traz
+    /// sempre `requires_account` e `account_provider` do `/v1/info`. Endereço vazio → `ok = false, code = "invalido", message =
     /// "Informe o endereço do servidor"`. Rede → `code = "conexao"`.
     pub async fn server_test(&self, address: String, password: String) -> ServerTestResult {
         if !self.shared.online_enabled() {
@@ -102,6 +111,22 @@ impl Core {
             .spawn(async move { testa_servidor(&shared, address, password).await })
             .await
             .unwrap_or(falha)
+    }
+    /// O front entrega o token de acesso da conta (`None` = saiu da conta). Só em memória, nunca
+    /// em disco. Não bloqueia: a reação roda no runtime do `Core` (`OnlineSession::apply_account`).
+    /// Online desligado ou sem sessão ativa: só guarda o token.
+    pub fn online_set_account(&self, token: Option<String>) {
+        // Texto vazio é "saiu da conta".
+        let token = token.filter(|t| !t.trim().is_empty());
+        if !self.shared.options.online || !self.shared.online_enabled() {
+            // Sem laço rodando: o token vale quando o Online ligar.
+            *self.shared.online.account_token.lock() = token;
+            return;
+        }
+        let shared = self.shared.clone();
+        self.shared.rt.spawn(async move {
+            shared.online.clone().apply_account(&shared, token).await;
+        });
     }
     /// Abre a prévia da sala (`code` digitado/da lista) no `tile`. Ver `preview::start`.
     pub async fn room_preview(&self, code: String, tile: TileId) -> Result<(), CoreError> {
@@ -193,6 +218,16 @@ fn erro_do_teste(e: CoreError) -> ServerTestResult {
     }
 }
 
+/// Mesmo que `erro_do_teste`, já com os dados do `/v1/info` (nome, ping, conta) preenchidos.
+fn erro_apos_info(e: CoreError, info: &zap_net::online::ServerInfo, ping: u32) -> ServerTestResult {
+    let mut r = erro_do_teste(e);
+    r.name = Some(info.name.clone());
+    r.ping_ms = Some(ping);
+    r.requires_account = info.requires_account;
+    r.account_provider = info.account.as_ref().map(super::account::AccountProviderView::from);
+    r
+}
+
 async fn testa_servidor(shared: &Arc<Shared>, address: String, password: String) -> ServerTestResult {
     use std::time::Instant;
     use zap_net::online::{LoginRequest, ServerClient};
@@ -221,9 +256,11 @@ async fn testa_servidor(shared: &Arc<Shared>, address: String, password: String)
             ping_ms: Some(ping),
             code: Some("protocolo_incompativel".into()),
             message: "Este app e o servidor usam versões diferentes do protocolo. Atualize o StreamaZap.".into(),
+            requires_account: info.requires_account,
+            account_provider: info.account.as_ref().map(super::account::AccountProviderView::from),
         };
     }
-    if info.requires_password || !password.is_empty() {
+    if info.requires_password || !password.is_empty() || info.requires_account {
         let (name, color, install_id) = {
             let s = shared.settings.read();
             (s.name.clone(), s.color.clone(), s.install_id.clone())
@@ -235,15 +272,26 @@ async fn testa_servidor(shared: &Arc<Shared>, address: String, password: String)
             protocol: versao,
             app_version: env!("CARGO_PKG_VERSION").into(),
             server_password: if password.is_empty() { None } else { Some(password) },
-            account_token: None,
+            account_token: if info.account.is_some() {
+                shared.online.account_token()
+            } else {
+                None
+            },
         };
         // O cliente logado só serve para validar a senha; é descartado.
         if let Err(e) = ServerClient::login(&base, req).await {
-            let mut r = erro_do_teste(e.into());
-            r.name = Some(info.name);
-            r.ping_ms = Some(ping);
-            if r.code.as_deref() == Some("senha_servidor") {
-                r.message = "Senha do servidor incorreta".into();
+            let mut r = erro_apos_info(e.into(), &info, ping);
+            match r.code.as_deref() {
+                Some("senha_servidor") => r.message = "Senha do servidor incorreta".into(),
+                Some("conta_necessaria") => {
+                    // Servidor alcançável: falta só entrar na conta.
+                    r.ok = true;
+                    r.message = format!(
+                        "Conectado a {}. Entre com sua conta para usar este servidor.",
+                        info.name
+                    );
+                }
+                _ => {}
             }
             return r;
         }
@@ -254,6 +302,8 @@ async fn testa_servidor(shared: &Arc<Shared>, address: String, password: String)
         name: Some(info.name),
         ping_ms: Some(ping),
         code: None,
+        requires_account: info.requires_account,
+        account_provider: info.account.as_ref().map(super::account::AccountProviderView::from),
     }
 }
 
@@ -398,6 +448,84 @@ mod tests {
         assert!(r.ok);
         assert_eq!(core.snapshot().server, antes);
         encerrar(core, d).await;
+    }
+
+    fn config_com_conta() -> Config {
+        Config {
+            requires_account: true,
+            account: Some(zap_net::online::AccountProvider {
+                provider: "supabase".into(),
+                url: "https://x.supabase.co".into(),
+                key: "sb_publishable_x".into(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn server_test_traz_requires_account_e_provedor() {
+        let srv = zap_test_server::spawn(config_com_conta()).await.unwrap();
+        let (core, d) = novo_core(None).await;
+        core.update_settings(|s| s.server.enabled = true);
+        let r = core.server_test(srv.base_url.clone(), String::new()).await;
+        assert!(r.ok, "{r:?}");
+        assert_eq!(r.code.as_deref(), Some("conta_necessaria"));
+        assert!(r.requires_account);
+        let p = r.account_provider.expect("sem provedor");
+        assert_eq!(p.url, "https://x.supabase.co");
+        assert_eq!(p.key, "sb_publishable_x");
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn server_test_com_token_valida() {
+        let srv = zap_test_server::spawn(config_com_conta()).await.unwrap();
+        let (core, d) = novo_core(None).await;
+        core.update_settings(|s| s.server.enabled = true);
+        core.online_set_account(Some("teste:u1:hd".into()));
+        let r = core.server_test(srv.base_url.clone(), String::new()).await;
+        assert!(r.ok, "{r:?}");
+        assert_eq!(r.code, None);
+        assert!(r.requires_account);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn server_test_sem_conta_no_servidor() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (core, d) = novo_core(None).await;
+        core.update_settings(|s| s.server.enabled = true);
+        let r = core.server_test(srv.base_url.clone(), String::new()).await;
+        assert!(r.ok, "{r:?}");
+        assert_eq!(r.code, None);
+        assert!(!r.requires_account);
+        assert!(r.account_provider.is_none());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn online_set_account_vazio_vira_none() {
+        let (core, d) = novo_core(None).await;
+        core.online_set_account(Some("teste:u1:hd".into()));
+        core.online_set_account(Some("  ".into()));
+        assert_eq!(core.shared.online.account_token(), None);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn online_set_account_desligado_so_guarda() {
+        let (core, d) = novo_core(None).await;
+        core.online_set_account(Some("teste:u1:hd".into()));
+        assert_eq!(core.shared.online.account_token().as_deref(), Some("teste:u1:hd"));
+        assert!(core.shared.online.task.lock().is_none());
+        encerrar(core, d).await;
+    }
+
+    #[test]
+    fn server_test_result_padrao_serializa_sem_provedor() {
+        let v = serde_json::to_value(ServerTestResult::default()).unwrap();
+        assert_eq!(v["requires_account"], false);
+        assert!(v.get("account_provider").is_none());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

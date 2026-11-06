@@ -473,8 +473,12 @@ conta).
   2. abre a URL no navegador do sistema (`tauri-plugin-opener`, novo);
   3. volta pelo deep link (`tauri-plugin-deep-link`, novo; o esquema é registrado pelo instalador
      NSIS; o `tauri-plugin-single-instance`, que já existe, ganha a feature `deep-link` para entregar
-     a URL à instância aberta);
+     a URL à instância aberta). Se o app estava fechado, a URL que o abriu espera numa fila no
+     Tauri e a interface busca com `deep_link_pendentes` quando o login liga;
   4. `exchangeCodeForSession(code)`.
+- Erros do supabase-js vêm em inglês: a interface só mostra texto próprio em português, pelo
+  `code` do Supabase Auth (ex.: `otp_expired`), com uma mensagem padrão para o resto. A
+  `excluir-conta` mostra a `mensagem` que o servidor devolve em `{"erro","mensagem"}`.
 - E-mail: `signInWithOtp({ email })` → o usuário digita o código → `verifyOtp({ email, token, type: 'email' })`.
 - Vínculo: `getUserIdentities()` para listar; `linkIdentity({ provider })` pelo mesmo caminho do
   deep link; desvincular só com 2 ou mais identidades.

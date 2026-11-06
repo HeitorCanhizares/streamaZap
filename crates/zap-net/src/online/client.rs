@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use zap_proto::plan::PlanInfo;
 use zap_proto::RoomCode;
 
 /// Base sem barra final (`https://h:7443/` vira `https://h:7443`).
@@ -24,6 +25,10 @@ pub(crate) struct Session {
     pub token: String,
     pub expires_at: String,
     pub participant_id: String,
+    /// Id da conta (`conta_id` da última resposta de login/renovação), se a sessão tem conta.
+    pub account_id: Option<String>,
+    /// Plano (`plano` da última resposta de login/renovação); `None` = sem limite de plano.
+    pub plan: Option<PlanInfo>,
 }
 
 #[derive(Debug)]
@@ -97,6 +102,8 @@ impl ServerClient {
                 token: sessao.token,
                 expires_at: sessao.expires_at,
                 participant_id: sessao.participant_id,
+                account_id: sessao.account_id,
+                plan: sessao.plan,
             }),
         });
         tokio::spawn(renovacao_automatica(Arc::downgrade(&inner), clock));
@@ -111,6 +118,16 @@ impl ServerClient {
     /// Id do participante dado pelo servidor no login.
     pub fn participant_id(&self) -> String {
         self.inner.session.lock().participant_id.clone()
+    }
+
+    /// Id da conta da sessão (`conta_id` do login ou da última renovação). `None` = sem conta.
+    pub fn account_id(&self) -> Option<String> {
+        self.inner.session.lock().account_id.clone()
+    }
+
+    /// Plano da sessão (`plano` do login ou da última renovação). `None` = sem limite de plano.
+    pub fn plan(&self) -> Option<PlanInfo> {
+        self.inner.session.lock().plan
     }
 
     /// `GET /v1/salas`: lista de salas visíveis.
@@ -168,7 +185,7 @@ impl ServerClient {
     pub async fn connect_ws(&self) -> Result<(WsTx, WsRx), ApiError> {
         match super::ws::connect(&self.inner.base_url, &self.token()).await {
             Err(e) if e.code() == Some("nao_autenticado") => {
-                self.renew().await?;
+                self.renew(None).await?;
                 super::ws::connect(&self.inner.base_url, &self.token()).await
             }
             resultado => resultado,
@@ -222,18 +239,29 @@ impl ServerClient {
         Ok(corpo)
     }
 
-    /// `POST /v1/sessoes/renovar` e troca do token em `inner.session`.
-    pub(crate) async fn renew(&self) -> Result<(), ApiError> {
-        let nova: SessionResponse = self
-            .call(reqwest::Method::POST, "/sessoes/renovar", None::<&()>)
-            .await?;
-        // Um único lock: quem lê vê sempre token, validade e id da mesma sessão.
-        *self.inner.session.lock() = Session {
-            token: nova.token,
-            expires_at: nova.expires_at,
-            participant_id: nova.participant_id,
+    /// `POST /v1/sessoes/renovar`: troca o token e devolve a resposta completa.
+    ///
+    /// O token de conta (`acesso_conta`) só vai na renovação manual: `Some` liga ou atualiza a
+    /// conta (e o plano) da sessão; `None` envia corpo `{}`. A renovação automática nunca manda
+    /// conta. Erro 403 `proibido` = o token é de uma conta diferente da sessão. Em erro a
+    /// sessão não muda. Conta e plano da sessão passam a ser os da resposta (o servidor é a
+    /// fonte da verdade), inclusive `None`.
+    pub async fn renew(&self, account_token: Option<&str>) -> Result<SessionResponse, ApiError> {
+        let corpo = RenewRequest {
+            account_token: account_token.map(str::to_string),
         };
-        Ok(())
+        let nova: SessionResponse = self
+            .call(reqwest::Method::POST, "/sessoes/renovar", Some(&corpo))
+            .await?;
+        // Um único lock curto: quem lê vê sempre token, validade, id, conta e plano da mesma sessão.
+        *self.inner.session.lock() = Session {
+            token: nova.token.clone(),
+            expires_at: nova.expires_at.clone(),
+            participant_id: nova.participant_id.clone(),
+            account_id: nova.account_id.clone(),
+            plan: nova.plan,
+        };
+        Ok(nova)
     }
 }
 
@@ -271,8 +299,8 @@ async fn renovacao_automatica(fraco: std::sync::Weak<Inner>, clock: Arc<dyn supe
         clock.sleep(espera).await;
         let Some(inner) = fraco.upgrade() else { return };
         let cliente = ServerClient { inner };
-        match cliente.renew().await {
-            Ok(()) => {
+        match cliente.renew(None).await {
+            Ok(_) => {
                 falhou = false;
                 backoff = ESPERA_INICIAL;
             }
@@ -317,6 +345,8 @@ mod tests {
                     token: token.to_string(),
                     expires_at: "2026-11-05T21:30:00Z".to_string(),
                     participant_id: "p_teste".to_string(),
+                    account_id: None,
+                    plan: None,
                 }),
             }),
         }
@@ -471,10 +501,132 @@ mod tests {
         let (app, n) = app_sessoes("2099-01-01T00:00:00Z".into());
         let base = sobe(app).await;
         let c = ServerClient::login(&base, pedido()).await.unwrap();
-        c.renew().await.unwrap();
+        c.renew(None).await.unwrap();
         assert_eq!(c.token(), "t1");
         assert_eq!(c.participant_id(), "p_2");
         assert_eq!(n.load(Ordering::SeqCst), 1);
+    }
+
+    type Capturado = Arc<Mutex<Vec<(serde_json::Value, String)>>>;
+
+    /// Servidor falso de renovação: guarda (corpo, Authorization) e responde `(status, texto)`.
+    async fn sobe_captura(status: u16, resposta: &'static str) -> (String, Capturado) {
+        let capturado: Capturado = Arc::new(Mutex::new(Vec::new()));
+        let c2 = capturado.clone();
+        let app = Router::new().route(
+            "/v1/sessoes/renovar",
+            post(move |headers: HeaderMap, Json(corpo): Json<serde_json::Value>| {
+                let c2 = c2.clone();
+                async move {
+                    let auth = headers
+                        .get(AUTHORIZATION)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string();
+                    c2.lock().push((corpo, auth));
+                    (StatusCode::from_u16(status).unwrap(), resposta)
+                }
+            }),
+        );
+        (sobe(app).await, capturado)
+    }
+
+    const RESP_COM_CONTA: &str = r#"{"token":"t1","expira_em":"2099-01-01T00:00:00Z","participante_id":"p_2","conta_id":"2b0c","plano":{"id":"hd","pode_entrar":true,"transmitir":{"altura_max":720,"fps_max":60,"tela_kbps":4000,"camera_kbps":2500}}}"#;
+
+    #[tokio::test]
+    async fn renew_sem_conta_envia_corpo_vazio() {
+        let (base, cap) = sobe_captura(
+            200,
+            r#"{"token":"t1","expira_em":"2099-01-01T00:00:00Z","participante_id":"p_2"}"#,
+        )
+        .await;
+        let c = cliente(&base, "t0");
+        let r = c.renew(None).await.unwrap();
+        assert_eq!(r.token, "t1");
+        assert_eq!(c.token(), "t1");
+        assert_eq!(c.participant_id(), "p_2");
+        let v = cap.lock();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].0, serde_json::json!({}));
+        assert_eq!(v[0].1, "Bearer t0");
+    }
+
+    #[tokio::test]
+    async fn renew_com_conta_envia_acesso_conta_e_guarda_plano() {
+        use zap_proto::plan::{PlanId, PlanInfo};
+        let (base, cap) = sobe_captura(200, RESP_COM_CONTA).await;
+        let c = cliente(&base, "t0");
+        let r = c.renew(Some("eyJ")).await.unwrap();
+        assert_eq!(cap.lock()[0].0, serde_json::json!({"acesso_conta":"eyJ"}));
+        assert_eq!(c.account_id().as_deref(), Some("2b0c"));
+        assert_eq!(c.plan(), Some(PlanInfo::of(PlanId::Hd)));
+        assert_eq!(r.account_id.as_deref(), Some("2b0c"));
+        assert_eq!(r.plan, Some(PlanInfo::of(PlanId::Hd)));
+    }
+
+    #[tokio::test]
+    async fn renew_403_proibido_nao_altera_sessao() {
+        use zap_proto::plan::{PlanId, PlanInfo};
+        let (base, _) = sobe_captura(403, r#"{"erro":"proibido","mensagem":"x"}"#).await;
+        let c = cliente(&base, "t0");
+        *c.inner.session.lock() = Session {
+            token: "t0".into(),
+            expires_at: "2026-11-05T21:30:00Z".into(),
+            participant_id: "p_teste".into(),
+            account_id: Some("conta-a".into()),
+            plan: Some(PlanInfo::of(PlanId::Hd)),
+        };
+        let e = c.renew(Some("outra")).await.unwrap_err();
+        assert_eq!(e.code(), Some("proibido"));
+        assert_eq!(c.token(), "t0");
+        assert_eq!(c.participant_id(), "p_teste");
+        assert_eq!(c.account_id().as_deref(), Some("conta-a"));
+        assert_eq!(c.plan(), Some(PlanInfo::of(PlanId::Hd)));
+    }
+
+    #[tokio::test]
+    async fn login_com_acesso_conta_guarda_conta_e_plano() {
+        use zap_proto::plan::{PlanId, PlanInfo};
+        async fn h(Json(corpo): Json<serde_json::Value>) -> (StatusCode, String) {
+            if corpo.get("acesso_conta").and_then(|v| v.as_str()) == Some("eyJ") {
+                (StatusCode::CREATED, RESP_COM_CONTA.to_string())
+            } else {
+                (
+                    StatusCode::CREATED,
+                    r#"{"token":"t0","expira_em":"2099-01-01T00:00:00Z","participante_id":"p_1"}"#.to_string(),
+                )
+            }
+        }
+        let base = sobe(Router::new().route("/v1/sessoes", post(h))).await;
+        let com = LoginRequest {
+            account_token: Some("eyJ".into()),
+            ..pedido()
+        };
+        let c = ServerClient::login(&base, com).await.unwrap();
+        assert_eq!(c.account_id().as_deref(), Some("2b0c"));
+        assert_eq!(c.plan(), Some(PlanInfo::of(PlanId::Hd)));
+        let c = ServerClient::login(&base, pedido()).await.unwrap();
+        assert_eq!(c.account_id(), None);
+        assert_eq!(c.plan(), None);
+    }
+
+    #[tokio::test]
+    async fn renew_sem_conta_na_resposta_limpa_conta() {
+        use zap_proto::plan::{PlanId, PlanInfo};
+        let (base, _) = sobe_captura(
+            200,
+            r#"{"token":"t1","expira_em":"2099-01-01T00:00:00Z","participante_id":"p_2"}"#,
+        )
+        .await;
+        let c = cliente(&base, "t0");
+        {
+            let mut s = c.inner.session.lock();
+            s.account_id = Some("conta-a".into());
+            s.plan = Some(PlanInfo::of(PlanId::Hd));
+        }
+        c.renew(None).await.unwrap();
+        assert_eq!(c.account_id(), None);
+        assert_eq!(c.plan(), None);
     }
 
     /// Relógio de teste: hora real; `sleep` avisa a duração pelo canal e espera uma permissão.

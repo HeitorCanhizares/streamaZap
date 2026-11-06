@@ -64,3 +64,89 @@ fn capability_tem_updater_e_restart() {
         "falta process:allow-restart na capability"
     );
 }
+
+const CARGO_RAIZ: &str = include_str!("../../../Cargo.toml");
+
+fn diretivas_csp() -> Vec<String> {
+    let c = conf();
+    let csp = c["app"]["security"]["csp"].as_str().expect("csp é texto");
+    csp.split(';')
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty())
+        .collect()
+}
+
+#[test]
+fn conf_csp_permite_supabase() {
+    let dirs = diretivas_csp();
+    let connect = dirs
+        .iter()
+        .find(|d| d.starts_with("connect-src"))
+        .expect("existe connect-src");
+    for esperado in [
+        "https://*.supabase.co",
+        "wss://*.supabase.co",
+        "'self'",
+        "ipc:",
+        "http://ipc.localhost",
+    ] {
+        assert!(connect.contains(esperado), "connect-src sem {esperado}");
+    }
+}
+
+#[test]
+fn conf_csp_nao_abre_demais() {
+    let dirs = diretivas_csp();
+    for d in &dirs {
+        assert!(
+            !d.split_whitespace().any(|t| t == "*"),
+            "diretiva com curinga solto: {d}"
+        );
+    }
+    assert!(dirs.iter().any(|d| d == "script-src 'self'"));
+}
+
+#[test]
+fn conf_deep_link_esquema_streamazap() {
+    let c = conf();
+    let schemes = &c["plugins"]["deep-link"]["desktop"]["schemes"];
+    assert_eq!(schemes, &serde_json::json!(["streamazap"]));
+}
+
+#[test]
+fn capability_tem_deep_link_e_opener_so_https() {
+    let cap = capability();
+    let permissions = cap["permissions"].as_array().expect("permissions é uma lista");
+    assert!(permissions.iter().any(|p| p == "deep-link:default"));
+    let opener = permissions
+        .iter()
+        .find(|p| p["identifier"] == "opener:allow-open-url")
+        .expect("falta opener:allow-open-url com escopo");
+    let allow = opener["allow"].as_array().expect("allow é uma lista");
+    assert!(!allow.is_empty());
+    for item in allow {
+        let url = item["url"].as_str().expect("url é texto");
+        assert!(url.starts_with("https://"), "url não https: {url}");
+    }
+    assert!(!CAPABILITY.contains("opener:default"));
+    assert!(!CAPABILITY.contains("opener:allow-open-path"));
+}
+
+#[test]
+fn capability_mantem_as_antigas() {
+    let cap = capability();
+    let permissions = cap["permissions"].as_array().expect("permissions é uma lista");
+    let tem = |nome: &str| permissions.iter().any(|p| p == nome);
+    assert!(tem("updater:default"));
+    assert!(tem("process:allow-restart"));
+    assert!(tem("notification:default"));
+}
+
+#[test]
+fn conf_single_instance_tem_deep_link_no_manifesto() {
+    let linha = CARGO_RAIZ
+        .lines()
+        .find(|l| l.trim_start().starts_with("tauri-plugin-single-instance"))
+        .expect("single-instance no Cargo.toml da raiz");
+    assert!(linha.contains("deep-link"));
+}

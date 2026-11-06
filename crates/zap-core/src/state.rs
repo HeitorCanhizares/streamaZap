@@ -21,6 +21,7 @@ pub struct UiState {
     errors: Vec<String>,
     newer_protocol: Option<u32>,
     server: Option<crate::online::ServerStatus>,
+    account: Option<crate::online::AccountView>,
 }
 
 impl UiState {
@@ -38,6 +39,7 @@ impl UiState {
             errors: vec![],
             newer_protocol: None,
             server: None,
+            account: None,
         }
     }
     pub fn set_me(&mut self, me: Me) {
@@ -57,6 +59,10 @@ impl UiState {
     /// Status do servidor para a barra (`None` = não configurado).
     pub fn set_server(&mut self, s: Option<crate::online::ServerStatus>) {
         self.server = s;
+    }
+    /// Conta/plano da sessão Online (`None` = sem servidor).
+    pub fn set_account(&mut self, a: Option<crate::online::AccountView>) {
+        self.account = a;
     }
     pub fn set_peers(&mut self, p: Vec<PeerListing>) {
         self.peers = p;
@@ -109,6 +115,7 @@ impl UiState {
             errors: self.errors.clone(),
             newer_protocol: self.newer_protocol,
             server: self.server.clone(),
+            account: self.account.clone(),
         })
     }
 }

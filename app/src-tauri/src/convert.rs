@@ -38,8 +38,10 @@ pub fn should_send_typing(typing: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zap_core::online::{AccountProviderView, AccountView};
     use zap_core::snapshot::{TrackView, TrackViewKind};
-    use zap_core::{Snapshot, SourceItem, SourceKind};
+    use zap_core::{ServerTestResult, Snapshot, SourceItem, SourceKind};
+    use zap_proto::plan::{PlanId, PlanInfo};
 
     #[test]
     fn tile_size_limites() {
@@ -152,5 +154,104 @@ mod tests {
         let v = serde_json::to_value(&original).expect("json");
         let volta: Snapshot = serde_json::from_value(v).expect("de volta");
         assert_eq!(volta, original);
+    }
+
+    // Campos de conta (fase 1 de contas/planos): o JSON que a interface lê.
+
+    fn provedor() -> AccountProviderView {
+        AccountProviderView {
+            provider: "supabase".into(),
+            url: "https://x.supabase.co".into(),
+            key: "anon".into(),
+        }
+    }
+
+    fn conta_completa() -> AccountView {
+        AccountView {
+            account_provider: Some(provedor()),
+            requires_account: true,
+            requires_password: false,
+            account_id: Some("u1".into()),
+            plan: Some(PlanInfo::of(PlanId::Hd)),
+            login_error: None,
+        }
+    }
+
+    #[test]
+    fn account_view_completo_serializa() {
+        let v = serde_json::to_value(conta_completa()).expect("json");
+        assert_eq!(v["account_provider"]["provider"], "supabase");
+        assert_eq!(v["requires_account"], true);
+        assert_eq!(v["requires_password"], false);
+        assert_eq!(v["account_id"], "u1");
+        assert_eq!(v["plan"]["id"], "hd");
+        assert_eq!(v["plan"]["transmitir"]["altura_max"], 720);
+        assert!(v.get("login_error").is_none());
+    }
+
+    #[test]
+    fn account_view_vazio_omite_opcionais() {
+        let v = serde_json::to_value(AccountView::default()).expect("json");
+        let mut chaves: Vec<&str> = v.as_object().expect("objeto").keys().map(|k| k.as_str()).collect();
+        chaves.sort_unstable();
+        assert_eq!(chaves, vec!["requires_account", "requires_password"]);
+    }
+
+    #[test]
+    fn login_error_serializa() {
+        for erro in ["conta_necessaria", "senha_servidor"] {
+            let conta = AccountView {
+                login_error: Some(erro.into()),
+                ..Default::default()
+            };
+            let v = serde_json::to_value(conta).expect("json");
+            assert_eq!(v["login_error"], erro);
+        }
+    }
+
+    #[test]
+    fn snapshot_com_conta_vai_e_volta() {
+        let mut original = Snapshot::example();
+        original.account = Some(conta_completa());
+        let v = serde_json::to_value(&original).expect("json");
+        assert!(v.get("account").is_some());
+        let volta: Snapshot = serde_json::from_value(v).expect("de volta");
+        assert_eq!(volta, original);
+    }
+
+    #[test]
+    fn snapshot_sem_conta_omite_chave() {
+        let v = serde_json::to_value(Snapshot::example()).expect("json");
+        assert!(v.get("account").is_none());
+    }
+
+    #[test]
+    fn server_test_result_leva_conta() {
+        let com = ServerTestResult {
+            ok: true,
+            requires_account: true,
+            account_provider: Some(provedor()),
+            ..Default::default()
+        };
+        let v = serde_json::to_value(&com).expect("json");
+        assert_eq!(v["requires_account"], true);
+        assert_eq!(v["account_provider"]["provider"], "supabase");
+
+        let sem = ServerTestResult {
+            ok: true,
+            requires_account: true,
+            ..Default::default()
+        };
+        let v = serde_json::to_value(&sem).expect("json");
+        assert_eq!(v["requires_account"], true);
+        assert!(v.get("account_provider").is_none());
+    }
+
+    #[test]
+    fn snapshot_antigo_sem_account_desserializa() {
+        let mut v = serde_json::to_value(Snapshot::example()).expect("json");
+        v.as_object_mut().expect("objeto").remove("account");
+        let s: Snapshot = serde_json::from_value(v).expect("de volta");
+        assert!(s.account.is_none());
     }
 }

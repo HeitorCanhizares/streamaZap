@@ -310,6 +310,9 @@ pub struct Snapshot {
     /// Servidor Online (barra): `None` = sem endereço configurado.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<crate::online::ServerStatus>,
+    /// Conta e plano da sessão Online (e o que a tela precisa para pedir senha/conta).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<crate::online::AccountView>,
 }
 
 impl Snapshot {
@@ -501,6 +504,7 @@ impl Snapshot {
             errors: Vec::new(),
             newer_protocol: None,
             server: None,
+            account: None,
         }
     }
 }

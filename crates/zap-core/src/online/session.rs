@@ -30,6 +30,10 @@ pub struct OnlineSession {
     pub(crate) wake: tokio::sync::Notify,
     pub(crate) task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) previews: PreviewRegistry,
+    /// Token de acesso da conta (JWT). **Só em memória**: nunca em settings, snapshot ou log.
+    pub(crate) account_token: Mutex<Option<String>>,
+    /// `senha_servidor` / `conta_necessaria` quando o último login falhou por isso.
+    pub(crate) login_error: Mutex<Option<String>>,
 }
 
 impl OnlineSession {
@@ -46,6 +50,8 @@ impl OnlineSession {
             wake: tokio::sync::Notify::new(),
             task: Mutex::new(None),
             previews: PreviewRegistry::default(),
+            account_token: Mutex::new(None),
+            login_error: Mutex::new(None),
         })
     }
     pub fn status(&self) -> Option<ServerStatus> {
@@ -62,6 +68,24 @@ impl OnlineSession {
     }
     pub fn info(&self) -> Option<ServerInfo> {
         self.info.lock().clone()
+    }
+    pub(crate) fn account_token(&self) -> Option<String> {
+        self.account_token.lock().clone()
+    }
+    #[cfg(test)]
+    pub(crate) fn login_error(&self) -> Option<String> {
+        self.login_error.lock().clone()
+    }
+    /// Recalcula `account::account_view(info, client, login_error)` e grava em
+    /// `state.set_account`; `notifier.touch()`. Nunca segura lock do state e de sessão juntos.
+    pub(crate) fn publish_account(&self, shared: &Arc<Shared>) {
+        // Cada lock é solto antes do próximo; o do state só entra depois.
+        let info = self.info.lock().clone();
+        let client = self.client.lock().clone();
+        let login_error = self.login_error.lock().clone();
+        let view = super::account::account_view(info.as_ref(), client.as_ref(), login_error.as_deref());
+        shared.state.lock().set_account(view);
+        shared.notifier.touch();
     }
     /// Define (ou limpa) o canal que recebe as mensagens da sala ativa.
     pub fn set_route(&self, tx: Option<mpsc::Sender<ControlMsg>>) {
@@ -91,6 +115,7 @@ impl OnlineSession {
     ///
     /// `base` = endereço com `https://` na frente se não houver esquema (`http://` é aceito).
     pub async fn connect(&self, shared: &Arc<Shared>) -> Result<zap_net::online::WsRx, CoreError> {
+        let token = self.account_token();
         let (address, password, name, color, install_id) = {
             let s = shared.settings.read();
             (
@@ -108,9 +133,12 @@ impl OnlineSession {
         // Estado de uma tentativa anterior não deve sobreviver a uma falha desta.
         *self.client.lock() = None;
         *self.ws.lock() = None;
+        *self.login_error.lock() = None;
 
         let info = ServerClient::info(&base).await?;
         *self.info.lock() = Some(info.clone());
+        // A tela já pode saber `requires_account`/`conta` antes do login.
+        self.publish_account(shared);
 
         let versao = zap_proto::PROTOCOL_VERSION;
         if versao < info.protocol_min || versao > info.protocol_max {
@@ -133,13 +161,23 @@ impl OnlineSession {
             protocol: versao,
             app_version: env!("CARGO_PKG_VERSION").into(),
             server_password: if password.is_empty() { None } else { Some(password) },
-            account_token: None,
+            // Servidor sem contas nunca recebe o token.
+            account_token: if info.account.is_some() { token.clone() } else { None },
         };
-        let client = ServerClient::login(&base, req).await?;
+        let client = match ServerClient::login(&base, req).await {
+            Ok(c) => c,
+            Err(e) => {
+                let e: CoreError = e.into();
+                *self.login_error.lock() = super::account::login_error_code(&e);
+                self.publish_account(shared);
+                return Err(e);
+            }
+        };
         // Só guarda `client` depois que o WebSocket abriu: falha não deixa estado parcial.
         let (tx, rx) = client.connect_ws().await?;
         *self.client.lock() = Some(client);
         *self.ws.lock() = Some(tx);
+        self.publish_account(shared);
         Ok(rx)
     }
     /// Ping em ms: tempo de um `ServerClient::info(base)` (timeout 5 s → `Err(Connect)`).
@@ -181,9 +219,12 @@ impl OnlineSession {
         self.rooms.lock().clear();
         *self.status.lock() = None;
         *self.route.lock() = None;
+        // O `account_token` fica: sobrevive ao reinício (só `apply_account` o troca).
+        *self.login_error.lock() = None;
         {
             let mut st = shared.state.lock();
             st.set_server(None);
+            st.set_account(None);
             st.set_online_rooms(vec![]);
         }
         shared.notifier.touch();
@@ -482,6 +523,101 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         assert!(fechou, "o WebSocket continuou aberto");
+        encerrar(core, d).await;
+    }
+
+    fn conta_cfg() -> Config {
+        Config {
+            requires_account: true,
+            account: Some(zap_net::online::AccountProvider {
+                provider: "supabase".into(),
+                url: "https://x.supabase.co".into(),
+                key: "k".into(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn apontar(core: &Core, url: String) {
+        core.update_settings(|s| {
+            s.server.address = url;
+            s.server.enabled = true;
+        });
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connect_com_token_envia_acesso_conta() {
+        let srv = zap_test_server::spawn(conta_cfg()).await.unwrap();
+        let (core, d) = novo_core().await;
+        apontar(&core, srv.base_url.clone());
+        *core.shared.online.account_token.lock() = Some("teste:u1:fullhd".into());
+        let _rx = core.shared.online.connect(&core.shared).await.unwrap();
+        assert_eq!(core.shared.online.client().unwrap().account_id().as_deref(), Some("u1"));
+        let a = core.snapshot().account.clone().unwrap();
+        assert_eq!(a.account_id.as_deref(), Some("u1"));
+        assert!(a.requires_account);
+        assert_eq!(a.plan.unwrap().id, zap_proto::plan::PlanId::FullHd);
+        assert_eq!(a.login_error, None);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connect_sem_token_requer_conta() {
+        let srv = zap_test_server::spawn(conta_cfg()).await.unwrap();
+        let (core, d) = novo_core().await;
+        apontar(&core, srv.base_url.clone());
+        let r = core.shared.online.connect(&core.shared).await;
+        assert!(matches!(r, Err(CoreError::Server { ref code, .. }) if code == "conta_necessaria"));
+        assert_eq!(core.shared.online.login_error().as_deref(), Some("conta_necessaria"));
+        let a = core.snapshot().account.clone().unwrap();
+        assert_eq!(a.login_error.as_deref(), Some("conta_necessaria"));
+        assert!(a.requires_account);
+        assert_eq!(a.account_id, None);
+        assert!(core.shared.online.client().is_none());
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connect_servidor_sem_conta_nao_manda_token() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (core, d) = novo_core().await;
+        apontar(&core, srv.base_url.clone());
+        *core.shared.online.account_token.lock() = Some("teste:u1:fullhd".into());
+        let _rx = core.shared.online.connect(&core.shared).await.unwrap();
+        assert_eq!(core.shared.online.client().unwrap().account_id(), None);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn connect_senha_servidor_errada_publica_login_error() {
+        let srv = zap_test_server::spawn(Config {
+            server_password: Some("x".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let (core, d) = novo_core().await;
+        apontar(&core, srv.base_url.clone());
+        let r = core.shared.online.connect(&core.shared).await;
+        assert!(matches!(r, Err(CoreError::Server { ref code, .. }) if code == "senha_servidor"));
+        let a = core.snapshot().account.clone().unwrap();
+        assert_eq!(a.login_error.as_deref(), Some("senha_servidor"));
+        assert!(a.requires_password);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn stop_and_clear_zera_conta() {
+        let srv = zap_test_server::spawn(conta_cfg()).await.unwrap();
+        let (core, d) = novo_core().await;
+        apontar(&core, srv.base_url.clone());
+        *core.shared.online.account_token.lock() = Some("teste:u1:fullhd".into());
+        let _rx = core.shared.online.connect(&core.shared).await.unwrap();
+        assert!(core.snapshot().account.is_some());
+        core.shared.online.stop_and_clear(&core.shared);
+        assert!(core.snapshot().account.is_none());
+        assert_eq!(core.shared.online.login_error(), None);
+        assert_eq!(core.shared.online.account_token().as_deref(), Some("teste:u1:fullhd"));
         encerrar(core, d).await;
     }
 }

@@ -123,4 +123,21 @@ mod tests {
         assert_eq!(ApiError::Network("timeout".into()).code(), None);
         assert_eq!(ApiError::Protocol("x".into()).code(), None);
     }
+
+    #[test]
+    fn code_codigos_de_conta_e_plano() {
+        // Códigos de conta/plano do contrato: `code()` devolve o código e o `Display` é "<código>: <mensagem>".
+        for (status, codigo) in [
+            (403u16, "senha_servidor"),
+            (403, "conta_necessaria"),
+            (403, "proibido"),
+            (403, "plano_insuficiente"),
+        ] {
+            let corpo = format!(r#"{{"erro":"{codigo}","mensagem":"m"}}"#);
+            let e = ApiError::from_body(status, corpo.as_bytes());
+            assert_eq!(e.code(), Some(codigo));
+            assert_eq!(e.to_string(), format!("{codigo}: m"));
+        }
+        assert_eq!(ApiError::Network("x".into()).code(), None);
+    }
 }

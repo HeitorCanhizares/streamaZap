@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: blob: https://i.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'; worker-src 'self' blob:"
+      "csp": "default-src 'self'; img-src 'self' data: blob: https://i.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co; script-src 'self'; worker-src 'self' blob:"
     }
   },
   "bundle": {
@@ -41,6 +41,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["streamazap"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0OTdGRTYwNUEwRjlFNkQKUldSdG5nOWFZUDZYUk90bDAyc3VqdloxU1ptTEJXeFJZZDh3VGkvbExyYlNQTVJQS2czLzg2d0YK",
       "endpoints": [

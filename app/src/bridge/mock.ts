@@ -25,6 +25,7 @@ export const mockSnapshot = (): Snapshot => ({
   me: { name: 'Você', color: '#3BF08A', install_id: 'mock-install' },
   network: { radmin_ip: '26.14.7.88', interfaces: ['Radmin VPN', 'Ethernet'] },
   server: { state: 'online', ping_ms: 42 },
+  account: { account_provider: { provider: 'supabase', url: 'https://mock.supabase.co', key: 'mock-anon-key' }, requires_account: false, requires_password: true },
   rooms: [
     {
       room_id: 'zap-7k2q',

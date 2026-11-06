@@ -7,6 +7,7 @@ import { useServerTest } from './useServerTest'
 import { textoTeste } from '../../bridge/serverModel'
 import { api } from '../../bridge/api'
 import { useSnapshot } from '../../bridge/store'
+import { ConfigConta } from './ConfigConta'
 
 const MODOS: Array<[RoomMode, string]> = [['online', 'Online'], ['local', 'Local']]
 
@@ -72,7 +73,9 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
   const { texto: testeTexto, cor: testeCor } = textoTeste(resultado, testando)
 
   const online = base.enabled
-  const emSalaOnline = useSnapshot().room?.mode === 'online'
+  const snap = useSnapshot()
+  const emSalaOnline = snap.room?.mode === 'online'
+  const account = snap.account
   const [confirmando, setConfirmando] = useState(false)
   const [erroSair, setErroSair] = useState<string | null>(null)
 
@@ -153,7 +156,7 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
             <span style={{ fontSize: 13, color: '#A3BDB1', lineHeight: 1.4 }}>
               <b style={{ color: '#E6F4EC', fontWeight: 600 }}>Usar o modo Online</b>
               <br />
-              Salas pela internet, sem Radmin. O modo Local continua funcionando como sempre.
+              {account?.requires_account === true ? 'Precisa de conta. ' : ''}Salas pela internet, sem Radmin. O modo Local continua funcionando como sempre.
             </span>
           </button>
           {confirmando && (
@@ -176,18 +179,21 @@ export function ConfigConexao({ settings, onChange, network }: ConfigSecaoProps 
           )}
           {online && (
             <>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <label htmlFor="chave" style={rotulo}>Senha do servidor</label>
-                <input
-                  id="chave"
-                  type="password"
-                  placeholder="pede pro dono do servidor"
-                  value={senha}
-                  onChange={(e) => { onChange({ server: { ...base, password: e.target.value } }); limpar() }}
-                  style={{ ...campo, letterSpacing: '0.1em' }}
-                />
-                <span style={dica}>Barra bots e quem não foi convidado.</span>
-              </div>
+              <ConfigConta />
+              {account?.requires_password === true && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label htmlFor="chave" style={rotulo}>Senha do servidor</label>
+                  <input
+                    id="chave"
+                    type="password"
+                    placeholder="pede pro dono do servidor"
+                    value={senha}
+                    onChange={(e) => { onChange({ server: { ...base, password: e.target.value } }); limpar() }}
+                    style={{ ...campo, letterSpacing: '0.1em' }}
+                  />
+                  <span style={dica}>Barra bots e quem não foi convidado.</span>
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 14, borderRadius: 12, border: '1px solid #1F332D' }}>
                 <span style={{ fontWeight: 600, fontSize: 13.5 }}>Servidor próprio</span>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

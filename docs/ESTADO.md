@@ -1,7 +1,7 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-06 (fase 1 do plano de contas, planos e câmera pronta no app, sem lançar;
-ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
+Atualizado em 2026-11-06 (fases 1 e 2 do plano de contas, planos e câmera prontas no app, sem
+lançar; ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
 depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
 Diagnóstico e do CI. Todo o trabalho (rodadas M4/M4b/M4c/M2b) está no `master`, que é a única
 branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
@@ -72,11 +72,34 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - atualização sozinha pelo canal beta (instalar fora de sala e reabrir em "Atualizado para a vX");
   - o jeito da câmera numa sala Online depende do servidor repassar o campo `camera` (B4 do servidor).
 - **Para lançar a v3.3.0:** subir a versão (ver "Antes de qualquer push") depois dos testes acima.
+- **Fase 2 no app (frente D, login com conta), pronta e sem lançar:**
+  - login pelo Supabase (`supabase-js` com PKCE) com Google, Microsoft e e-mail com código de 6
+    dígitos; contas vinculadas (desvincular só com 2 ou mais), sair e excluir conta;
+  - a sessão do Supabase fica no Gerenciador de Credenciais do Windows (comandos `auth_store_*`,
+    em pedaços de até 1000 caracteres, porque cada credencial aceita no máximo 2560 bytes); nada
+    no `localStorage` nem no `settings.json`;
+  - volta do navegador pelo deep link `streamazap://auth/callback` (plugin novo; o instalador NSIS
+    registra o esquema). Com o app fechado, a URL espera numa fila até o login ligar;
+  - o token vai para o núcleo (`online_set_account`): entra no `POST /sessoes` só se o servidor
+    tiver `conta`; trocar o token renova sem derrubar a sala; outra conta ou sair reinicia a sessão;
+  - Configurações → Conexão → **Conta** (só com o Online ligado e o servidor com `conta`) e a
+    **Senha do servidor** logo abaixo, enquanto o servidor pedir;
+  - Salas → Online pede a senha do servidor ou a conta ali mesmo quando o login falha por
+    `senha_servidor` ou `conta_necessaria` (o plano v6 trocou a decisão de pedir a senha só nas
+    Configurações);
+  - CSP liberando `https://*.supabase.co` e `wss://*.supabase.co`: servidor próprio precisa usar
+    projeto do supabase.co;
+  - erros do Supabase aparecem em português (pelo código do erro).
+- **Falta verificar na fase 2** (precisa do projeto Supabase e do app instalado):
+  - login Google, Microsoft e e-mail de ponta a ponta contra um projeto Supabase de verdade;
+  - deep link com o app instalado pelo NSIS, com o app aberto e com o app fechado;
+  - login mantido depois de fechar e abrir o app (sessão lida do Gerenciador de Credenciais);
+  - renovar com um JWT de verdade do Supabase (os testes usam o token falso do servidor de teste).
 - **Servidor:** a frente E fase 2 (sessão com conta: JWKS do Supabase, `requer_conta`, `renovar`)
-  está pronta no repositório dele, esperando commit do dono. Depois: B4, Supabase (C), limites de
-  plano (fase 3) e registros de acesso (F).
-- **Próximo no app:** fase 2, frente D (login pelo Supabase no app, conta em Configurações, senha do
-  servidor pedida na tela Salas → Online).
+  e a B4 estão prontas no repositório dele, esperando commit e push do dono. Depois: Supabase (C,
+  precisa do projeto criado pelo dono), limites de plano (fase 3) e registros de acesso (F).
+- **Próximo no app:** fase 3 (telas de plano escondidas, cadeado nas opções acima do plano,
+  `cobranca_ativa`) e, em paralelo, a fase 5 (social), as duas depois do Supabase (C).
 
 ## Resumo
 

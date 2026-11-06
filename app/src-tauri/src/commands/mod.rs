@@ -2,6 +2,7 @@
 //! Todos `async`; erro = `String` em português (`convert::err_string`).
 
 pub mod app;
+pub mod auth;
 pub mod diag;
 pub mod online;
 pub mod room;

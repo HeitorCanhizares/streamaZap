@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { isTauri } from './bridge/api'
 import { carregarOnlineEnabled } from './bridge/onlineStore'
+import { useContaSync } from './bridge/contaSync'
 import { useSnapshot } from './bridge/store'
 import { NavRail } from './components/NavRail'
 import { TitleBar } from './components/TitleBar'
@@ -31,6 +32,7 @@ function acaoJanela(acao: (w: import('@tauri-apps/api/window').Window) => Promis
 
 export function App(): ReactNode {
   const snap = useSnapshot()
+  useContaSync()
   const [view, setView] = useState<View>('salas')
   const temSala = snap.room !== null
 

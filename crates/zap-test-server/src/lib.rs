@@ -10,6 +10,7 @@
 //! | `bridge` / `media` | Ponte QUIC `zap/4` | `docs/api/midia.md` |
 //! | `relay` / `routing` / `ticker` | Alocador de camadas por espectador | `docs/api/balanceamento.md` |
 //! | `probe` | Necessidade de sondagem por espectador (a ponte sonda a banda) | `docs/api/balanceamento.md` §4 |
+//! | `account` | Conta falsa (`teste:<sub>:<plano>`) para os testes do `zap-core` | `docs/api/rest.md` |
 //! | `state` / `rooms` / `util` | Estado em memória | |
 //!
 //! Decisões de projeto do servidor de teste:
@@ -26,6 +27,7 @@
 //! como id `s_…`, limites de taxa e o `camadas.pedidas` vazio logo depois de `trilha.publicada`.
 #![forbid(unsafe_code)]
 
+pub mod account;
 pub mod bridge;
 pub mod media;
 pub mod music;
@@ -73,6 +75,11 @@ pub struct Config {
     pub participants_per_room: u32,
     /// `midia.direta_permitida` na resposta de `entrar`.
     pub direct_allowed: bool,
+    /// `requer_conta` de `GET /v1/info`: `POST /v1/sessoes` sem token de conta válido responde
+    /// `401 conta_necessaria` (ver `account.rs`; o token é falso, `teste:<sub>:<plano>`).
+    pub requires_account: bool,
+    /// `conta` de `GET /v1/info` (`None` = o servidor não confere contas).
+    pub account: Option<zap_net::online::AccountProvider>,
 }
 
 impl Default for Config {
@@ -83,6 +90,8 @@ impl Default for Config {
             relay: true,
             participants_per_room: 16,
             direct_allowed: true,
+            requires_account: false,
+            account: None,
         }
     }
 }

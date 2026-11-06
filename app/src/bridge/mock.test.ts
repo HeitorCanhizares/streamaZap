@@ -21,6 +21,24 @@ describe('mockSnapshot', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
+  it('account do mock: provider supabase, exige senha e não exige conta', () => {
+    const acc = mockSnapshot().account!
+    expect(acc.account_provider).toEqual({ provider: 'supabase', url: 'https://mock.supabase.co', key: 'mock-anon-key' })
+    expect(acc.requires_password).toBe(true)
+    expect(acc.requires_account).toBe(false)
+    expect(acc).not.toHaveProperty('plan')
+    expect(acc).not.toHaveProperty('login_error')
+  })
+
+  it('duas chamadas devolvem objetos account diferentes', () => {
+    const a = mockSnapshot().account!
+    const b = mockSnapshot().account!
+    expect(a).not.toBe(b)
+    expect(a.account_provider).not.toBe(b.account_provider)
+    a.account_provider!.provider = 'mutado'
+    expect(mockSnapshot().account!.account_provider!.provider).toBe('supabase')
+  })
+
   it('duas chamadas não compartilham referência', () => {
     const a = mockSnapshot()
     const b = mockSnapshot()

@@ -26,6 +26,9 @@ use crate::engine::Shared;
 ///    em paralelo, a cada 5 s `measure_ping` atualiza o status (`state.set_server`, `touch`);
 /// 4. `recv` devolver `None` (ou erro): status `connecting`, zera `ws`, volta ao passo 2.
 ///    Toda mudança de status faz `shared.state.lock().set_server(status.clone())`.
+///
+/// Erro de login por senha ou conta fica em `login_error` (veja `connect`); `wake` (token novo)
+/// acorda a espera e tenta de novo.
 pub(crate) async fn run(shared: Arc<Shared>) {
     let session = shared.online.clone();
     let mut backoff = Backoff::new();
@@ -37,10 +40,12 @@ pub(crate) async fn run(shared: Arc<Shared>) {
         if base_url(&endereco).is_empty() {
             *session.status.lock() = None;
             session.rooms.lock().clear();
+            *session.login_error.lock() = None;
             {
                 let mut st = shared.state.lock();
                 st.set_server(None);
                 st.set_online_rooms(vec![]);
+                st.set_account(None);
             }
             shared.notifier.touch();
             session.wake.notified().await;
@@ -329,6 +334,66 @@ mod tests {
         drop(srv);
         let ok = ate(8, || !esta_online(&core)).await;
         assert!(ok, "status: {:?}", core.snapshot().server);
+        encerrar(core, d).await;
+    }
+
+    fn conta_cfg() -> Config {
+        Config {
+            requires_account: true,
+            account: Some(zap_net::online::AccountProvider {
+                provider: "supabase".into(),
+                url: "https://x.supabase.co".into(),
+                key: "k".into(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn id_da_conta(core: &Core) -> Option<String> {
+        core.snapshot().account.as_ref().and_then(|a| a.account_id.clone())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn endereco_vazio_limpa_conta() {
+        let srv = zap_test_server::spawn(conta_cfg()).await.unwrap();
+        let (core, d) = novo_core().await;
+        // Sem token: o laco fica em `esperar_retry` com o erro de login.
+        iniciar(&core, srv.base_url.clone());
+        let ok = ate(5, || {
+            core.snapshot()
+                .account
+                .as_ref()
+                .is_some_and(|a| a.login_error.as_deref() == Some("conta_necessaria"))
+        })
+        .await;
+        assert!(ok, "conta: {:?}", core.snapshot().account);
+        // Zera o endereco e acorda o laco (sem `restart`/`clear`): so o ramo
+        // 'endereco vazio' de `run` pode limpar a conta.
+        core.update_settings(|s| s.server.address = String::new());
+        core.shared.online.wake.notify_one();
+        let ok = ate(5, || core.snapshot().account.is_none()).await;
+        assert!(ok, "conta: {:?}", core.snapshot().account);
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn conta_necessaria_tenta_de_novo_com_wake() {
+        let srv = zap_test_server::spawn(conta_cfg()).await.unwrap();
+        let (core, d) = novo_core().await;
+        iniciar(&core, srv.base_url.clone());
+        let ok = ate(5, || {
+            let s = core.snapshot();
+            s.account
+                .as_ref()
+                .is_some_and(|a| a.login_error.as_deref() == Some("conta_necessaria"))
+                && s.server.as_ref().is_some_and(|x| x.state == ServerState::Error)
+        })
+        .await;
+        assert!(ok, "conta: {:?}", core.snapshot().account);
+        *core.shared.online.account_token.lock() = Some("teste:u2:hd".into());
+        core.shared.online.wake.notify_one();
+        let ok = ate(2, || esta_online(&core) && id_da_conta(&core).as_deref() == Some("u2")).await;
+        assert!(ok, "conta: {:?}", core.snapshot().account);
         encerrar(core, d).await;
     }
 

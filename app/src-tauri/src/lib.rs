@@ -1,9 +1,15 @@
 //! App Tauri do StreamaZap: liga o `zap-core` à interface (comandos, eventos e canais de vídeo).
 
+pub mod auth_chunks;
+#[cfg(windows)]
+pub mod auth_keyring;
+pub mod auth_store;
 mod commands;
 #[cfg(test)]
 mod conf_tests;
 pub mod convert;
+pub mod deep_link;
+pub mod deep_link_setup;
 pub mod fwfix;
 mod setup;
 pub mod sink;
@@ -30,6 +36,8 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| setup::init(app))
         .invoke_handler(tauri::generate_handler![
@@ -48,6 +56,11 @@ pub fn run() {
             commands::settings::settings_set,
             commands::sources::sources_list,
             commands::sources::source_thumbnail,
+            commands::auth::auth_store_get,
+            commands::auth::auth_store_set,
+            commands::auth::auth_store_remove,
+            commands::auth::deep_link_pendentes,
+            commands::online::online_set_account,
             commands::online::server_test,
             commands::online::room_preview,
             commands::online::room_preview_stop,

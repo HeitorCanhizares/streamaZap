@@ -1,6 +1,7 @@
 //! Modo Online no Core (marco M4, frente `core-online`; plano: docs/planos/m4-online.md).
 //!
 //! Visão geral (cada módulo diz o que cumpre):
+//! - `account`/`account_apply`: conta e plano da sessão (token só em memória);
 //! - `status`: `ServerStatus` (barra: "Servidor online · 42 ms"), vai no `Snapshot.server`;
 //! - `backoff`: atrasos de reconexão (1, 2, 4, 8, 15 s);
 //! - `convert`: listagens/salas do servidor → tipos da interface e do protocolo;
@@ -32,6 +33,10 @@
 //!   próprio); sem ele vale `webpki-roots`. `CoreOptions::dev_bridge_addr` força o endereço da
 //!   ponte (proxy de teste).
 
+pub mod account;
+mod account_apply;
+#[cfg(test)]
+mod account_tests;
 pub mod backoff;
 pub mod bridge;
 pub mod convert;
@@ -48,6 +53,7 @@ pub mod session_run;
 pub mod status;
 pub mod ws_apply;
 
+pub use account::{AccountProviderView, AccountView};
 pub use entry::ServerTestResult;
 pub use room::OnlineRoom;
 pub use session::OnlineSession;

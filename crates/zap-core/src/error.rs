@@ -61,6 +61,8 @@ fn codigo_estatico(code: &str) -> &'static str {
         "proibido" => "proibido",
         "limite" => "limite",
         "invalido" => "invalido",
+        "conta_necessaria" => "conta_necessaria",
+        "plano_insuficiente" => "plano_insuficiente",
         _ => "erro",
     }
 }
@@ -90,5 +92,32 @@ impl CoreError {
             NetError::Rejected(c) => CoreError::Rejected(c),
             other => CoreError::Net(other),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server(code: &str) -> CoreError {
+        CoreError::Server {
+            code: code.to_string(),
+            message: "x".to_string(),
+        }
+    }
+
+    #[test]
+    fn code_conta_necessaria() {
+        assert_eq!(server("conta_necessaria").code(), "conta_necessaria");
+    }
+
+    #[test]
+    fn code_plano_insuficiente() {
+        assert_eq!(server("plano_insuficiente").code(), "plano_insuficiente");
+    }
+
+    #[test]
+    fn code_desconhecido_continua_erro() {
+        assert_eq!(server("coisa_nova").code(), "erro");
     }
 }

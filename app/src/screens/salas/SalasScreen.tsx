@@ -7,6 +7,8 @@ import type { JoinTarget, RoomMode } from '../../bridge/types'
 import { Button } from '../../components/Button'
 import { TextField } from '../../components/TextField'
 import { AtualizadoCard } from './AtualizadoCard'
+import { CartaoContaNecessaria } from './CartaoContaNecessaria'
+import { CartaoSenhaServidor } from './CartaoSenhaServidor'
 import { DetalheSala } from './DetalheSala'
 import { EntrarCodigo } from './EntrarCodigo'
 import { ListaSalas } from './ListaSalas'
@@ -157,6 +159,12 @@ export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenP
       {/* O detalhe rola sozinho, sem levar a lista junto. */}
       <div data-testid="detalhe-coluna" style={{ flex: '999 1 560px', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
         <AtualizadoCard />
+        {habilitado && modo === 'online' && snap.account?.login_error === 'senha_servidor' ? (
+          <CartaoSenhaServidor />
+        ) : null}
+        {habilitado && modo === 'online' && snap.account?.login_error === 'conta_necessaria' ? (
+          <CartaoContaNecessaria />
+        ) : null}
         {habilitado && promptCodigo ? (
           <EntrarCodigo
             onEntrar={entrarPorCodigo}

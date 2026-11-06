@@ -21,6 +21,9 @@ async function call<T = void>(cmd: string, args?: Record<string, unknown>): Prom
   }
 }
 
+// Armazenamento do mock para o login (fora do Tauri não há Gerenciador de Credenciais).
+const mockAuthStore = new Map<string, string>()
+
 // Estado em memoria do mock: settingsSet nunca muta o objeto anterior, substitui.
 let mockState: Settings = mockSettings()
 
@@ -261,6 +264,49 @@ export const api = {
   updateAppliedTake: async (): Promise<UpdateAplicada | null> => {
     if (!isTauri()) return null
     return call<UpdateAplicada | null>('update_applied_take')
+  },
+  // --- Conta (plano contas-planos-camera §7). Fora do Tauri o storage é um Map em memória. ---
+  // Storage do supabase-js no Gerenciador de Credenciais; null = chave ausente.
+  authStoreGet: async (key: string): Promise<string | null> => {
+    if (!isTauri()) return mockAuthStore.get(key) ?? null
+    return call<string | null>('auth_store_get', { key })
+  },
+  authStoreSet: async (key: string, value: string): Promise<void> => {
+    if (!isTauri()) {
+      mockAuthStore.set(key, value)
+      return
+    }
+    await call('auth_store_set', { key, value })
+  },
+  authStoreRemove: async (key: string): Promise<void> => {
+    if (!isTauri()) {
+      mockAuthStore.delete(key)
+      return
+    }
+    await call('auth_store_remove', { key })
+  },
+  // Entrega o token de acesso ao núcleo (null = saiu da conta). Nunca logar o token.
+  onlineSetAccount: async (token: string | null): Promise<void> => {
+    if (!isTauri()) return
+    await call('online_set_account', { token })
+  },
+  // Abre uma URL https no navegador do sistema (login OAuth). Fora do Tauri não faz nada.
+  abrirUrl: async (url: string): Promise<void> => {
+    if (!isTauri()) return
+    const { openUrl } = await import('@tauri-apps/plugin-opener')
+    await openUrl(url)
+  },
+  // Escuta o evento `zap://deep-link` (payload = URL texto). Devolve a função que desfaz.
+  escutarDeepLink: async (cb: (url: string) => void): Promise<() => void> => {
+    if (!isTauri()) return () => undefined
+    const { listen } = await import('@tauri-apps/api/event')
+    return listen<string>('zap://deep-link', (e) => cb(e.payload))
+  },
+  // Callbacks do login que chegaram com a interface fechada (o app aberto do zero pela URL).
+  // Entrega cada um uma vez só.
+  deepLinkPendentes: async (): Promise<string[]> => {
+    if (!isTauri()) return []
+    return call<string[]>('deep_link_pendentes')
   },
   diagnosticsRun: async (): Promise<DiagReport> => {
     if (!isTauri()) return mockDiagReport()
