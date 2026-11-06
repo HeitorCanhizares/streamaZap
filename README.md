@@ -65,11 +65,23 @@ cheia, **Esc** sai da tela cheia, **M** silencia a sala, **C** liga ou desliga a
 - **Todos na mesma versão:** o app avisa quando alguém na rede tem uma versão mais nova.
 - Para pedir ajuda, mande o **Diagnóstico → Copiar relatório**.
 
+### Música da sala
+
+Na aba **Música** do painel da sala, cole um link do YouTube (vídeo, live, shorts ou
+`music.youtube.com`): ele entra numa fila que todo mundo ouve junto. Cada um toca no próprio app,
+pelo player do YouTube, no mesmo ponto da sala; ninguém precisa de conta. A música pula quando
+metade da sala vota, e quem pôs (ou quem criou a sala) pula direto. Cada um vê os próprios anúncios
+do YouTube; quando o anúncio acaba, o player volta para onde a sala está.
+
+Funciona nas salas **Locais**. Nas salas Online depende de o servidor ter a música (ainda não tem:
+ver `docs/ESTADO.md`, "Pendente no servidor de produção").
+
 ### Modo Online
 
 O modo **Online** (salas pelo servidor, com código, sem precisar de Radmin) está quase pronto: o
-servidor já foi atualizado para a v3, mas ele pede uma senha que o app ainda não sabe pedir. Por
-enquanto, use o modo **Local**.
+servidor já foi atualizado para a v3 e é fechado com senha. Quem tem a senha digita em
+**Configurações → Conexão** (o app ainda não a pede sozinho). A música da sala ainda não funciona
+no Online (falta o servidor). Sem a senha, use o modo **Local**.
 
 ## Como funciona
 

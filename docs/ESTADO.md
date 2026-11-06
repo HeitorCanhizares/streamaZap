@@ -1,6 +1,7 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-05, depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
+Atualizado em 2026-11-06 (v3.2.1: correções de áudio e música da sala). Antes: em 2026-11-05,
+depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
 Diagnóstico e do CI. Todo o trabalho (rodadas M4/M4b/M4c/M2b) está no `master`, que é a única
 branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 
@@ -14,6 +15,36 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
   (`v3.X.Y-beta.N` sai no canal beta). Quem ainda usa o app Python reinstala à mão.
 - **O CI da v3 (`rust.yml`) passa com o M4 pronto** (Linux, Windows e front-end; ver "CI da v3"
   abaixo). Rode-o antes de mexer no `master` se a mudança for grande: aba Actions, "Run workflow".
+
+## Pendente no servidor de produção (`stremaZapi`)
+
+**Música da sala no modo Online** (decisão do dono em 2026-11-06: fica documentado aqui e ele faz
+depois). O app já está pronto desde a **v3.2.1**: no Online o servidor é a fonte da fila, e
+enquanto o de produção não tiver a música, a aba **Música** de uma sala Online avisa que o
+servidor precisa ser atualizado. Nas salas Locais a música já funciona (v3.2.0).
+
+O que fazer no repositório `stremaZapi`:
+1. Subir o `rev` de `zap-proto`, `zap-rate` e `zap-net` no `Cargo.toml` para o commit da v3.2.1
+   (`9f32488`), que traz `zap_proto::music` (`MusicQueue`, `needed`, `is_video_id`).
+2. Uma `MusicQueue` por sala. Tratar `musica.adicionar`, `musica.remover`, `musica.pular` e
+   `musica.info` que chegam pelo WebSocket de quem fez `sala.entrar` (fora da sala: `erro`
+   `proibido`). O servidor dá o id do item, e quem pôs é o participante que mandou. Pedido recusado:
+   `erro` com `codigo: "musica_invalida"` só para quem pediu. `musica.remover` do item atual só vale
+   para quem pôs ou para o dono da sala.
+3. Mandar `musica.estado` (`MusicQueue::msg` com o número de membros da sala) para todos da sala:
+   - no `sala.entrar`, depois do `sala.estado` e do histórico do chat;
+   - a cada pedido que mudou a fila;
+   - quando um membro sai (`MusicQueue::left`: o voto sai junto e o limite cai);
+   - a cada 10 s com música tocando.
+4. Um laço de 1 s chamando `MusicQueue::tick` (avança no fim do vídeo). O contador do reenvio de
+   10 s é do servidor ou da sala, nunca um `static` do processo.
+5. Testar como o `zap-test-server` (os testes `musica_*` de `src/signaling.rs`) e publicar. O push
+   reinicia o servidor e zera as salas abertas.
+
+Modelo pronto para copiar: `crates/zap-test-server/src/music.rs` e os pontos que o chamam
+(`signaling.rs`, `rooms_join.rs::leave_room`, `ticker.rs`). Contrato: `docs/api/mensagens.md`,
+"Música da sala". Teste do app com o servidor de teste: `musica_numa_sala_online_passa_pelo_servidor`
+(`crates/zap-core/src/engine_music.rs`).
 
 ## Resumo
 
@@ -186,14 +217,8 @@ Música da sala (depois da v3.1.3; plano em `docs/planos/musica-da-sala.md`):
   `zap-proto`), e no Online o servidor é a fonte. O app manda `musica.*` pelo WebSocket e guarda o
   `musica.estado` que volta (`online/ws_apply.rs`). O `zap-test-server` já faz o papel do
   servidor (`src/music.rs`), com o teste de duas pessoas `musica_numa_sala_online_passa_pelo_servidor`.
-- **O servidor de produção ainda não tem a música** (repositório `stremaZapi`). Para ter:
-  1. subir o `rev` de `zap-proto`/`zap-rate`/`zap-net` para o commit do app com `zap_proto::music`;
-  2. `MusicQueue` por sala; tratar `musica.adicionar/remover/pular/info` do WebSocket (id do item
-     do servidor, quem pôs = participante; `musica_invalida` para o erro);
-  3. `musica.estado` para todos no `sala.entrar` (depois do chat), a cada mudança, na saída de um
-     membro (`left`) e a cada 10 s com música; `tick` a cada 1 s (o contador de tiques é do
-     servidor ou da sala, nunca um `static` do processo);
-  4. publicar (o push reinicia o servidor e zera as salas). Modelo: `zap-test-server/src/music.rs`.
+- **O servidor de produção ainda não tem a música**: ver "Pendente no servidor de produção" no
+  topo deste arquivo.
 - Falta testar com dois PCs de verdade (sincronia, anúncio, live) e no app instalado (o embed com
   a origem `http://tauri.localhost`). Na prévia do navegador o player tocou e respondeu aos
   comandos.
