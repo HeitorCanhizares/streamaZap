@@ -15,7 +15,7 @@ import { DiagScreen } from './screens/diag/DiagScreen'
 
 type View = NavTarget
 
-const VERSAO = 'v3.2.0'
+const VERSAO = 'v3.2.1'
 
 // Controles da janela só existem no Tauri. Fora dele viram no-op, sem tocar no módulo.
 function acaoJanela(acao: (w: import('@tauri-apps/api/window').Window) => Promise<void>): void {

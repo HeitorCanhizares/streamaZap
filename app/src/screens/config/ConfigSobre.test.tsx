@@ -41,7 +41,7 @@ describe('ConfigSobre', () => {
     expect(screen.getByRole('heading', { name: 'Sobre e atualizações' })).toBeTruthy()
     // O nome fica dividido em spans (Zap em verde), então a busca compara o texto completo do elemento.
     expect(screen.getByText((_, el) => el?.textContent === 'streamaZap')).toBeTruthy()
-    expect(screen.getByText('versão 3.2.0 · protocolo 3 · licença MIT')).toBeTruthy()
+    expect(screen.getByText('versão 3.2.1 · protocolo 3 · licença MIT')).toBeTruthy()
     expect(screen.getByAltText('Logo do streamaZap')).toBeTruthy()
   })
 
