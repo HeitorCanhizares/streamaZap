@@ -155,6 +155,9 @@ Regras:
   `trilha.atualizar`, ausente = não muda (não volta ao padrão). Trocar o jeito da câmera é só
   `trilha.atualizar` (a trilha não é republicada). App antigo sem o campo: todo mundo vê a câmera
   no canto inferior direito.
+- **`trilha.atualizar` é tudo ou nada:** se alguma parte do pedido for recusada (camadas
+  inválidas, plano), o servidor devolve `erro` e não muda nada da trilha, nem o título nem o
+  `camera`, e não manda `trilha.atualizada`. Para trocar só uma coisa, mande só ela.
 - **`camera` desconhecido é tolerado:** um `modo` ou `canto` que a versão não conhece (de um app
   mais novo) vale como ausente (`zap_proto::camera_layout_tolerant`). A mensagem inteira continua
   válida; nunca vira `invalido` nem derruba o `sala.estado`.
