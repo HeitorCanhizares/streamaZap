@@ -108,8 +108,8 @@ WebSocket/QUIC: mensagem `erro` com os mesmos códigos.
 |---|---|---|
 | `protocolo_incompativel` | 426 | `protocolo` fora da faixa do servidor (a resposta traz `protocolo_min/max`) |
 | `senha_servidor` | 401 | senha do servidor ausente ou errada |
-| `conta_necessaria` | 401 | o servidor exige conta (`requer_conta`) e o pedido não trouxe `acesso_conta` válido (ausente, vencido, de outro emissor ou com assinatura errada). App velho recebe a `mensagem` "Atualize o streamaZap para entrar com sua conta" |
-| `plano_insuficiente` | 403 | ação acima do plano da conta: entrar/criar sala com plano `nenhum`, ou transmitir sem plano de transmissor ou acima dele. O corpo REST traz `plano` (id do plano da sessão) e `campo` (ex.: `"camadas"`) |
+| `conta_necessaria` | 401 | só no `POST /sessoes`: o servidor exige conta (`requer_conta`) e o pedido não trouxe `acesso_conta` válido (ausente, vencido, anônimo, de outro emissor ou com assinatura errada). App velho recebe a `mensagem` "Atualize o streamaZap para entrar com sua conta" |
+| `plano_insuficiente` | 403 | ação acima do plano da conta. Traz `plano` (só o id, ex.: `"espectador"`). Ao transmitir (`trilha.publicar`/`trilha.atualizar`) traz também `campo`: `"tipo"` quando o plano não transmite nada (nem só o som) e `"camadas"` quando uma camada passa do teto. Em `POST /salas` e `POST /salas/{codigo}/entrar` (plano `nenhum`), sem `campo` |
 | `nao_autenticado` | 401 | token ausente, inválido ou expirado |
 | `sala_nao_encontrada` | 404 | código ou id inexistente |
 | `senha_sala` | 403 | senha da sala errada |
@@ -121,4 +121,4 @@ WebSocket/QUIC: mensagem `erro` com os mesmos códigos.
 | `interno` | 500 | erro no servidor |
 
 No WebSocket e no QUIC, a mensagem `erro` traz os mesmos campos extras (`campo`, `tentar_em_ms`,
-`protocolo_min`/`protocolo_max`) e repete o `ref` do pedido.
+`protocolo_min`/`protocolo_max`, `plano`) e repete o `ref` do pedido.

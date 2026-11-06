@@ -221,12 +221,16 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn sonda_acima_do_mtu_e_cortada() -> Result<(), Erro> {
         let (cli, srv, _e1, _e2) = par_loopback().await?;
-        let max = cli.max_datagram_size().ok_or("sem datagramas")?;
-        let tx = MediaSender::new(cli, Clock::new());
+        // A descoberta de MTU do QUIC pode aumentar o máximo entre a leitura e o envio (mesma
+        // corrida do `probe_size_limitado`): vale o máximo lido antes ou depois.
+        let antes = cli.max_datagram_size().ok_or("sem datagramas")?;
+        let tx = MediaSender::new(cli.clone(), Clock::new());
         tx.send_probe(2, 5, 100_000)?;
 
         let buf = recebe(&srv).await?;
-        assert!(buf.len() <= max, "{} > {max}", buf.len());
+        let depois = cli.max_datagram_size().ok_or("sem datagramas")?;
+        let max = antes.max(depois);
+        assert!(buf.len() <= max, "{} > {antes}..{depois}", buf.len());
         assert!(matches!(decode_datagram(&buf)?, Datagram::Probe(_, _)));
         Ok(())
     }

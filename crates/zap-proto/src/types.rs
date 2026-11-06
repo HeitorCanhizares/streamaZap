@@ -134,9 +134,26 @@ pub struct Track {
     #[serde(rename = "endereco", default, skip_serializing_if = "Option::is_none")]
     pub address: Option<MediaAddress>,
     /// Só trilha `camera`: canto da tela de quem transmite ou solta. Ausente = canto inferior
-    /// direito (`CameraLayout::default()`).
-    #[serde(rename = "camera", default, skip_serializing_if = "Option::is_none")]
+    /// direito (`CameraLayout::default()`). Valor desconhecido (de uma versão mais nova) vira
+    /// `None` em vez de derrubar a mensagem inteira ([`camera_layout_tolerant`]).
+    #[serde(
+        rename = "camera",
+        default,
+        deserialize_with = "camera_layout_tolerant",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub camera_layout: Option<CameraLayout>,
+}
+
+/// Lê o campo `camera` sem falhar: um `modo` ou `canto` que esta versão não conhece vira `None`
+/// (o padrão, canto inferior direito), e o resto da mensagem (`sala.estado`, `trilha.publicada`,
+/// `trilha.publicar`...) continua valendo. Use com `#[serde(default, deserialize_with = ...)]`.
+pub fn camera_layout_tolerant<'de, D>(d: D) -> Result<Option<CameraLayout>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let valor = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(valor.and_then(|v| serde_json::from_value(v).ok()))
 }
 
 /// Canto da tela de quem transmite onde a câmera aparece para quem assiste.
@@ -421,13 +438,18 @@ mod tests {
     }
 
     #[test]
-    fn camera_layout_invalido() {
-        for ruim in [
+    fn camera_layout_desconhecido_vira_padrao_sem_derrubar_a_trilha() {
+        // Um modo ou canto de uma versão mais nova não pode fazer o `Track` inteiro falhar.
+        for desconhecido in [
             json!({"modo": "flutuante"}),
             json!({"modo": "canto"}),
-            json!({"modo": "canto", "canto": "meio"}),
+            json!({"modo": "canto", "canto": "centro"}),
+            json!("solta"),
+            json!(null),
         ] {
-            assert!(serde_json::from_value::<Track>(camera_json(Some(ruim))).is_err());
+            let t: Track = serde_json::from_value(camera_json(Some(desconhecido))).expect("trilha continua válida");
+            assert_eq!(t.camera_layout, None);
+            assert_eq!(t.title, "Câmera integrada");
         }
     }
 

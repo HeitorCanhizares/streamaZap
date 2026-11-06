@@ -135,7 +135,8 @@ pub fn limits(id: PlanId) -> PlanLimits {
     }
 }
 
-/// Por que uma publicação não cabe no plano. Vira o erro `plano_insuficiente` (`campo: "camadas"`).
+/// Por que uma publicação não cabe no plano. Vira o erro `plano_insuficiente`, com `plano` (o id) e
+/// o `campo` de [`PlanError::field`].
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum PlanError {
     #[error("o plano não permite transmitir")]
@@ -145,9 +146,13 @@ pub enum PlanError {
 }
 
 impl PlanError {
-    /// O `campo` do erro `plano_insuficiente`.
+    /// O `campo` do erro `plano_insuficiente`: `"tipo"` quando o plano não transmite nada
+    /// (inclusive só o som), `"camadas"` quando uma camada passa do teto.
     pub fn field(&self) -> &'static str {
-        "camadas"
+        match self {
+            PlanError::CannotPublish => "tipo",
+            PlanError::AboveLimit { .. } => "camadas",
+        }
     }
 }
 
@@ -357,6 +362,11 @@ mod tests {
                 what: "altura"
             })
         );
-        assert_eq!(PlanError::CannotPublish.field(), "camadas");
+    }
+
+    #[test]
+    fn campo_do_erro() {
+        assert_eq!(PlanError::CannotPublish.field(), "tipo");
+        assert_eq!(PlanError::AboveLimit { layer: 0, what: "fps" }.field(), "camadas");
     }
 }

@@ -59,7 +59,7 @@ type Endereco = { enderecos: string[] /* "26.12.34.56" */; porta: number; finger
 |---|---|---|---|
 | `ping` | ambos | `ts_ms` | Responder `pong` com o mesmo `ts_ms` |
 | `pong` | ambos | `ts_ms` | RTT = agora − `ts_ms` |
-| `erro` | S→C | `codigo`, `mensagem`, `ref?`, e os extras do REST (`campo`, `tentar_em_ms`, `protocolo_min`/`protocolo_max`) | Códigos em [`README.md`](README.md#erros). Repete o `ref` do pedido que falhou |
+| `erro` | S→C | `codigo`, `mensagem`, `ref?`, e os extras do REST (`campo`, `tentar_em_ms`, `protocolo_min`/`protocolo_max`, `plano`) | Códigos em [`README.md`](README.md#erros). Repete o `ref` do pedido que falhou |
 
 O servidor manda `ping` no WebSocket a cada 15 s (conexão morta depois de 45 s sem tráfego) e no
 QUIC a cada 2 s. A `latencia_ms` do participante vem do `pong` do QUIC; a do WebSocket só conta
@@ -150,13 +150,19 @@ Regras:
 - `camadas.pedidas` cobre só quem assiste **pela ponte**. Espectadores na rota direta são alocados
   pelo próprio publicador ([`balanceamento.md`](balanceamento.md)).
 - `camera` (em `trilha.publicar`, `trilha.atualizar` e na `Trilha`): só vale para trilha `camera`;
-  em outro tipo, o servidor ignora. O servidor guarda o campo na trilha e o repassa em
-  `trilha.publicada`, `trilha.atualizada` e `sala.estado`. Em `trilha.atualizar`, ausente = não
-  muda. Trocar o jeito da câmera é só `trilha.atualizar` (a trilha não é republicada). App antigo
-  sem o campo: todo mundo vê a câmera no canto inferior direito.
+  em outro tipo, o servidor descarta o campo (guarda nada) em vez de recusar. O servidor guarda o
+  campo na trilha e o repassa em `trilha.publicada`, `trilha.atualizada` e `sala.estado`. Em
+  `trilha.atualizar`, ausente = não muda (não volta ao padrão). Trocar o jeito da câmera é só
+  `trilha.atualizar` (a trilha não é republicada). App antigo sem o campo: todo mundo vê a câmera
+  no canto inferior direito.
+- **`camera` desconhecido é tolerado:** um `modo` ou `canto` que a versão não conhece (de um app
+  mais novo) vale como ausente (`zap_proto::camera_layout_tolerant`). A mensagem inteira continua
+  válida; nunca vira `invalido` nem derruba o `sala.estado`.
 - **Plano (Online com conta):** `trilha.publicar` e `trilha.atualizar` são recusados com `erro`
-  `plano_insuficiente` (com `ref`) quando o plano da sessão não transmite ou quando a camada 0 passa
-  do limite do plano (`zap_proto::plan::check_publish`). Sessão sem conta não tem limite de plano.
+  `plano_insuficiente` (com `ref`, `plano` e `campo`) quando o plano da sessão não transmite
+  (`campo: "tipo"`) ou quando alguma camada passa do teto do plano (`campo: "camadas"`;
+  `zap_proto::plan::check_publish` confere todas as camadas, pelo lado menor do quadro). Sessão sem
+  conta não tem limite de plano.
 
 ## Assinaturas (quem assiste)
 

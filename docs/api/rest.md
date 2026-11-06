@@ -19,7 +19,7 @@ Usado pelo botão **Testar conexão** e antes de toda sessão.
   "regiao": "sa-east",
   "requer_senha": true,
   "requer_conta": true,
-  "conta": { "provedor": "supabase", "url": "https://abcd1234.supabase.co" },
+  "conta": { "provedor": "supabase", "url": "https://abcd1234.supabase.co", "chave": "sb_publishable_…" },
   "ponte": true,
   "quic": { "porta": 7443, "alpn": "zap/4" },
   "limites": { "participantes_por_sala": 16, "trilhas_video_por_sala": 8, "bitrate_max_kbps": 12000 },
@@ -31,9 +31,12 @@ Usado pelo botão **Testar conexão** e antes de toda sessão.
 
 - `requer_conta` (ausente = `false`): sem `acesso_conta` válido, `POST /sessoes` responde
   `conta_necessaria`.
-- `conta` (ausente = o servidor não confere contas): onde o app faz login. Servidor com `conta` e
-  sem `requer_conta` aceita a conta se vier (vale para o plano), mas não exige. Servidor próprio sem
+- `conta` (ausente = o servidor não confere contas): onde o app faz login. `url` e `chave` (a chave
+  publicável do projeto Supabase, pública por definição) são o que o app usa para criar o cliente
+  de login; assim um servidor próprio aponta para o próprio projeto. Servidor com `conta` e sem
+  `requer_conta` aceita a conta se vier (vale para o plano), mas não exige. Servidor próprio sem
   `conta`: o app nem mostra login.
+- Login anônimo do Supabase (`is_anonymous: true` no JWT) não vale como conta.
 
 ## `POST /v1/sessoes`
 
@@ -73,8 +76,9 @@ Resposta `201`:
   }
 }
 ```
-- `conta_id` e `plano`: só quando a sessão tem conta. **Sem conta, não há limite de plano** (servidor
-  sem `requer_conta`, apps sem login).
+- `conta_id` e `plano`: só quando a sessão tem conta. **Sem conta, não há limite de plano**: até o
+  servidor ligar `requer_conta`, quem entra só com a senha (apps sem login) não é limitado por plano.
+  O teto de banda por espectador vale para todos.
 - `plano.id`: `"nenhum"`, `"espectador"`, `"hd"` ou `"fullhd"`. Os limites vêm de
   `zap_proto::plan::limits` (a fonte dos números): `pode_entrar` (criar e entrar em sala Online) e
   `transmitir` (`null` = não transmite; senão o teto da camada 0 de cada trilha: altura, fps e kbps
@@ -87,8 +91,18 @@ Resposta `201`:
 
 Corpo opcional `{ "acesso_conta": "…" }` (token novo do Supabase, depois de um login, de uma
 renovação ou de assinar um plano). Resposta igual à de criação, com token novo. O antigo vale mais
-5 min. Com `acesso_conta`, o plano do participante é atualizado; ele vale para salas e trilhas
-**novas** (nada em andamento é derrubado). `acesso_conta` inválido → `conta_necessaria`.
+5 min.
+
+O `renovar` **sempre** renova o token da sessão (Supabase fora do ar não derruba sessão aberta):
+- sem corpo: mantém conta e plano;
+- `acesso_conta` válido: atualiza o plano, ou liga a conta numa sessão que entrou só com a senha
+  (login depois de entrar, sem reconectar). O plano novo vale para salas e trilhas **novas** (nada
+  em andamento é derrubado);
+- `acesso_conta` vencido ou inválido: ignorado; a sessão continua com o plano de antes;
+- `acesso_conta` de outra conta (`sub` diferente da conta da sessão): `403 proibido`. Trocar de conta
+  = sessão nova (`POST /sessoes`).
+
+`conta_necessaria` só sai do `POST /v1/sessoes`, nunca do `renovar`.
 
 ## `GET /v1/salas`
 

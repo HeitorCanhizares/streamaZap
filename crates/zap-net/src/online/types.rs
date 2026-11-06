@@ -11,6 +11,10 @@ pub struct AccountProvider {
     pub provider: String,
     /// Ex.: `https://abcd1234.supabase.co`.
     pub url: String,
+    /// Chave publicável do projeto (`sb_publishable_…`): pública, o app precisa dela junto com a
+    /// `url` para fazer login. Vazia = o servidor não mandou (o app não mostra login).
+    #[serde(rename = "chave", default)]
+    pub key: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -574,16 +578,25 @@ mod tests {
     fn info_com_conta() {
         let mut v: Value = serde_json::from_str(INFO).unwrap();
         v["requer_conta"] = json!(true);
-        v["conta"] = json!({"provedor": "supabase", "url": "https://abcd1234.supabase.co"});
-        let info: ServerInfo = serde_json::from_value(v).unwrap();
+        v["conta"] = json!({
+            "provedor": "supabase",
+            "url": "https://abcd1234.supabase.co",
+            "chave": "sb_publishable_abc"
+        });
+        let info: ServerInfo = serde_json::from_value(v.clone()).unwrap();
         assert!(info.requires_account);
         assert_eq!(
             info.account,
             Some(AccountProvider {
                 provider: "supabase".into(),
                 url: "https://abcd1234.supabase.co".into(),
+                key: "sb_publishable_abc".into(),
             })
         );
+        // Sem `chave`: a info continua válida, com a chave vazia.
+        v["conta"] = json!({"provedor": "supabase", "url": "https://abcd1234.supabase.co"});
+        let sem_chave: ServerInfo = serde_json::from_value(v).unwrap();
+        assert_eq!(sem_chave.account.map(|a| a.key), Some(String::new()));
     }
 
     #[test]
