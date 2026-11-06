@@ -58,7 +58,9 @@ export interface Settings {
   sound: { initial_volume: number; message_sound: boolean; notify_room_open: boolean; mute_when_minimized: boolean }
   update: { auto: boolean; channel: 'estavel' | 'beta' }
 }
-export interface SourceItem { id: string; kind: 'screen' | 'window' | 'camera' | 'app'; name: string }
+// sound: só nos apps. playing = tocando agora; ready = já abriu o som (quieto); silent = só tem janela.
+export type AppSound = 'playing' | 'ready' | 'silent'
+export interface SourceItem { id: string; kind: 'screen' | 'window' | 'camera' | 'app'; name: string; sound?: AppSound }
 export interface Sources { screens: SourceItem[]; windows: SourceItem[]; cameras: SourceItem[]; apps: SourceItem[]; encoders: string[] }
 export interface CreateRoom { name: string; mode: RoomMode; password: string | null }
 // source: id da fonte (screen:N, window:H, camera:ID) ou SO_AUDIO ('none') para transmitir só o som.

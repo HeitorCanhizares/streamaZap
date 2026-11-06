@@ -230,6 +230,8 @@ async fn clear_room(shared: &Arc<Shared>) -> Option<Arc<ActiveRoom>> {
     for s in subs {
         s.stop(shared).await;
     }
+    // Rede de segurança: ninguém da sala fica ocupando o mixer de saída.
+    shared.audio_rx.clear();
     shared.pool.close_all().await;
     if let Some(ms) = shared.media_server.lock().await.clone() {
         ms.set_auth(None);

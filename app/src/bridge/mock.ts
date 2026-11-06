@@ -172,9 +172,11 @@ export const mockSources = (): Sources => ({
   ],
   cameras: [{ id: 'camera:0', kind: 'camera', name: 'Webcam (Logitech C920)' }],
   apps: [
-    { id: 'app:discord', kind: 'app', name: 'Discord' },
-    { id: 'app:chrome', kind: 'app', name: 'Chrome' },
-    { id: 'app:jogo', kind: 'app', name: 'Jogo' },
+    { id: 'app:spotify', kind: 'app', name: 'Spotify', sound: 'playing' },
+    { id: 'app:discord', kind: 'app', name: 'Discord', sound: 'ready' },
+    { id: 'app:chrome', kind: 'app', name: 'Google Chrome', sound: 'ready' },
+    { id: 'app:jogo', kind: 'app', name: 'Jogo', sound: 'silent' },
+    { id: 'app:vscode', kind: 'app', name: 'Visual Studio Code', sound: 'silent' },
   ],
   encoders: ['Automatico', 'NVENC', 'x264'],
 })

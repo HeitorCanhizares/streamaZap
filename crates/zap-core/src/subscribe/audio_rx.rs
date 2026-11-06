@@ -13,6 +13,10 @@ use super::router::TrackHandler;
 use crate::audio_out::AudioOutHandle;
 use crate::playout::PlayoutHub;
 
+/// Recuo de `seq` maior que isso (2 s de áudio) não é pacote atrasado: é um áudio novo de quem
+/// transmite, que parou e voltou (a contagem recomeça do zero a cada transmissão).
+const RECOMECO: u32 = 100;
+
 /// Áudio de um participante.
 pub struct AudioRx {
     pub(crate) participant_id: String,
@@ -62,13 +66,25 @@ impl TrackHandler for AudioRx {
         let seq = header.seq;
         let mut pcm = [0f32; FRAME_SAMPLES];
         let mut last = self.last_seq.lock();
-        let prev = *last;
-        // Atrasado ou duplicado: descarta sem mexer no estado.
-        if matches!(prev, Some(p) if seq <= p) {
-            return;
+        let mut prev = *last;
+        let mut dec = self.decoder.lock();
+        if let Some(p) = prev {
+            if seq <= p {
+                // Atrasado ou duplicado: descarta sem mexer no estado.
+                if p - seq <= RECOMECO {
+                    return;
+                }
+                // Recuou muito: quem transmite parou e voltou (a contagem recomeçou do zero).
+                // Sem isso, todo o som novo era descartado como "atrasado" até a contagem passar
+                // da antiga, e nem sair e entrar na sala resolvia.
+                tracing::info!(participante = %self.participant_id, de = p, para = seq, "áudio recomeçou");
+                prev = None;
+                if let Ok(novo) = zap_audio::OpusDec::new() {
+                    *dec = novo;
+                }
+            }
         }
         *last = Some(seq);
-        let mut dec = self.decoder.lock();
         // Perdeu exatamente 1 quadro: o FEC deste pacote recupera o anterior.
         if matches!(prev, Some(p) if seq == p.wrapping_add(2)) {
             match dec.decode(None, Some(&opus), &mut pcm) {
@@ -89,11 +105,18 @@ impl TrackHandler for AudioRx {
 
 /// Um `AudioRx` por participante, criado sob demanda (`AudioOutHandle::add_track` com id =
 /// hash estável do participant_id), com o volume inicial de `Settings.sound.initial_volume`.
+///
+/// As assinaturas pegam o receptor com [`AudioRegistry::hold`] e soltam com
+/// [`AudioRegistry::unhold`]; quando a última solta, o participante sai do mixer de saída. O
+/// mixer tem um limite de trilhas e cada entrada numa sala gera um id novo: sem soltar, ele
+/// enchia numa noite longa e quem entrava depois ficava mudo.
 pub struct AudioRegistry {
     pub(crate) out: AudioOutHandle,
     pub(crate) playout: Arc<PlayoutHub>,
     pub(crate) clock: zap_net::Clock,
     pub(crate) by_participant: Mutex<HashMap<String, Arc<AudioRx>>>,
+    /// Quantas assinaturas usam o receptor de cada participante. Trava depois de `by_participant`.
+    pub(crate) holders: Mutex<HashMap<String, usize>>,
     pub(crate) volumes: Mutex<HashMap<String, (f32, bool)>>,
     pub(crate) initial_volume: Mutex<f32>,
 }
@@ -105,12 +128,60 @@ impl AudioRegistry {
             playout,
             clock,
             by_participant: Mutex::new(HashMap::new()),
+            holders: Mutex::new(HashMap::new()),
             volumes: Mutex::new(HashMap::new()),
             initial_volume: Mutex::new(initial_volume),
         }
     }
+    /// Receptor do participante (cria se não existe), sem contar como uso.
     pub fn get_or_create(&self, participant_id: &str) -> Result<Arc<AudioRx>, crate::CoreError> {
         let mut mapa = self.by_participant.lock();
+        self.criar(&mut mapa, participant_id)
+    }
+    /// Receptor do participante para uma assinatura: conta um uso (soltar com `unhold`).
+    pub fn hold(&self, participant_id: &str) -> Result<Arc<AudioRx>, crate::CoreError> {
+        let mut mapa = self.by_participant.lock();
+        let rx = self.criar(&mut mapa, participant_id)?;
+        *self.holders.lock().entry(participant_id.to_string()).or_default() += 1;
+        Ok(rx)
+    }
+    /// Solta um uso; o último tira o participante do mixer de saída.
+    pub fn unhold(&self, participant_id: &str) {
+        let removido = {
+            let mut mapa = self.by_participant.lock();
+            let mut holders = self.holders.lock();
+            match holders.get_mut(participant_id) {
+                Some(n) if *n > 1 => {
+                    *n -= 1;
+                    false
+                }
+                Some(_) => {
+                    holders.remove(participant_id);
+                    mapa.remove(participant_id).is_some()
+                }
+                None => false,
+            }
+        };
+        if removido {
+            self.out.remove_track(stable_id(participant_id));
+        }
+    }
+    /// Tira todos do mixer (saí da sala). Os volumes escolhidos continuam guardados.
+    pub fn clear(&self) {
+        let ids: Vec<String> = {
+            let mut mapa = self.by_participant.lock();
+            self.holders.lock().clear();
+            mapa.drain().map(|(id, _)| id).collect()
+        };
+        for id in ids {
+            self.out.remove_track(stable_id(&id));
+        }
+    }
+    fn criar(
+        &self,
+        mapa: &mut HashMap<String, Arc<AudioRx>>,
+        participant_id: &str,
+    ) -> Result<Arc<AudioRx>, crate::CoreError> {
         if let Some(rx) = mapa.get(participant_id) {
             return Ok(Arc::clone(rx));
         }
@@ -146,7 +217,12 @@ impl AudioRegistry {
         }
     }
     pub fn remove(&self, participant_id: &str) {
-        if self.by_participant.lock().remove(participant_id).is_some() {
+        let removido = {
+            let mut mapa = self.by_participant.lock();
+            self.holders.lock().remove(participant_id);
+            mapa.remove(participant_id).is_some()
+        };
+        if removido {
             self.out.remove_track(stable_id(participant_id));
         }
     }
@@ -258,6 +334,52 @@ mod tests {
         rx.on_event(evento(3, &opus));
         assert_eq!(*rx.last_seq.lock(), Some(3));
         rx.tick();
+    }
+
+    #[test]
+    fn audio_que_recomeca_do_zero_volta_a_tocar() {
+        let r = registry();
+        let rx = r.get_or_create("a").unwrap();
+        let opus = opus_seno();
+        rx.on_event(evento(5_000, &opus));
+        // Atraso pequeno: descartado.
+        rx.on_event(evento(4_950, &opus));
+        assert_eq!(*rx.last_seq.lock(), Some(5_000));
+        // Quem transmite parou e voltou: a contagem recomeçou.
+        rx.on_event(evento(0, &opus));
+        assert_eq!(*rx.last_seq.lock(), Some(0));
+        rx.on_event(evento(1, &opus));
+        assert_eq!(*rx.last_seq.lock(), Some(1));
+    }
+
+    #[test]
+    fn ultimo_uso_tira_do_mixer_e_o_volume_fica() {
+        let r = registry();
+        r.set_volume("a", 0.3, false);
+        let a1 = r.hold("a").unwrap();
+        let a2 = r.hold("a").unwrap();
+        assert!(Arc::ptr_eq(&a1, &a2));
+        r.unhold("a");
+        assert!(r.by_participant.lock().contains_key("a"), "ainda há uma assinatura");
+        r.unhold("a");
+        assert!(!r.by_participant.lock().contains_key("a"), "a última soltou");
+        assert!(r.holders.lock().is_empty());
+        // Soltar a mais não quebra nada.
+        r.unhold("a");
+        // Voltou a assistir: receptor novo, com o volume escolhido antes.
+        let a3 = r.hold("a").unwrap();
+        assert!(!Arc::ptr_eq(&a1, &a3));
+        assert_eq!(*a3.volume.lock(), (0.3, false));
+    }
+
+    #[test]
+    fn clear_tira_todos() {
+        let r = registry();
+        let _a = r.hold("a").unwrap();
+        let _b = r.get_or_create("b").unwrap();
+        r.clear();
+        assert!(r.by_participant.lock().is_empty());
+        assert!(r.holders.lock().is_empty());
     }
 
     #[test]

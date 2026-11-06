@@ -91,12 +91,13 @@ describe('mockSettings', () => {
 })
 
 describe('mockSources', () => {
-  it('tem 2 telas, 3 janelas, 1 câmera, 3 apps e os encoders', () => {
+  it('tem 2 telas, 3 janelas, 1 câmera, 5 apps (com o estado do som) e os encoders', () => {
     const s = mockSources()
     expect(s.screens).toHaveLength(2)
     expect(s.windows).toHaveLength(3)
     expect(s.cameras).toHaveLength(1)
-    expect(s.apps.map((a) => a.name)).toEqual(['Discord', 'Chrome', 'Jogo'])
+    expect(s.apps.map((a) => a.name)).toEqual(['Spotify', 'Discord', 'Google Chrome', 'Jogo', 'Visual Studio Code'])
+    expect(s.apps.map((a) => a.sound)).toEqual(['playing', 'ready', 'ready', 'silent', 'silent'])
     expect(s.encoders).toEqual(['Automatico', 'NVENC', 'x264'])
   })
 })

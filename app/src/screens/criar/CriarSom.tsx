@@ -2,7 +2,16 @@ import type { ReactNode } from 'react'
 import type { SourceItem } from '../../bridge/types'
 import type { SomModo } from './criarModel'
 
-export interface CriarSomProps { apps: SourceItem[]; sound: SomModo; onSound: (v: SomModo) => void; marcados: string[]; onMarcados: (v: string[]) => void; numero?: string }
+export interface CriarSomProps {
+  apps: SourceItem[]
+  sound: SomModo
+  onSound: (v: SomModo) => void
+  marcados: string[]
+  onMarcados: (v: string[]) => void
+  /** Lista os apps de novo (também chamado ao escolher "Só alguns apps"). */
+  onRefresh?: () => void
+  numero?: string
+}
 
 // Seção 05 "Som" (2-criar-sala.html 147-166).
 
@@ -14,13 +23,56 @@ const MODOS: { id: SomModo; label: string }[] = [
   { id: 'apps', label: 'Só alguns apps' },
 ]
 
-export function CriarSom({ apps, sound, onSound, marcados, onMarcados, numero = '05' }: CriarSomProps): ReactNode {
+/** Apps que já abriram o som (tocando ou quietos) primeiro; os que só têm janela depois. */
+export function gruposDeApps(apps: SourceItem[]): { comSom: SourceItem[]; outros: SourceItem[] } {
+  return {
+    comSom: apps.filter((a) => a.sound !== 'silent'),
+    outros: apps.filter((a) => a.sound === 'silent'),
+  }
+}
+
+export function CriarSom({ apps, sound, onSound, marcados, onMarcados, onRefresh, numero = '05' }: CriarSomProps): ReactNode {
   const bloco = { display: 'flex', flexDirection: 'column' as const, gap: 12, padding: 20, borderRadius: 18, background: 'var(--superficie)', border: '1px solid var(--borda)' }
+  const { comSom, outros } = gruposDeApps(apps)
 
   // Alterna o id sem mutar `marcados`: sempre entrega um array novo.
   function alternar(id: string): void {
     onMarcados(marcados.includes(id) ? marcados.filter((m) => m !== id) : [...marcados, id])
   }
+
+  function pilula(app: SourceItem): ReactNode {
+    const marcado = marcados.includes(app.id)
+    const tocando = app.sound === 'playing'
+    return (
+      <button
+        key={app.id}
+        type="button"
+        aria-pressed={marcado}
+        onClick={() => alternar(app.id)}
+        title={tocando ? 'Tocando agora' : undefined}
+        style={{
+          height: 36, padding: '0 12px', borderRadius: 999,
+          display: 'flex', alignItems: 'center', gap: 6,
+          fontFamily: MONO, fontSize: 12, cursor: 'pointer',
+          border: `1px solid ${marcado ? 'var(--verde)' : 'var(--borda-forte)'}`,
+          background: marcado ? 'rgba(59,240,138,0.12)' : 'transparent',
+          color: marcado ? 'var(--verde)' : 'var(--texto-2)',
+        }}
+      >
+        {marcado && (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m5 12 5 5 9-10" />
+          </svg>
+        )}
+        {tocando && !marcado && (
+          <span data-testid="tocando" aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--verde)', flex: '0 0 7px' }} />
+        )}
+        {app.name}
+      </button>
+    )
+  }
+
+  const rotulo = { margin: 0, fontSize: 12, color: 'var(--texto-3)' }
 
   return (
     <section style={{ ...bloco, flex: '1 1 320px', minWidth: 0 }}>
@@ -37,7 +89,11 @@ export function CriarSom({ apps, sound, onSound, marcados, onMarcados, numero = 
               type="button"
               role="radio"
               aria-checked={ativo}
-              onClick={() => onSound(m.id)}
+              onClick={() => {
+                onSound(m.id)
+                // A lista muda o tempo todo (apps abrem e começam a tocar): atualiza ao abrir.
+                if (m.id === 'apps' && !ativo) onRefresh?.()
+              }}
               style={{
                 flex: 1, height: 38, padding: '0 12px', borderRadius: 9, border: 0,
                 fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', cursor: 'pointer',
@@ -51,33 +107,29 @@ export function CriarSom({ apps, sound, onSound, marcados, onMarcados, numero = 
         })}
       </div>
       {sound === 'apps' && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {apps.map((app) => {
-            const marcado = marcados.includes(app.id)
-            return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <p style={{ ...rotulo, flex: 1 }}>{comSom.length > 0 ? 'Com som' : 'Nenhum app tocou nada ainda.'}</p>
+            {onRefresh && (
               <button
-                key={app.id}
                 type="button"
-                aria-pressed={marcado}
-                onClick={() => alternar(app.id)}
-                style={{
-                  height: 36, padding: '0 12px', borderRadius: 999,
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  fontFamily: MONO, fontSize: 12, cursor: 'pointer',
-                  border: `1px solid ${marcado ? 'var(--verde)' : 'var(--borda-forte)'}`,
-                  background: marcado ? 'rgba(59,240,138,0.12)' : 'transparent',
-                  color: marcado ? 'var(--verde)' : 'var(--texto-2)',
-                }}
+                onClick={onRefresh}
+                style={{ height: 30, padding: '0 10px', borderRadius: 8, border: '1px solid var(--borda-forte)', background: 'transparent', color: 'var(--texto-2)', fontSize: 12, cursor: 'pointer' }}
               >
-                {marcado && (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m5 12 5 5 9-10" />
-                  </svg>
-                )}
-                {app.name}
+                Atualizar lista
               </button>
-            )
-          })}
+            )}
+          </div>
+          {comSom.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{comSom.map(pilula)}</div>}
+          {outros.length > 0 && (
+            <>
+              <p style={rotulo}>Outros apps abertos (o som vai junto quando eles tocarem)</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{outros.map(pilula)}</div>
+            </>
+          )}
+          {apps.length === 0 && (
+            <p style={rotulo}>Abra o app que vai tocar e clique em Atualizar lista.</p>
+          )}
         </div>
       )}
       <span style={{ fontSize: 12, color: 'var(--texto-3)' }}>O som do próprio streamaZap nunca vai junto.</span>

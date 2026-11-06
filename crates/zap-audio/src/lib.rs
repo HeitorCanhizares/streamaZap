@@ -10,6 +10,7 @@ pub const FRAME: usize = 960;
 /// Amostras f32 intercaladas em um quadro de 20 ms.
 pub const FRAME_SAMPLES: usize = FRAME * CHANNELS;
 
+pub mod app_tree;
 pub mod clock;
 mod error;
 pub mod mix;
@@ -32,7 +33,7 @@ pub mod out;
 pub use error::AudioError;
 pub use opus::{OpusDec, OpusEnc};
 pub use out_track::TrackInput;
-pub use types::{AudioApp, AudioSelection, CapturedAudio};
+pub use types::{AppSound, AudioApp, AudioSelection, CapturedAudio};
 
 #[cfg(windows)]
 pub use apps::list_audio_apps;

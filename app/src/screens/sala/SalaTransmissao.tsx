@@ -183,7 +183,7 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
         />
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>
-          <CriarSom apps={sources.apps} sound={sound} onSound={setSound} marcados={marcados} onMarcados={setMarcados} numero="02" />
+          <CriarSom apps={sources.apps} sound={sound} onSound={setSound} marcados={marcados} onMarcados={setMarcados} onRefresh={() => void carregar()} numero="02" />
           <CriarQualidade
             encoders={sources.encoders}
             preset={preset}

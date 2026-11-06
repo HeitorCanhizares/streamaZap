@@ -1,7 +1,7 @@
 // Tarefa criar-05
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { CriarSom, type CriarSomProps } from './CriarSom'
+import { CriarSom, gruposDeApps, type CriarSomProps } from './CriarSom'
 import type { SourceItem } from '../../bridge/types'
 
 afterEach(() => cleanup())
@@ -84,5 +84,47 @@ describe('CriarSom', () => {
   it('mostra a legenda do rodape', () => {
     render(<CriarSom {...props()} />)
     expect(screen.getByText('O som do próprio streamaZap nunca vai junto.')).toBeTruthy()
+  })
+
+  const COM_ESTADO: SourceItem[] = [
+    { id: 'app:1', kind: 'app', name: 'Spotify', sound: 'playing' },
+    { id: 'app:2', kind: 'app', name: 'Discord', sound: 'ready' },
+    { id: 'app:3', kind: 'app', name: 'Jogo', sound: 'silent' },
+  ]
+
+  it('separa os apps com som dos que so tem janela', () => {
+    expect(gruposDeApps(COM_ESTADO)).toEqual({ comSom: [COM_ESTADO[0], COM_ESTADO[1]], outros: [COM_ESTADO[2]] })
+    // Sem estado (lista antiga): conta como com som.
+    expect(gruposDeApps(APPS).outros).toEqual([])
+    render(<CriarSom {...props({ apps: COM_ESTADO, sound: 'apps' })} />)
+    expect(screen.getByText('Com som')).toBeTruthy()
+    expect(screen.getByText(/Outros apps abertos/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Jogo' })).toBeTruthy()
+  })
+
+  it('marca quem esta tocando agora', () => {
+    render(<CriarSom {...props({ apps: COM_ESTADO, sound: 'apps' })} />)
+    expect(screen.getByRole('button', { name: 'Spotify' }).getAttribute('title')).toBe('Tocando agora')
+    expect(screen.getAllByTestId('tocando')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Discord' }).getAttribute('title')).toBeNull()
+  })
+
+  it('atualiza a lista ao escolher "So alguns apps" e pelo botao', () => {
+    const onRefresh = vi.fn()
+    const { rerender } = render(<CriarSom {...props({ onRefresh })} />)
+    fireEvent.click(screen.getByRole('radio', { name: /Só alguns apps/ }))
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+    rerender(<CriarSom {...props({ onRefresh, sound: 'apps' })} />)
+    // Já escolhido: clicar de novo não recarrega.
+    fireEvent.click(screen.getByRole('radio', { name: /Só alguns apps/ }))
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar lista' }))
+    expect(onRefresh).toHaveBeenCalledTimes(2)
+  })
+
+  it('lista vazia explica o que fazer', () => {
+    render(<CriarSom {...props({ apps: [], sound: 'apps', onRefresh: vi.fn() })} />)
+    expect(screen.getByText('Nenhum app tocou nada ainda.')).toBeTruthy()
+    expect(screen.getByText(/Abra o app que vai tocar/)).toBeTruthy()
   })
 })

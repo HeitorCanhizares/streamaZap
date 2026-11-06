@@ -175,7 +175,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
         />
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18 }}>
-          <CriarSom apps={sources.apps} sound={sound} onSound={setSound} marcados={marcados} onMarcados={setMarcados} />
+          <CriarSom apps={sources.apps} sound={sound} onSound={setSound} marcados={marcados} onMarcados={setMarcados} onRefresh={() => void carregar()} />
           <CriarQualidade
             encoders={sources.encoders}
             preset={preset}

@@ -149,6 +149,28 @@ Terceira leva (depois da v3.1.0):
   reabre. A de outra pessoa fechada não é recebida (como antes); o cartão Você oculto
   (`streamazap.voceOculto` no localStorage, lembrado entre salas) para de assinar a minha miniatura.
 
+Quarta leva (áudio, depois da v3.1.2):
+- **Lista de apps do som**: só mostrava quem estava tocando naquele instante e no dispositivo
+  padrão. Agora `zap_audio::list_audio_apps(pids_com_janela)` junta as sessões de som de todas as
+  saídas ativas (tocando ou quietas) e os processos com janela, um item por app: a raiz da árvore com
+  o mesmo executável (`app_tree::root_of`; o Chrome e o Discord tocam num processo filho), com o nome
+  da descrição do executável ("Google Chrome"). `SourceItem.sound` diz `playing`/`ready`/`silent`;
+  a seção Som separa "Com som" de "Outros apps abertos" e tem **Atualizar lista**.
+- **Som que parava e não voltava** (quatro causas):
+  - quem assiste descartava como "atrasado" todo o som de quem parou e voltou a transmitir (a
+    contagem `seq` recomeça do zero e o `AudioRx` é por participante); agora um recuo de mais de
+    100 pacotes é um áudio novo (`RECOMECO`);
+  - a saída abria uma vez só: com o fone desconectado ou o padrão do Windows trocado, o cpal
+    encerra o stream e nada reabria. `AudioOut::maintain` (a cada 0,5 s) reabre no padrão de agora
+    quando o stream dá erro, para de pedir som por 3 s ou o padrão muda; o `MixerCore` é emprestado
+    ao callback e volta quando ele acaba, então as trilhas continuam. Sem saída no início, abre
+    quando aparecer (antes ficava mudo até reiniciar o app);
+  - o mixer de saída tem 64 trilhas e ninguém saía dele (cada entrada na sala é um id novo): as
+    assinaturas agora contam o uso (`AudioRegistry::hold`/`unhold`) e o último solta a trilha; sair
+    da sala limpa tudo;
+  - na captura, um app que falhava uma vez nunca mais era tentado: agora volta depois de 1, 2, 4,
+    5 s, e um app fechado e aberto de novo é achado pelo executável (`app_tree::root_by_exe`).
+
 ## Atualização da rodada 4 (M2b, 2026-11-05, fechamento)
 
 Conversão para NV12 pela CPU (plano `docs/planos/m2b-conversao-cpu.md`). `zap-gpu` ganhou o

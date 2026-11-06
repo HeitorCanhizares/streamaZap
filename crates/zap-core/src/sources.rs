@@ -3,6 +3,8 @@
 use zap_audio::AudioSelection;
 use zap_media::{MonitorRef, VideoSourceSpec};
 
+#[cfg(windows)]
+use crate::types::AppSoundView;
 use crate::types::{AudioChoice, Rgba, SourceItem, SourceKind, SourceRef, Sources};
 use crate::CoreError;
 
@@ -26,6 +28,7 @@ pub fn list_sources() -> Sources {
                 id: format!("screen:{}", m.index),
                 kind: SourceKind::Screen,
                 name: m.name,
+                sound: None,
             })
             .collect(),
         Err(e) => {
@@ -35,13 +38,21 @@ pub fn list_sources() -> Sources {
         }
     };
 
+    // Os processos com janela também entram na lista de som: dá para escolher um app antes de
+    // ele tocar (a captura começa a pegar o som assim que ele abrir o áudio).
+    #[cfg_attr(not(windows), allow(unused_mut, unused_variables))]
+    let mut pids_com_janela: Vec<u32> = Vec::new();
     let windows = match zap_capture::list_windows() {
         Ok(janelas) => janelas
             .into_iter()
-            .map(|w| SourceItem {
-                id: format!("window:{}", w.hwnd),
-                kind: SourceKind::Window,
-                name: w.title,
+            .map(|w| {
+                pids_com_janela.push(w.pid);
+                SourceItem {
+                    id: format!("window:{}", w.hwnd),
+                    kind: SourceKind::Window,
+                    name: w.title,
+                    sound: None,
+                }
             })
             .collect(),
         Err(e) => {
@@ -57,6 +68,7 @@ pub fn list_sources() -> Sources {
                 id: format!("camera:{}", c.id),
                 kind: SourceKind::Camera,
                 name: c.name,
+                sound: None,
             })
             .collect(),
         Err(e) => {
@@ -67,13 +79,18 @@ pub fn list_sources() -> Sources {
 
     // Apps com som dependem de WASAPI: só existem no Windows.
     #[cfg(windows)]
-    let apps = match zap_audio::list_audio_apps() {
+    let apps = match zap_audio::list_audio_apps(&pids_com_janela) {
         Ok(lista) => lista
             .into_iter()
             .map(|a| SourceItem {
                 id: format!("app:{}", a.pid),
                 kind: SourceKind::App,
                 name: a.name,
+                sound: Some(match a.sound {
+                    zap_audio::AppSound::Playing => AppSoundView::Playing,
+                    zap_audio::AppSound::Ready => AppSoundView::Ready,
+                    zap_audio::AppSound::Silent => AppSoundView::Silent,
+                }),
             })
             .collect(),
         Err(e) => {
@@ -89,6 +106,7 @@ pub fn list_sources() -> Sources {
         id: format!("synthetic:{SINTETICA_LARGURA}x{SINTETICA_ALTURA}"),
         kind: SourceKind::Screen,
         name: "Tela de teste (sintética)".to_string(),
+        sound: None,
     });
 
     Sources {

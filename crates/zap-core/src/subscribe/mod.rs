@@ -105,7 +105,7 @@ impl Subscription {
 
         let mut audio_number = None;
         if let Some(audio) = &spec.audio_track {
-            match shared.audio_rx.get_or_create(&participant_id) {
+            match shared.audio_rx.hold(&participant_id) {
                 Ok(rx) => {
                     conn.router.acquire(audio.number, rx);
                     audio_number = Some(audio.number);
@@ -125,6 +125,7 @@ impl Subscription {
             conn.router.unregister_if(spec.track.number, &video_dyn);
             if let Some(n) = audio_number {
                 conn.router.release(n);
+                shared.audio_rx.unhold(&participant_id);
             }
             return Err(e);
         }
@@ -144,11 +145,12 @@ impl Subscription {
     /// Só o áudio: quem compartilha só o som não tem trilha de vídeo para levar o áudio junto.
     /// Pede `assinar` da própria trilha de áudio (o publicador liga o áudio dessa conexão).
     async fn start_audio_only(shared: &Arc<Shared>, spec: WatchSpec, conn: Arc<PubConn>) -> Result<Self, CoreError> {
-        let rx = shared.audio_rx.get_or_create(&spec.track.participant_id)?;
+        let rx = shared.audio_rx.hold(&spec.track.participant_id)?;
         let numero = spec.track.number;
         conn.router.acquire(numero, rx);
         if let Err(e) = conn.subscribe(&spec.track.id, spec.size, None, true).await {
             conn.router.release(numero);
+            shared.audio_rx.unhold(&spec.track.participant_id);
             return Err(e);
         }
         Ok(Self {
@@ -191,6 +193,7 @@ impl Subscription {
         if !self.stopped.swap(true, Ordering::Relaxed) {
             if let Some(n) = self.audio_number {
                 self.conn.router.release(n);
+                shared.audio_rx.unhold(&self.track.participant_id);
             }
         }
         shared.playout.remove_tile(self.tile);

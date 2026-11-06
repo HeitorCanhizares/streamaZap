@@ -3,6 +3,10 @@
 
 use zap_audio::TrackInput;
 
+/// De quanto em quanto tempo a thread de saída confere a saúde do dispositivo.
+#[cfg(windows)]
+const MANUTENCAO: std::time::Duration = std::time::Duration::from_millis(500);
+
 #[derive(Clone)]
 pub struct AudioOutHandle {
     tx: Option<crossbeam_channel::Sender<AudioCmd>>,
@@ -17,8 +21,9 @@ pub(crate) enum AudioCmd {
 }
 
 impl AudioOutHandle {
-    /// Windows: sobe a thread "zap-audio-out" que cria `AudioOut::start()`; se falhar (sem
-    /// dispositivo), loga e age como stub. Fora do Windows: stub.
+    /// Windows: sobe a thread "zap-audio-out" que cria `AudioOut::start()` e chama
+    /// `maintain` a cada meio segundo (a saída se reabre sozinha se o dispositivo cair ou o
+    /// padrão do Windows mudar; sem dispositivo agora, abre quando aparecer). Fora do Windows: stub.
     pub fn start() -> Self {
         #[cfg(windows)]
         {
@@ -36,7 +41,7 @@ impl AudioOutHandle {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<bool>();
         let spawned = std::thread::Builder::new().name("zap-audio-out".into()).spawn(move || {
             // O AudioOut não é Send: nasce e morre nesta thread.
-            let out = match zap_audio::AudioOut::start() {
+            let mut out = match zap_audio::AudioOut::start() {
                 Ok(o) => {
                     let _ = ready_tx.send(true);
                     o
@@ -48,13 +53,20 @@ impl AudioOutHandle {
                 }
             };
             // Termina quando todos os Sender caem; o AudioOut vive até lá.
-            while let Ok(cmd) = rx.recv() {
-                match cmd {
-                    AudioCmd::Add(id, reply) => {
+            let mut proxima = std::time::Instant::now() + MANUTENCAO;
+            loop {
+                match rx.recv_deadline(proxima) {
+                    Ok(AudioCmd::Add(id, reply)) => {
                         let _ = reply.send(out.add_track(id));
                     }
-                    AudioCmd::Remove(id) => out.remove_track(id),
-                    AudioCmd::Master(v) => out.set_master_volume(v),
+                    Ok(AudioCmd::Remove(id)) => out.remove_track(id),
+                    Ok(AudioCmd::Master(v)) => out.set_master_volume(v),
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                }
+                if std::time::Instant::now() >= proxima {
+                    out.maintain();
+                    proxima = std::time::Instant::now() + MANUTENCAO;
                 }
             }
         });

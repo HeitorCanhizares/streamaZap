@@ -83,6 +83,18 @@ pub struct SourceItem {
     pub id: String,
     pub kind: SourceKind,
     pub name: String,
+    /// Só nos apps (`app:<pid>`): o que se sabe do som dele agora.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<AppSoundView>,
+}
+
+/// Som de um app na listagem: tocando agora, já abriu o áudio (quieto) ou só tem janela.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AppSoundView {
+    Playing,
+    Ready,
+    Silent,
 }
 
 /// Fontes disponíveis. Ids: `screen:<indice>`, `window:<hwnd>`, `camera:<id>`, `app:<pid>`,
