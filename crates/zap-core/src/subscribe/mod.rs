@@ -290,7 +290,7 @@ mod tests {
         let link = crate::online::bridge::connect_bridge(&core.shared, &ponte, &join.ticket, &join.room.id, false)
             .await
             .expect("bridge");
-        let conn = PubConn::connect_online(&core.shared, link, wtx, None);
+        let conn = PubConn::connect_online(&core.shared, link, wtx, None, None);
         // Mantém o WebSocket vivo durante o teste.
         std::mem::forget(_wrx);
         (core, srv, conn, dir)

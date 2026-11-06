@@ -95,6 +95,7 @@ enum Target {
 impl PubConn {
     /// Monta a conexão: receptor de mídia, roteador, reporter e leitor do controle.
     /// `on_media` (só na ponte Online) recebe `camadas.pedidas`, `keyframe.pedir` e `camada.atual`.
+    /// `start_kbps`: onde o estimador de banda começa (`None` = sem histórico, `START_KBPS`).
     #[allow(clippy::too_many_arguments)]
     fn assemble(
         participant_id: String,
@@ -105,8 +106,10 @@ impl PubConn {
         signal: Option<WsTx>,
         router: Option<Arc<Router>>,
         on_media: Option<MediaHook>,
+        start_kbps: Option<u32>,
     ) -> Arc<Self> {
-        let report: ReportBuilderHandle = Arc::new(Mutex::new(ReportBuilder::new(true)));
+        let builder = start_kbps.map_or_else(|| ReportBuilder::new(true), ReportBuilder::with_start_kbps);
+        let report: ReportBuilderHandle = Arc::new(Mutex::new(builder));
         let (etx, erx) = tokio::sync::mpsc::channel(1024);
         let router = router.unwrap_or_else(|| Arc::new(Router::new()));
         let last_layer = Arc::new(Mutex::new(None));
@@ -154,11 +157,13 @@ impl PubConn {
     /// `online::bridge::connect_bridge` (`assemble` + `signal = Some(ws)`). Não passa por
     /// `ConnPool`; quem chama (`online::reconnect`) a guarda em `OnlineRoom::bridge` e em
     /// `ConnPool::online`. `participant_id` = `"bridge"`. `on_media`: ver `MediaHook`.
+    /// `start_kbps`: na reconexão, a última estimativa da ponte antiga (ver `estimate_kbps`).
     pub(crate) fn connect_online(
         shared: &Arc<Shared>,
         link: crate::online::bridge::BridgeConnected,
         ws: zap_net::online::WsTx,
         on_media: Option<MediaHook>,
+        start_kbps: Option<u32>,
     ) -> Arc<Self> {
         Self::assemble(
             "bridge".to_owned(),
@@ -169,7 +174,14 @@ impl PubConn {
             Some(ws),
             None,
             on_media,
+            start_kbps,
         )
+    }
+
+    /// Estimativa de banda atual desta conexão (kbps). Continua legível depois que ela cai: sem
+    /// pacotes, o estimador para no último valor.
+    pub fn estimate_kbps(&self) -> Option<u32> {
+        self.report.lock().estimate_kbps()
     }
 
     /// Rota direta (espectador): conecta em `addresses` ("ip:porta") em paralelo por
@@ -216,6 +228,7 @@ impl PubConn {
             shared.clock.clone(),
             None,
             Some(router),
+            None,
             None,
         ))
     }
@@ -305,6 +318,7 @@ impl PubConn {
             ctrl,
             crx,
             shared.clock.clone(),
+            None,
             None,
             None,
             None,
@@ -477,6 +491,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert!(!pc.is_closed());
         pc.close();
@@ -510,6 +525,7 @@ mod tests {
             ControlRx::new(recv),
             Clock::new(),
             signal,
+            None,
             None,
             None,
         )
@@ -592,7 +608,7 @@ mod tests {
             crate::online::bridge::connect_bridge(&core.shared, &ponte_a, &join_a.ticket, &join_a.room.id, false)
                 .await
                 .expect("bridge");
-        let conn = PubConn::connect_online(&core.shared, link, wtx_a.clone(), None);
+        let conn = PubConn::connect_online(&core.shared, link, wtx_a.clone(), None, None);
         assert!(matches!(conn.target_for("qualquer"), Target::Signal(_)));
 
         let b = login(&srv).await;

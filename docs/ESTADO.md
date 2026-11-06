@@ -388,13 +388,15 @@ referência em código é o `zap-test-server`, com `zap-rate::probe` e `zap-net:
 ### Próximos passos
 1. **Modo Online, lado do app** (o servidor já está pronto, ver acima; decisão do dono em
    2026-11-05: analisar depois):
-   - estimador na reconexão (achado da sessão do servidor, lido no código, não medido):
-     `PubConn::assemble` (`zap-core/src/subscribe/pool.rs`) cria um `ReportBuilder::new(true)` novo a
-     cada conexão da ponte; o estimador começa em 1000 kbps e sobe no máximo 1,5×/s. Numa
-     reconexão o servidor guarda a camada, mas o primeiro `relatorio` diz ~1000 kbps e a histerese
-     de descida (500 ms) derruba quem estava na camada 0/1, que depois sobe de novo pelas sondas (o
-     `zap-test-server` faz igual). Sugestão: começar o estimador da conexão nova com a última
-     estimativa da antiga;
+   - ~~estimador na reconexão~~ **feito (2026-11-06)**: a ponte nova começava o estimador frio
+     (1000 kbps, sobe no máximo 1,5×/s), e numa reconexão o primeiro `relatorio` derrubava pela
+     histerese de descida (500 ms) quem estava na camada 0/1, embora o servidor guarde a camada
+     por 5 s. Agora `online::reconnect::connect_bridge_for` lê `PubConn::estimate_kbps` da ponte
+     antiga e passa a `PubConn::connect_online`, que monta o `ReportBuilder::with_start_kbps`
+     (`zap-net`). Sem pacotes o estimador fica parado, então a ponte morta ainda guarda a última
+     medida; a primeira ponte da sala continua começando em `START_KBPS`. Teste:
+     `ponte_nova_herda_a_estimativa_da_antiga`. Não muda nada no servidor (o `zap-net` só ganhou
+     funções);
    - depois: a prova contra a produção e o teste do app com o servidor entre dois PCs.
 2. Entrega de memória ao codificador de software (portão aberto); medir o caminho pela CPU num PC
    de usuário sem Video Processor.

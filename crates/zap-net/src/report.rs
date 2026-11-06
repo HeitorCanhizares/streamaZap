@@ -19,6 +19,9 @@ pub use reporter::spawn_reporter;
 /// Intervalo dos relatórios.
 pub const REPORT_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// Onde o estimador de uma conexão sem histórico começa (kbps).
+pub const START_KBPS: u32 = 1_000;
+
 pub struct ReportBuilder {
     pub(crate) arrivals: Vec<(u16, u8, u32, u32, u64, u32)>,
     pub(crate) probes: Vec<(u16, u32, u32, u64, u32)>,
@@ -45,17 +48,26 @@ const MAX_BURACO_AUDIO: u32 = 50;
 pub type ReportBuilderHandle = Arc<Mutex<ReportBuilder>>;
 
 impl ReportBuilder {
-    /// `estimate`: app = true (roda `Bwe` e preenche banda/estado); ponte = false.
+    /// `estimate`: app = true (roda `Bwe` e preenche banda/estado, começando em `START_KBPS`);
+    /// ponte = false.
     pub fn new(estimate: bool) -> Self {
+        Self::build(estimate.then_some(START_KBPS))
+    }
+    /// Com estimador (app), começando em `start_kbps` em vez de `START_KBPS` (limitado à faixa
+    /// do estimador). Serve para a conexão nova da ponte herdar a última estimativa da antiga.
+    pub fn with_start_kbps(start_kbps: u32) -> Self {
+        Self::build(Some(start_kbps))
+    }
+    fn build(start_kbps: Option<u32>) -> Self {
         Self {
             arrivals: Vec::new(),
             probes: Vec::new(),
             lost: Vec::new(),
-            bwe: estimate.then(|| {
+            bwe: start_kbps.map(|start_kbps| {
                 Bwe::new(BweConfig {
                     min_kbps: 150,
                     max_kbps: 100_000,
-                    start_kbps: 1_000,
+                    start_kbps,
                 })
             }),
             loss: LossMeter::new(2_000_000),
@@ -168,6 +180,10 @@ impl ReportBuilder {
             buffer_ms: self.buffer_ms,
         }
     }
+    /// Estimativa de banda atual (kbps); `None` sem estimador (ponte).
+    pub fn estimate_kbps(&self) -> Option<u32> {
+        self.bwe.as_ref().map(Bwe::estimate_kbps)
+    }
     /// Estado atual do detector de atraso (para o envio imediato em `Overuse`).
     pub fn is_overuse(&self) -> bool {
         self.bwe.as_ref().is_some_and(|b| b.state() == DelayState::Overuse)
@@ -247,6 +263,26 @@ mod tests {
         let rep = r.take(110_000);
         assert!(rep.bandwidth_kbps.is_some());
         assert!(rep.state.is_some());
+    }
+
+    #[test]
+    fn estimador_comeca_em_start_kbps() {
+        let mut r = ReportBuilder::new(true);
+        assert_eq!(r.estimate_kbps(), Some(START_KBPS));
+        assert_eq!(r.take(1000).bandwidth_kbps, Some(START_KBPS));
+        assert_eq!(ReportBuilder::new(false).estimate_kbps(), None);
+    }
+
+    #[test]
+    fn with_start_kbps_herda_estimativa() {
+        let mut r = ReportBuilder::with_start_kbps(8_000);
+        assert_eq!(r.estimate_kbps(), Some(8_000));
+        // Sem pacotes o estimador não mexe: o primeiro relatório já diz 8000.
+        assert_eq!(r.take(1000).bandwidth_kbps, Some(8_000));
+        assert_eq!(r.take(200_000).bandwidth_kbps, Some(8_000));
+        // Fora da faixa do estimador: fica nos limites (150 e 100 000 kbps).
+        assert_eq!(ReportBuilder::with_start_kbps(0).estimate_kbps(), Some(150));
+        assert_eq!(ReportBuilder::with_start_kbps(u32::MAX).estimate_kbps(), Some(100_000));
     }
 
     #[test]

@@ -25,7 +25,8 @@ fn saiu(room: &OnlineRoom) -> bool {
 }
 
 /// Pede um ingresso novo (`client.join`), conecta a ponte (`bridge::connect_bridge`), monta a
-/// `PubConn` da ponte (`PubConn::connect_online`) e a guarda em `room.bridge` e no `ConnPool`;
+/// `PubConn` da ponte (`PubConn::connect_online`, com o estimador herdado da ponte anterior, se
+/// houver) e a guarda em `room.bridge` e no `ConnPool`;
 /// `publish.reattach_all` (ou `attach` das trilhas guardadas) na conexão nova. Usada na entrada
 /// e na reconexão. Sem `use_relay` ou sem `media.bridge`: `Ok(())` sem fazer nada.
 pub(crate) async fn connect_bridge_for(room: &Arc<OnlineRoom>) -> Result<(), CoreError> {
@@ -58,7 +59,12 @@ pub(crate) async fn connect_bridge_for(room: &Arc<OnlineRoom>) -> Result<(), Cor
             room_events::handle_media_msg(&r, m);
         }
     });
-    let pc = PubConn::connect_online(&shared, link, ws, Some(on_media));
+    // Na reconexão o servidor guarda a camada de quem assiste por 5 s. Se o estimador da ponte
+    // nova começasse frio (1000 kbps), o primeiro `relatorio` derrubaria quem estava na camada
+    // 0/1 pela histerese de descida, e só as sondas o subiriam de novo. Por isso a ponte nova
+    // começa na última estimativa da antiga (a primeira ponte da sala começa fria).
+    let herdada = room.bridge.lock().await.as_ref().and_then(|a| a.estimate_kbps());
+    let pc = PubConn::connect_online(&shared, link, ws, Some(on_media), herdada);
 
     let anterior = room.bridge.lock().await.replace(pc.clone());
     *shared.pool.online.lock() = Some(pc.clone());
@@ -459,6 +465,43 @@ mod tests {
         }
         assert!(vistos.iter().any(|e| matches!(e, RoomEvent::Reconnecting)));
         assert!(vistos.iter().any(|e| matches!(e, RoomEvent::Reconnected)));
+
+        room.left.store(true, Ordering::SeqCst);
+        tarefa.abort();
+        nova.close();
+        encerrar(core, d).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn ponte_nova_herda_a_estimativa_da_antiga() {
+        let srv = zap_test_server::spawn(Config::default()).await.unwrap();
+        let (core, d) = novo_core(Some(srv.cert_fingerprint.clone())).await;
+        let (room, _wrx, _erx) = sala_no_servidor(&core, &srv).await;
+        connect_bridge_for(&room).await.unwrap();
+        let antiga = room.bridge.lock().await.clone().unwrap();
+        // A ponte antiga já tinha medido 7 Mbps (troca o estimador sem mexer nas tarefas dela).
+        *antiga.report.lock() = zap_net::report::ReportBuilder::with_start_kbps(7_000);
+        let tarefa = tokio::spawn(watch_bridge(room.clone()));
+
+        antiga.conn.close(0u32.into(), b"queda");
+
+        let limite = Instant::now() + Duration::from_secs(10);
+        let nova = loop {
+            let atual = room.bridge.lock().await.clone();
+            if let Some(p) = atual {
+                if !Arc::ptr_eq(&p, &antiga) && !p.is_closed() {
+                    break p;
+                }
+            }
+            assert!(Instant::now() < limite, "a ponte não reconectou em 10 s");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        // Sem mídia o estimador não desce; uma sonda do servidor só poderia subir.
+        let herdada = nova.estimate_kbps();
+        assert!(
+            herdada >= Some(7_000),
+            "a ponte nova começou em {herdada:?} kbps, não nos 7000 da antiga"
+        );
 
         room.left.store(true, Ordering::SeqCst);
         tarefa.abort();
