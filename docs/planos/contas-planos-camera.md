@@ -131,17 +131,20 @@ pub fn check_publish(kind: TrackKind, layers: &[LayerSpec], l: &PlanLimits) -> R
 
 Todas **aditivas**: o protocolo continua 4, e o `zap-net` ignora campos e tipos desconhecidos.
 
+**Fechado** nos commits `ecd1b1a` e `48f9b9b` do app, com os ajustes da revisão do servidor. A fonte
+é o texto de `docs/api/`; a tabela abaixo é o resumo.
+
 | Arquivo | Mudança |
 |---|---|
-| `rest.md`, `GET /v1/info` | `requer_conta: bool`, `conta: { "provedor": "supabase", "url": "https://<ref>.supabase.co" }` |
+| `rest.md`, `GET /v1/info` | `requer_conta: bool`, `conta: { "provedor": "supabase", "url": "https://<ref>.supabase.co", "chave": "<chave publicável>" }`. Com `url` e `chave` o app cria o cliente de login, e um servidor próprio aponta para o próprio projeto. `conta` vem completo ou não vem |
 | `rest.md`, `POST /v1/sessoes` | pedido ganha `acesso_conta` (JWT do Supabase). Resposta ganha `conta_id` e `plano` (`id` + limites de §2). Com `requer_senha` **e** `requer_conta`, os dois são obrigatórios: confere a senha primeiro (`senha_servidor`), depois a conta (`conta_necessaria`) |
-| `rest.md`, `POST /v1/sessoes/renovar` | corpo opcional `{ "acesso_conta": "…" }` para atualizar o plano |
-| `README.md`, erros | `conta_necessaria` (401): servidor exige conta e o pedido não trouxe JWT válido. `plano_insuficiente` (403): ação acima do plano (traz `plano` e `campo`) |
+| `rest.md`, `POST /v1/sessoes/renovar` | corpo opcional `{ "acesso_conta": "…" }`. O `renovar` **sempre** renova (Supabase fora do ar não derruba sessão aberta): sem corpo mantém conta e plano; token válido atualiza o plano ou liga a conta numa sessão que entrou só com a senha; token vencido ou inválido é ignorado; token de outra conta → `403 proibido` (trocar de conta = sessão nova). `conta_necessaria` só sai do `POST /sessoes` |
+| `README.md`, erros | `conta_necessaria` (401, só no `POST /sessoes`): servidor exige conta e o pedido não trouxe JWT válido (anônimo também não vale). `plano_insuficiente` (403): ação acima do plano; traz `plano` (só o id) e, ao transmitir, `campo` (`"tipo"` = o plano não transmite nada; `"camadas"` = uma camada passou do teto) |
 | `rest.md`, `POST /v1/salas` e `POST /v1/salas/{codigo}/entrar` | recusa com `plano_insuficiente` para conta `nenhum` (a prévia continua liberada) |
-| `mensagens.md`, `trilha.publicar` | recusa com `plano_insuficiente` para quem não é transmissor ou quando a camada 0 passa do plano |
+| `mensagens.md`, `trilha.publicar` e `trilha.atualizar` | recusa com `plano_insuficiente` para quem não é transmissor ou quando uma camada passa do plano (`zap_proto::plan::check_publish`). Sessão **sem conta** não tem limite de plano (até o servidor ligar `requer_conta`) |
 | `balanceamento.md`, §2 | `banda_kbps` usado pelo alocador = `min(relatorio, 12000)` no Online com ponte |
 | `balanceamento.md`, §1 | tabela da câmera com as 4 escadas novas (§5, B2) |
-| `mensagens.md`, `trilha.publicar`, `trilha.atualizar` e `Trilha` (em `sala.estado`, `trilha.publicada`, `trilha.atualizada`) | trilha `camera` ganha o campo opcional `camera`: `{"modo": "canto", "canto": "sup_esq" \| "sup_dir" \| "inf_esq" \| "inf_dir"}` ou `{"modo": "solta"}`. Ausente = canto inferior direito (§5, B4) |
+| `mensagens.md`, `trilha.publicar`, `trilha.atualizar` e `Trilha` (em `sala.estado`, `trilha.publicada`, `trilha.atualizada`) | trilha `camera` ganha o campo opcional `camera`: `{"modo": "canto", "canto": "sup_esq" \| "sup_dir" \| "inf_esq" \| "inf_dir"}` ou `{"modo": "solta"}`. Ausente = canto inferior direito (§5, B4). Só vale na trilha `camera` (o servidor descarta nas outras); ausente no `trilha.atualizar` = sem mudança; valor desconhecido = ausente (`zap_proto::camera_layout_tolerant`), para uma versão futura não derrubar a mensagem inteira |
 
 App velho (v3.2) contra servidor com `requer_conta`: recebe `conta_necessaria` e mostra a
 `mensagem` do servidor ("Atualize o streamaZap para entrar com sua conta").
@@ -174,7 +177,7 @@ quem nunca usou o Online (o servidor exige senha). A barra mostra o estado do se
 
 | Onde | Com Online desligado |
 |---|---|
-| `ConfigConexao.tsx` | seção "Online · servidor" vira um interruptor **Usar o modo Online** (texto: precisa de conta; Local continua grátis). Ligado: mostra a conta, o campo **Senha do servidor** (enquanto o `/v1/info` disser `requer_senha`) e "Servidor próprio" (§7) |
+| `ConfigConexao.tsx` | seção "Online · servidor" vira um interruptor **Usar o modo Online** (texto: precisa de conta, a partir da fase 2; na v3.3.0, sem conta, o texto não fala de conta). Ligado: mostra a conta, o campo **Senha do servidor** (enquanto o `/v1/info` disser `requer_senha`) e "Servidor próprio" (§7) |
 | `ModoAbas.tsx` / `SalasScreen.tsx` | sem abas: só a lista Local |
 | `CriarModo.tsx` | sem a opção Online |
 | `EntrarCodigo.tsx` | escondido |
@@ -560,11 +563,12 @@ explícito para limpar (por exemplo, o secret com o texto `-`), com teste no `vp
 ### Sessão (`src/http.rs`, `src/state.rs`)
 
 - `create_session`:
-  - confere `acesso_conta` antes da senha;
+  - confere o protocolo, depois a senha, depois `acesso_conta` (a ordem de `rest.md`);
   - `Participant` ganha `account: Option<Account>`;
   - o mesmo `conta_id` em duas instalações vira dois participantes (pode ver no PC e no notebook);
   - a resposta inclui `conta_id` e `plano` com os limites de `zap_proto::plan::limits`.
-- `renovar`: com `acesso_conta`, atualiza o plano do participante.
+- `renovar`: a semântica de §3 (sempre renova; `acesso_conta` válido atualiza o plano ou liga a
+  conta; inválido é ignorado; outra conta → `proibido`).
 
 ### Limites
 

@@ -1,6 +1,7 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-06 (v3.2.1: correções de áudio e música da sala). Antes: em 2026-11-05,
+Atualizado em 2026-11-06 (fase 1 do plano de contas, planos e câmera pronta no app, sem lançar;
+ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
 depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
 Diagnóstico e do CI. Todo o trabalho (rodadas M4/M4b/M4c/M2b) está no `master`, que é a única
 branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
@@ -45,6 +46,37 @@ Modelo pronto para copiar: `crates/zap-test-server/src/music.rs` e os pontos que
 (`signaling.rs`, `rooms_join.rs::leave_room`, `ticker.rs`). Contrato: `docs/api/mensagens.md`,
 "Música da sala". Teste do app com o servidor de teste: `musica_numa_sala_online_passa_pelo_servidor`
 (`crates/zap-core/src/engine_music.rs`).
+
+## Contas, planos e câmera (plano `docs/planos/contas-planos-camera.md`)
+
+Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §15 do plano.
+
+- **Contrato:** fechado nos commits `ecd1b1a` e `48f9b9b` (câmera solta ou no canto, `zap_proto::plan`,
+  conta e plano no `/v1/info`, `POST /sessoes` e `renovar`, erros `conta_necessaria` e
+  `plano_insuficiente`). O servidor sobe o `rev` para o `48f9b9b` depois do push.
+- **Fase 1 no app (v3.3.0), pronta e sem lançar:**
+  - J: procura atualização na abertura e a cada 6 h, baixa sozinho e instala fora de sala (app
+    minimizado ou PC parado há 2 min), com aviso de 30 s e "Adiar 1 h"; "Atualizado para a vX" na
+    tela Salas; opções em Configurações → Sobre;
+  - A: modo Online desligável (padrão desligado; quem já tinha senha continua ligado). Desligado, o
+    app não abre conexão com o servidor e a interface não mostra nada do Online;
+  - B1: criar sala sem transmitir ("Nada por enquanto");
+  - B2: câmera com qualidade própria (720p30 a 1080p60, limitada ao modo real da câmera), trocada ao
+    vivo;
+  - B3: webcam como fonte vira a trilha `camera` de verdade (uma câmera por pessoa);
+  - B4: câmera no canto escolhido ou solta, escolhida por quem transmite e trocada ao vivo; quem
+    assiste pode soltar ou pôr no canto só para si.
+- **Falta verificar na fase 1** (não dá sem o hardware ou sem lançar):
+  - câmera de verdade: modos do Media Foundation, troca de qualidade ao vivo, troca de dispositivo;
+  - bancada de 1080p60 na câmera (se não passar, a opção 1080p60 da câmera sai, §5 B2 do plano);
+  - atualização sozinha pelo canal beta (instalar fora de sala e reabrir em "Atualizado para a vX");
+  - o jeito da câmera numa sala Online depende do servidor repassar o campo `camera` (B4 do servidor).
+- **Para lançar a v3.3.0:** subir a versão (ver "Antes de qualquer push") depois dos testes acima.
+- **Servidor:** a frente E fase 2 (sessão com conta: JWKS do Supabase, `requer_conta`, `renovar`)
+  está pronta no repositório dele, esperando commit do dono. Depois: B4, Supabase (C), limites de
+  plano (fase 3) e registros de acesso (F).
+- **Próximo no app:** fase 2, frente D (login pelo Supabase no app, conta em Configurações, senha do
+  servidor pedida na tela Salas → Online).
 
 ## Resumo
 
