@@ -77,7 +77,9 @@ entregam essas mensagens ao tratamento de `room_events`.
 `/v1`**: o `ServerClient` acrescenta `/v1` sozinho. Só `Core::start` grava
 `settings::PRODUCTION_SERVER` na primeira execução; `CoreOptions::default()` tem
 `default_server: None`, então nenhum teste fala com o servidor de produção. O servidor **exige senha**
-desde 2026-11-05 (`requer_senha: true`), e o app ainda não a pede (ver "Próximos passos").
+desde 2026-11-05 (`requer_senha: true`): quem tem a senha digita em **Configurações → Conexão**.
+O app não pede a senha sozinho ao receber `401 senha_servidor`, e isso é intencional (decisão do
+dono em 2026-11-06).
 
 ### 2. Teste num PC com GPU (M2)
 
@@ -386,9 +388,6 @@ referência em código é o `zap-test-server`, com `zap-rate::probe` e `zap-net:
 ### Próximos passos
 1. **Modo Online, lado do app** (o servidor já está pronto, ver acima; decisão do dono em
    2026-11-05: analisar depois):
-   - senha: o servidor exige senha (`requer_senha: true`) e ela fica; o app deve pedir a senha ao
-     receber `401 senha_servidor` em `POST /v1/sessoes` (hoje só falha) e, mais tarde, um link de
-     convite que leve servidor, código e senha;
    - estimador na reconexão (achado da sessão do servidor, lido no código, não medido):
      `PubConn::assemble` (`zap-core/src/subscribe/pool.rs`) cria um `ReportBuilder::new(true)` novo a
      cada conexão da ponte; o estimador começa em 1000 kbps e sobe no máximo 1,5×/s. Numa

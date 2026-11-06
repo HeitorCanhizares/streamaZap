@@ -80,8 +80,7 @@ ver `docs/ESTADO.md`, "Pendente no servidor de produção").
 
 O modo **Online** (salas pelo servidor, com código, sem precisar de Radmin) está quase pronto: o
 servidor já foi atualizado para a v3 e é fechado com senha. Quem tem a senha digita em
-**Configurações → Conexão** (o app ainda não a pede sozinho). A música da sala ainda não funciona
-no Online (falta o servidor). Sem a senha, use o modo **Local**.
+**Configurações → Conexão**. A música da sala ainda não funciona no Online (falta o servidor). Sem a senha, use o modo **Local**.
 
 ## Como funciona
 
