@@ -96,7 +96,8 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - login mantido depois de fechar e abrir o app (sessão lida do Gerenciador de Credenciais);
   - renovar com um JWT de verdade do Supabase (os testes usam o token falso do servidor de teste).
 - **Servidor:** a frente E fase 2 (sessão com conta: JWKS do Supabase, `requer_conta`, `renovar`)
-  e a B4 estão prontas no repositório dele, esperando commit e push do dono. Depois: Supabase (C,
+  e a B4 já têm commit na main dele (2a42530 e e2a3f8f); falta o push, que faz deploy e espera o
+  OK do dono. Depois: Supabase (C,
   precisa do projeto criado pelo dono), limites de plano (fase 3) e registros de acesso (F).
 - **Próximo no app:** fase 3 (telas de plano escondidas, cadeado nas opções acima do plano,
   `cobranca_ativa`) e, em paralelo, a fase 5 (social), as duas depois do Supabase (C).
