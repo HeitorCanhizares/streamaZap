@@ -95,12 +95,21 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - deep link com o app instalado pelo NSIS, com o app aberto e com o app fechado;
   - login mantido depois de fechar e abrir o app (sessão lida do Gerenciador de Credenciais);
   - renovar com um JWT de verdade do Supabase (os testes usam o token falso do servidor de teste).
-- **Servidor:** a frente E fase 2 (sessão com conta: JWKS do Supabase, `requer_conta`, `renovar`)
-  e a B4 já têm commit na main dele (2a42530 e e2a3f8f); falta o push, que faz deploy e espera o
-  OK do dono. Depois: Supabase (C,
-  precisa do projeto criado pelo dono), limites de plano (fase 3) e registros de acesso (F).
+- **Servidor:** o código do plano está todo pronto lá; falta o push, que faz deploy e espera o OK
+  do dono.
+  - Com commit na main dele: E fase 2 (sessão com conta: JWKS do Supabase, `requer_conta`,
+    `renovar`) e B4 (2a42530 e e2a3f8f).
+  - Prontos e verificados, sem commit: E fase 3 (limites de plano), F (registros de acesso) e C
+    (pasta `supabase/`, com a parte social; formato do Realtime no `supabase/README.md` §4b).
+  - Ordem de deploy da fase 3: servidor primeiro, depois o app.
+- **Com o dono, para o login funcionar de verdade:**
+  - criar o projeto do Supabase (passos no `supabase/README.md` §2 do servidor), com
+    `streamazap://auth/callback` nas Redirect URLs;
+  - pôr os secrets do CI do servidor;
+  - pôr `ZAP_SUPABASE_URL` e `ZAP_SUPABASE_CHAVE` no `stack.env` da VPS.
 - **Próximo no app:** fase 3 (telas de plano escondidas, cadeado nas opções acima do plano,
-  `cobranca_ativa`) e, em paralelo, a fase 5 (social), as duas depois do Supabase (C).
+  `cobranca_ativa`, extras do `erro` no `zap-proto`) e a fase 5 (social, regras no §12 do plano).
+  As duas podem ser feitas antes do projeto Supabase, mas só são testadas de verdade com ele.
 
 ## Resumo
 
