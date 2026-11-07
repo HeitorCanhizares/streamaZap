@@ -174,7 +174,9 @@ O `ingresso` vai na mensagem `ola` da conexão QUIC (ver [`midia.md`](midia.md))
 `entrar` de novo (idempotente).
 
 Sessão com conta de plano sem `pode_entrar` (`nenhum`): `403 plano_insuficiente`. A lista e a
-`previa` continuam liberadas.
+`previa` continuam liberadas. Sessão que já está autorizada na sala (é a dona, ou entrou e não
+saiu) não é conferida de novo: renovar o ingresso ou reconectar não derruba quem já está, mesmo com
+o plano vencido no meio.
 
 Servidor sem ponte (`ponte: false` em `/info`): `midia.ponte` vem `null`. O cliente deve aceitar
 `null` ou o campo ausente.

@@ -52,6 +52,11 @@ Cada camada pode ser codificada entre **50% e 100%** do seu `kbps` nominal (`pis
 
 `teto(e) = max(teto_pedido, teto_tamanho)` (número maior = camada menor).
 
+**Vagas da ponte (Online, `--max-espectadores-ponte`):** as vagas contam por participante, no
+servidor todo, por ordem de chegada. Prévia, rota direta e quem só recebe áudio não ocupam vaga.
+Sem vaga, `teto(e) = max(teto_pedido, teto_tamanho, 2)`, como na prévia, até abrir uma. Quem
+ganha a vaga e já recebia vídeo vê o próximo `camada.atual` com motivo `"teto"`.
+
 ## 3. Algoritmo (a cada 100 ms)
 
 ```

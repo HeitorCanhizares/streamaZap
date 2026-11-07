@@ -165,7 +165,8 @@ Regras:
   `plano_insuficiente` (com `ref`, `plano` e `campo`) quando o plano da sessão não transmite
   (`campo: "tipo"`) ou quando alguma camada passa do teto do plano (`campo: "camadas"`;
   `zap_proto::plan::check_publish` confere todas as camadas, pelo lado menor do quadro). Sessão sem
-  conta não tem limite de plano.
+  conta não tem limite de plano. `trilha.atualizar` só confere o plano quando traz `camadas`:
+  título e `camera` sozinhos passam com qualquer plano.
 
 ## Assinaturas (quem assiste)
 

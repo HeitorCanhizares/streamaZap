@@ -518,7 +518,11 @@ conta).
 - **Transmitir (Criar sala, Transmissão):** para Espectador, os botões de transmitir mostram
   "Vire Transmissor" em vez de falhar; qualidades acima do plano aparecem com cadeado e selo
   ("Full HD").
-- `plano_insuficiente` vira aviso com botão "Ver planos".
+- `plano_insuficiente` vira aviso com botão "Ver planos". O servidor manda `plano` e `campo` no
+  `erro`, mas o `ControlMsg::Error` do `zap-proto` só tem `codigo`, `mensagem` e `ref`. Na fase 3,
+  ele ganha os extras opcionais (`campo`, `plano`, `tentar_em_ms`, `protocolo_min`/`protocolo_max`)
+  para o app saber, pelo QUIC, qual parte da trilha foi recusada. Hoje eles chegam e são ignorados
+  sem erro.
 - Todas as telas de preço e convite para assinar já existem e têm teste, mas só aparecem com
   `cobranca_ativa = true` (lido de `config_publica` ao entrar e a cada 1 h).
 - Assistir não tem cadeado nem etiqueta: o espectador vê o que quem transmite manda.
