@@ -840,6 +840,27 @@ Quem **recebe** decide. Tudo em Configurações → Social (só com o Online lig
 500 (10 mil sem teto de gasto). Cada app aberto com o Online ligado é uma conexão. Passou de ~150
 pessoas online no pico → Supabase Pro (US$ 25/mês, já previsto quando houver receita).
 
+**Formato dos avisos e da presença:** a fonte é o `supabase/README.md` do servidor (§4 API e §4b
+Realtime). O que o app precisa respeitar, pelos limites do Realtime (página "Limits" do Supabase,
+grátis/Pro):
+- **Entradas em canal:** 100/500 por segundo. Com até 92 canais por app, o app entra nos canais de
+  presença aos poucos (uns 10 por segundo) e tenta de novo, com espera, quando recebe
+  `too_many_joins`.
+- **Presença:** 5 chamadas a cada 30 s por cliente e 20/50 mensagens por segundo. O app junta as
+  mudanças de `sala` e `transmitindo` e anuncia no máximo uma vez a cada 6 s.
+- **Mensagens:** 100/500 por segundo. Passar disso (`tenant_events`) desconecta todo mundo. A
+  presença de quem tem muitos amigos se espalha para todos eles: medir no projeto de teste antes
+  de abrir o Online.
+- **Autorização:** a permissão de um canal privado é conferida ao entrar e fica guardada até a
+  conexão receber um JWT novo. Quem desfaz a amizade ou bloqueia some para o outro só quando o
+  token dele renovar (até 1 h). Os convites e chamados param na hora, porque as funções conferem a
+  cada envio.
+- **Mesma conta em dois PCs:** a mesma chave de presença tem dois estados. O app junta: online se
+  houver algum, transmitindo se algum estiver, e a sala do mais recente.
+- **"Não perturbe enquanto eu transmito":** essa opção fica só no app. Enquanto transmite, ele grava
+  `nao_perturbe_ate = max(atual, agora + 15 min)` a cada 5 min, para nunca encurtar um "não
+  perturbe por 8 h".
+
 ### Aceite I
 
 - Pedido de amizade por código e por link; aceitar, recusar e bloquear (com teste das políticas
