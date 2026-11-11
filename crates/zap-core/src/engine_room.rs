@@ -29,7 +29,11 @@ impl Core {
                     return Err(CoreError::AlreadyInRoom);
                 }
                 if req.mode == zap_proto::RoomMode::Online {
-                    return crate::online::entry::create_online(&shared, req).await;
+                    let r = crate::online::entry::create_online(&shared, req).await;
+                    if let Err(CoreError::Plan(recusa)) = &r {
+                        shared.record_plan_refusal(recusa);
+                    }
+                    return r;
                 }
                 let room = OwnerRoom::start(shared.room_ctx(), req).await?;
                 shared.set_active_room(Some(Arc::new(ActiveRoom::Owner(room.clone()))));
@@ -78,7 +82,11 @@ impl Core {
                     outro => outro,
                 };
                 if let JoinTarget::Code { code } = target {
-                    return crate::online::entry::join_online(&shared, code, password).await;
+                    let r = crate::online::entry::join_online(&shared, code, password).await;
+                    if let Err(CoreError::Plan(recusa)) = &r {
+                        shared.record_plan_refusal(recusa);
+                    }
+                    return r;
                 }
                 let vistas = shared.discovery.lock().clone().map(|d| d.rooms()).unwrap_or_default();
                 let (addr, fingerprint, room_id) = match target {
@@ -383,6 +391,15 @@ pub(crate) async fn pump_room_events(shared: Arc<Shared>, mut rx: UnboundedRecei
                         sh.notifier.touch();
                     }
                 });
+            }
+            RoomEvent::PlanRefused(r) => {
+                // Um lock só: a recusa e o erro aparecem no mesmo snapshot.
+                {
+                    let mut st = shared.state.lock();
+                    st.set_plan_notice(&r);
+                    st.push_error(r.message.clone());
+                }
+                shared.notifier.touch();
             }
             RoomEvent::Error(msg) => {
                 shared.state.lock().push_error(msg);

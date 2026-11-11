@@ -122,11 +122,7 @@ mod tests {
 
     #[test]
     fn grande_demais_envio() {
-        let m = ControlMsg::Error {
-            code: "x".into(),
-            message: "a".repeat(70_000),
-            reference: None,
-        };
+        let m = ControlMsg::error("x", "a".repeat(70_000), None);
         assert!(matches!(encode_control(&m), Err(ProtoError::TooLarge(_))));
     }
 

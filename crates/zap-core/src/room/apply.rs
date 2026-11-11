@@ -269,11 +269,7 @@ mod tests {
         let mut m = espelho();
         let efeito = apply_owner_msg(
             &mut m,
-            ControlMsg::Error {
-                code: "sem_permissao".into(),
-                message: "não pode".into(),
-                reference: Some("t_1".into()),
-            },
+            ControlMsg::error("sem_permissao", "não pode", Some("t_1".into())),
         );
         assert_eq!(
             efeito,

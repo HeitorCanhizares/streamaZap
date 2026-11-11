@@ -90,6 +90,45 @@ pub enum ControlMsg {
         message: String,
         #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
         reference: Option<String>,
+        /// `invalido` (campo do pedido) e `plano_insuficiente` (`"tipo"` | `"camadas"`).
+        #[serde(
+            rename = "campo",
+            default,
+            deserialize_with = "crate::types::tolerant",
+            skip_serializing_if = "Option::is_none"
+        )]
+        field: Option<String>,
+        /// `plano_insuficiente`: id do plano da sessão. Id desconhecido = `None`.
+        #[serde(
+            rename = "plano",
+            default,
+            deserialize_with = "crate::types::tolerant",
+            skip_serializing_if = "Option::is_none"
+        )]
+        plan: Option<crate::plan::PlanId>,
+        /// `limite`: quanto esperar antes de tentar de novo.
+        #[serde(
+            rename = "tentar_em_ms",
+            default,
+            deserialize_with = "crate::types::tolerant",
+            skip_serializing_if = "Option::is_none"
+        )]
+        retry_ms: Option<u64>,
+        /// `protocolo_incompativel`: faixa aceita.
+        #[serde(
+            rename = "protocolo_min",
+            default,
+            deserialize_with = "crate::types::tolerant",
+            skip_serializing_if = "Option::is_none"
+        )]
+        protocol_min: Option<u32>,
+        #[serde(
+            rename = "protocolo_max",
+            default,
+            deserialize_with = "crate::types::tolerant",
+            skip_serializing_if = "Option::is_none"
+        )]
+        protocol_max: Option<u32>,
     },
     // aperto de mão
     #[serde(rename = "ola")]
@@ -429,6 +468,22 @@ pub enum ControlMsg {
         #[serde(rename = "atual", default, skip_serializing_if = "Option::is_none")]
         current: Option<MusicNow>,
     },
+}
+
+impl ControlMsg {
+    /// `erro` sem extras (o formato de antes da fase 3).
+    pub fn error(code: impl Into<String>, message: impl Into<String>, reference: Option<String>) -> ControlMsg {
+        ControlMsg::Error {
+            code: code.into(),
+            message: message.into(),
+            reference,
+            field: None,
+            plan: None,
+            retry_ms: None,
+            protocol_min: None,
+            protocol_max: None,
+        }
+    }
 }
 
 /// Um vídeo da fila de música da sala.

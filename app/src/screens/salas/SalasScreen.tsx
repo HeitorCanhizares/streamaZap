@@ -3,6 +3,8 @@ import { useState, type ReactNode } from 'react'
 import { api } from '../../bridge/api'
 import { useOnlineEnabled } from '../../bridge/onlineStore'
 import { useSnapshot } from '../../bridge/store'
+import { useTravas } from '../../bridge/usePlano'
+import { ConviteEspectador } from '../planos/ConviteEspectador'
 import type { JoinTarget, RoomMode } from '../../bridge/types'
 import { Button } from '../../components/Button'
 import { TextField } from '../../components/TextField'
@@ -40,6 +42,8 @@ export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenP
   const [modoEstado, setModo] = useState<RoomMode>(modoInicial)
   // Online desligado: o modo efetivo é sempre local (o estado é ignorado).
   const modo: RoomMode = habilitado ? modoEstado : 'local'
+  const travas = useTravas(modo)
+  const semPlano = habilitado && modo === 'online' && !travas.podeEntrar
   const [filtro, setFiltro] = useState<FiltroSala>('todas')
   const [busca, setBusca] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -80,6 +84,8 @@ export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenP
   }
 
   async function entrar(target: JoinTarget, pwd?: string): Promise<void> {
+    // Sem plano para entrar no Online: o convite já está na tela, não chama a ponte.
+    if (semPlano) return
     setOcupado(true)
     setErro(null)
     try {
@@ -196,6 +202,7 @@ export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenP
           ocupado={ocupado}
           erro={promptManual || promptCodigo ? null : erro}
           onEntrar={onEntrar}
+          convite={semPlano ? <ConviteEspectador /> : undefined}
         />
       </div>
     </div>

@@ -9,6 +9,7 @@ use zap_proto::ControlMsg;
 use super::direct;
 use super::room::OnlineRoom;
 use super::ws_apply::apply_ws_msg;
+use crate::plan_gate::{self, PlanAction};
 use crate::room::RoomEvent;
 
 /// Para cada mensagem de `rx` (até o canal fechar ou `room.left`):
@@ -21,7 +22,10 @@ use crate::room::RoomEvent;
 ///    `MediaRoute` → `direct::on_media_route`; `P2pCandidates` → `direct::on_candidates`;
 ///    `LayerCurrent` → guarda em `PubConn::last_layer` da ponte e atualiza o motivo do tile
 ///    (`TileMetrics::set_reason` da assinatura da trilha, se houver);
-/// 4. `Error{code,message}` → `RoomEvent::Error(message)`.
+/// 4. `Error{ref: Some(r)}` com `r` em `room.pending` → completa o `oneshot` com
+///    `Err(plan_gate::error_from_server(..))` e não gera `RoomEvent`; `Error` sem `ref` (ou com
+///    `ref` desconhecida) segue para o passo 2 (`plano_insuficiente` → `PlanRefused`, o resto →
+///    `RoomEvent::Error(message)`).
 ///
 /// Depois de aplicar `ParticipantLeft` de quem eu assistia, nada especial (o `Core` limpa pelo
 ///   `RoomEvent::TrackRemoved`).
@@ -34,7 +38,33 @@ pub(crate) async fn run(room: Arc<OnlineRoom>, mut rx: mpsc::Receiver<ControlMsg
         } = &msg
         {
             if let Some(tx) = room.pending.lock().remove(l) {
-                let _ = tx.send(track.clone());
+                let _ = tx.send(Ok(track.clone()));
+            }
+        }
+        // 1b. Erro com `ref` de uma publicação pendente: quem publicou recebe o erro (o
+        // fechamento do share registra a recusa); não vira `RoomEvent`.
+        if let ControlMsg::Error {
+            code,
+            message,
+            reference: Some(r),
+            plan,
+            field,
+            ..
+        } = &msg
+        {
+            // O lock de `pending` é solto no fim da instrução, antes de `room.shared()`.
+            let tx = room.pending.lock().remove(r);
+            if let Some(tx) = tx {
+                let fallback = room.shared().ok().and_then(|s| s.session_plan()).map(|p| p.id);
+                let _ = tx.send(Err(plan_gate::error_from_server(
+                    code,
+                    message,
+                    *plan,
+                    field.clone(),
+                    fallback,
+                    PlanAction::Publish,
+                )));
+                continue;
             }
         }
         // 2. Aplica ao modelo; o lock é solto antes de enviar os eventos.
@@ -198,11 +228,110 @@ mod tests {
                 .await
                 .unwrap()
                 .unwrap();
-            assert_eq!(t.id, "t1");
+            assert_eq!(t.expect("publicação ok").id, "t1");
             drop(tx);
             h.await.unwrap();
             assert!(room.pending.lock().is_empty());
             assert!(room.model.lock().tracks.iter().any(|t| t.id == "t1"));
+        });
+    }
+
+    /// Sala com um canal de eventos próprio (o do `Core` é consumido pelo pump).
+    fn sala_com_eventos(core: &Core) -> (Arc<OnlineRoom>, mpsc::UnboundedReceiver<RoomEvent>) {
+        let mut room = sala(core);
+        let (tx, rx) = mpsc::unbounded_channel();
+        Arc::get_mut(&mut room).expect("sala sem outras referências").events = tx;
+        (room, rx)
+    }
+
+    fn erro(code: &str, r: Option<&str>, plan: Option<&str>, campo: Option<&str>) -> ControlMsg {
+        let mut v = json!({"t": "erro", "codigo": code, "mensagem": "recusado"});
+        if let Some(r) = r {
+            v["ref"] = json!(r);
+        }
+        if let Some(p) = plan {
+            v["plano"] = json!(p);
+        }
+        if let Some(c) = campo {
+            v["campo"] = json!(c);
+        }
+        msg(v)
+    }
+
+    #[test]
+    fn erro_com_ref_completa_pending_sem_evento() {
+        let core = core();
+        let (room, mut evs) = sala_com_eventos(&core);
+        rt().block_on(async {
+            let (otx, orx) = tokio::sync::oneshot::channel();
+            room.pending.lock().insert("l_9".into(), otx);
+            let (tx, rx) = mpsc::channel(8);
+            let h = tokio::spawn(run(room.clone(), rx));
+            tx.send(erro("plano_insuficiente", Some("l_9"), Some("hd"), Some("camadas")))
+                .await
+                .unwrap();
+            let r = tokio::time::timeout(Duration::from_secs(2), orx)
+                .await
+                .unwrap()
+                .unwrap();
+            match r {
+                Err(crate::CoreError::Plan(p)) => {
+                    assert_eq!(p.plan, zap_proto::plan::PlanId::Hd);
+                    assert_eq!(p.field.as_deref(), Some("camadas"));
+                    assert_eq!(p.action, PlanAction::Publish);
+                }
+                outro => panic!("esperava Plan, veio {outro:?}"),
+            }
+            drop(tx);
+            h.await.unwrap();
+            assert!(room.pending.lock().is_empty());
+            assert!(evs.try_recv().is_err());
+        });
+    }
+
+    #[test]
+    fn erro_sem_ref_vira_plan_refused_e_mantem_pending() {
+        let core = core();
+        let (room, mut evs) = sala_com_eventos(&core);
+        rt().block_on(async {
+            let (otx, _orx) = tokio::sync::oneshot::channel();
+            room.pending.lock().insert("l_9".into(), otx);
+            let (tx, rx) = mpsc::channel(8);
+            let h = tokio::spawn(run(room.clone(), rx));
+            tx.send(erro("plano_insuficiente", None, Some("hd"), Some("camadas")))
+                .await
+                .unwrap();
+            drop(tx);
+            h.await.unwrap();
+            assert!(room.pending.lock().contains_key("l_9"));
+            match evs.try_recv() {
+                Ok(RoomEvent::PlanRefused(p)) => {
+                    assert_eq!(p.plan, zap_proto::plan::PlanId::Hd);
+                    assert_eq!(p.field.as_deref(), Some("camadas"));
+                    assert_eq!(p.action, PlanAction::Publish);
+                }
+                outro => panic!("esperava PlanRefused, veio {outro:?}"),
+            }
+        });
+    }
+
+    #[test]
+    fn erro_comum_com_ref_vira_server() {
+        let core = core();
+        let room = sala(&core);
+        rt().block_on(async {
+            let (otx, orx) = tokio::sync::oneshot::channel();
+            room.pending.lock().insert("l_9".into(), otx);
+            let (tx, rx) = mpsc::channel(8);
+            let h = tokio::spawn(run(room.clone(), rx));
+            tx.send(erro("invalido", Some("l_9"), None, None)).await.unwrap();
+            let r = tokio::time::timeout(Duration::from_secs(2), orx)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(matches!(r, Err(crate::CoreError::Server { ref code, .. }) if code == "invalido"));
+            drop(tx);
+            h.await.unwrap();
         });
     }
 

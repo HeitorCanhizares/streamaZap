@@ -2,8 +2,12 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api, isTauri } from '../../bridge/api'
 import { barraServidor } from '../../bridge/serverModel'
 import { useOnlineEnabled } from '../../bridge/onlineStore'
+import { melhorPermitido, travaDe } from '../../bridge/planoModel'
 import { useSnapshot } from '../../bridge/store'
+import { useTravas } from '../../bridge/usePlano'
 import type { Corner, Preset, RoomMode, SourceItem, Sources } from '../../bridge/types'
+import { ConviteEspectador } from '../planos/ConviteEspectador'
+import { VireTransmissor } from '../planos/VireTransmissor'
 import { cantoDoLayout, layoutDe, type CameraJeito } from './cameraModel'
 import { CriarFontes, type FonteTab } from './CriarFontes'
 import { CriarModo } from './CriarModo'
@@ -47,6 +51,17 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
   const [adaptavel, setAdaptavel] = useState(true)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const travas = useTravas(modo)
+
+  // Preset da tela acima do plano: cai para o melhor que o plano deixa (o que o núcleo usaria).
+  useEffect(() => {
+    if (travas.ativo && travaDe(preset, travas.tela)) setPreset(melhorPermitido(preset, travas.tela))
+  }, [travas.ativo, travas.tela, preset])
+
+  // Sem plano de transmissor no Online só dá para criar a sala sem transmitir.
+  useEffect(() => {
+    if (!travas.podeTransmitir && tab !== 'nada') setTab('nada')
+  }, [travas.podeTransmitir, tab])
 
   // Recarrega as fontes; se a selecionada sumiu, escolhe a primeira da aba atual.
   const carregar = useCallback(async (): Promise<void> => {
@@ -177,6 +192,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           <p style={{ margin: 0, color: 'var(--texto-2)', fontSize: 15 }}>{modoHint(modo)}</p>
         </div>
 
+        {!travas.podeEntrar && <ConviteEspectador />}
         <CriarModo modo={modo} onModo={setModo} />
         <CriarNomeAcesso nome={nome} onNome={setNome} acesso={acesso} onAcesso={setAcesso} senha={senha} onSenha={setSenha} />
         <CriarFontes
@@ -195,6 +211,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           cameraId={cameraId}
           onCameraId={setCameraId}
           onRefresh={() => void carregar()}
+          bloqueado={travas.podeTransmitir ? undefined : <VireTransmissor />}
         />
 
         {!nada && (
@@ -208,7 +225,9 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
             onEncoder={setEncoder}
             adaptavel={adaptavel}
             onAdaptavel={setAdaptavel}
-            cameraPreset={cameraPreset}
+            cameraPreset={travas.ativo ? melhorPermitido(cameraPreset, travas.camera) : cameraPreset}
+            travasTela={travas.ativo ? travas.tela : undefined}
+            travasCamera={travas.ativo ? travas.camera : undefined}
             onCameraPreset={setCameraPreset}
             cameraInfo={sources.cameras.find((c) => c.id === (cameraId ?? sources.cameras[0]?.id))}
           />
@@ -242,7 +261,7 @@ export function CriarScreen({ onCreated, onCancel }: CriarScreenProps): ReactNod
           <button
             type="button"
             className="zp-criar-cta"
-            disabled={busy || (selected === null && tab !== 'audio' && !nada)}
+            disabled={busy || !travas.podeEntrar || (selected === null && tab !== 'audio' && !nada)}
             onClick={() => void iniciar()}
             style={{
               height: 52,

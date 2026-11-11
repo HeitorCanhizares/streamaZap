@@ -44,6 +44,8 @@ pub enum RoomEvent {
     },
     /// Trilha de outro participante foi removida (para encerrar assinaturas).
     TrackRemoved(String),
+    /// O servidor recusou uma ação por plano (`plano_insuficiente` sem pedido pendente).
+    PlanRefused(crate::plan_gate::PlanRefusal),
 }
 
 /// O que as salas precisam do `Core` (cópia dos valores, sem referência ao `Core`).

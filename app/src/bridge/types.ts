@@ -56,11 +56,22 @@ export interface Snapshot {
   server?: ServerStatus
   /** Conta e plano da sessão Online (o que o servidor pede: conta, senha). Ausente = sem servidor. */
   account?: AccountView
+  /** Presets acima do plano (tela e câmera); só com plano na sessão Online. Ausente = nada travado. */
+  quality_locks?: QualityLocks
+  /** Última recusa por plano; `seq` cresce a cada recusa. */
+  plan_notice?: PlanNotice
 }
+/** Preset acima do plano; `needs` = plano mais barato que libera (ausente = nenhum libera). */
+export interface PresetLock { preset: Preset; needs?: PlanId }
+/** `Snapshot.quality_locks` (espelha zap_core::QualityLocks). */
+export interface QualityLocks { can_publish: boolean; screen: PresetLock[]; camera: PresetLock[] }
+/** `Snapshot.plan_notice` (espelha zap_core::PlanNotice). */
+export interface PlanNotice { seq: number; plan: PlanId; action: 'entrar' | 'transmitir'; field?: string; message: string }
+export type PlanId = 'nenhum' | 'espectador' | 'hd' | 'fullhd'
 /** Como o app faz login: `conta` do /v1/info do servidor (espelha zap-core online::account). */
 export interface AccountProviderView { provider: string; url: string; key: string }
 /** Plano da sessão (resposta do POST /v1/sessoes): id no fio e limites; só o id importa para a tela. */
-export interface PlanView { id: 'nenhum' | 'espectador' | 'hd' | 'fullhd'; pode_entrar: boolean }
+export interface PlanView { id: PlanId; pode_entrar: boolean }
 /** `Snapshot.account`: ausente `account_provider` = o servidor não confere contas (sem login). */
 export interface AccountView {
   account_provider?: AccountProviderView

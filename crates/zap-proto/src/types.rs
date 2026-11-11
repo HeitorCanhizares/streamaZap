@@ -145,6 +145,17 @@ pub struct Track {
     pub camera_layout: Option<CameraLayout>,
 }
 
+/// Lê um campo opcional sem derrubar a mensagem: ausente, `null`, tipo errado ou valor que esta
+/// versão não conhece viram `None`. Use com `#[serde(default, deserialize_with = "crate::types::tolerant")]`.
+pub fn tolerant<'de, D, T>(d: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let valor = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(valor.and_then(|v| serde_json::from_value(v).ok()))
+}
+
 /// Lê o campo `camera` sem falhar: um `modo` ou `canto` que esta versão não conhece vira `None`
 /// (o padrão, canto inferior direito), e o resto da mensagem (`sala.estado`, `trilha.publicada`,
 /// `trilha.publicar`...) continua valendo. Use com `#[serde(default, deserialize_with = ...)]`.

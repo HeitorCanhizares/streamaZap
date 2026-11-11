@@ -17,6 +17,8 @@ export interface SalaControlesProps {
   visivel?: boolean
   /** Mouse em cima ou foco nos controles: o pai não deixa sumir. */
   onPreso?: (preso: boolean) => void
+  /** Plano sem transmissão: 'Vire Transmissor' no lugar de compartilhar (padrão true). */
+  podeTransmitir?: boolean
 }
 
 const redondo: CSSProperties = {
@@ -35,8 +37,12 @@ const separador: CSSProperties = { width: 1, height: 28, background: '#2A443C', 
 
 export function SalaControles(props: SalaControlesProps): ReactNode {
   const { muted, volume, camOn, sharing, smoothingMs } = props
+  // Plano sem transmissão: só dá para "virar Transmissor" (abre o painel) e a câmera fica travada.
+  const travado = props.podeTransmitir === false && !sharing
+  const shareTxt = sharing ? 'Transmissão' : travado ? 'Vire Transmissor' : 'Compartilhar'
   const muteLabel = muted ? 'Ativar som da sala' : 'Silenciar a sala toda'
   const camLabel = camOn ? 'Desligar minha câmera' : 'Ligar minha câmera'
+  const camTitle = travado ? 'Vire Transmissor para ligar a câmera' : camLabel
   const camStyle: CSSProperties = camOn ? redondo : { ...redondo, background: '#3A1C21', color: '#FF8592' }
   const shareStyle: CSSProperties = {
     height: 48,
@@ -112,18 +118,18 @@ export function SalaControles(props: SalaControlesProps): ReactNode {
         style={{ width: 90 }}
       />
       <span aria-hidden="true" className="zp-ctl-opc" style={separador} />
-      <button type="button" className="zp-dock" onClick={props.onToggleCam} aria-label={camLabel} title={camLabel} style={camStyle}>
+      <button type="button" className="zp-dock" onClick={travado ? undefined : props.onToggleCam} aria-label={camLabel} aria-disabled={travado ? true : undefined} title={camTitle} style={travado ? { ...camStyle, opacity: 0.5, cursor: 'not-allowed' } : camStyle}>
         <svg width="20" height="20" viewBox="0 0 24 24" strokeLinejoin="round" strokeLinecap={camOn ? undefined : 'round'} {...svgBase}>
           <rect x="3" y="7" width="13" height="10" rx="2" />
           {camOn ? <path d="m16 11 5-3v8l-5-3z" /> : <path d="m16 11 5-3v8l-5-3zM3 3l18 18" />}
         </svg>
       </button>
-      <button type="button" className="zp-dock" onClick={props.onToggleShare} aria-pressed={sharing} aria-label={sharing ? 'Transmissão' : 'Compartilhar'} title={sharing ? 'Ajustar a transmissão' : 'Compartilhar'} style={shareStyle}>
+      <button type="button" className="zp-dock" onClick={props.onToggleShare} aria-pressed={sharing} aria-label={shareTxt} title={sharing ? 'Ajustar a transmissão' : shareTxt} style={shareStyle}>
         <svg width="20" height="20" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round" {...svgBase}>
           <rect x="3" y="4" width="18" height="12" rx="2" />
           <path d="M8 20h8M12 16v4M12 13V7M9 10l3-3 3 3" />
         </svg>
-        <span className="zp-ctl-txt">{sharing ? 'Transmissão' : 'Compartilhar'}</span>
+        <span className="zp-ctl-txt">{shareTxt}</span>
       </button>
       <button
         type="button"

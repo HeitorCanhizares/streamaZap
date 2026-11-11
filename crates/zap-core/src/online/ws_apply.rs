@@ -3,6 +3,7 @@
 use zap_proto::ControlMsg;
 
 use crate::music::MusicMirror;
+use crate::plan_gate::{PlanAction, PlanRefusal};
 use crate::room::{chat_line_from_msg, RoomEvent, RoomModel};
 
 /// Aplica `msg` ao modelo e devolve os eventos para o `Core`:
@@ -17,7 +18,9 @@ use crate::room::{chat_line_from_msg, RoomEvent, RoomModel};
 ///   `RoomEvent::Chat(linha)`; mensagem com o mesmo `id` já no histórico é ignorada;
 /// - `RoomClosed{reason}` → `RoomEvent::Closed(reason)` (o motivo vai como está:
 ///   `dono`/`vazia`/`servidor`);
-/// - `Error{message}` → `RoomEvent::Error(message)`;
+/// - `Error{code: "plano_insuficiente"}` → `RoomEvent::PlanRefused` (plano do `erro`, senão
+///   `PlanId::None`; ação `Publish`; `campo` e mensagem do servidor);
+/// - `Error{message}` (outros códigos) → `RoomEvent::Error(message)`;
 /// - `MusicState` → espelho da música (`MusicMirror`) + `Changed`;
 /// - qualquer outra (ping, camadas.pedidas, midia.rota, ...) → vazio (tratadas em `room_events`).
 pub fn apply_ws_msg(model: &mut RoomModel, msg: ControlMsg) -> Vec<RoomEvent> {
@@ -65,6 +68,19 @@ pub fn apply_ws_msg(model: &mut RoomModel, msg: ControlMsg) -> Vec<RoomEvent> {
             vec![RoomEvent::TrackRemoved(track_id), RoomEvent::Changed]
         }
         ControlMsg::RoomClosed { reason } => vec![RoomEvent::Closed(reason)],
+        // Recusa por plano sem `ref` (com `ref` de publicação pendente, `room_events` já tratou).
+        ControlMsg::Error {
+            code,
+            message,
+            plan,
+            field,
+            ..
+        } if code == "plano_insuficiente" => vec![RoomEvent::PlanRefused(PlanRefusal {
+            plan: plan.unwrap_or_default(),
+            action: PlanAction::Publish,
+            field,
+            message,
+        })],
         ControlMsg::Error { message, .. } => vec![RoomEvent::Error(message)],
         // No Online o servidor é a fonte da música: guarda o estado como o membro no Local.
         msg @ ControlMsg::MusicState { .. } => {
@@ -269,15 +285,23 @@ mod tests {
     #[test]
     fn erro_vira_evento_error() {
         let mut m = modelo();
-        let evs = apply_ws_msg(
-            &mut m,
-            ControlMsg::Error {
-                code: "x".into(),
-                message: "falhou".into(),
-                reference: None,
-            },
-        );
+        let evs = apply_ws_msg(&mut m, ControlMsg::error("x", "falhou", None));
         assert!(matches!(evs.as_slice(), [RoomEvent::Error(texto)] if texto == "falhou"));
+    }
+
+    #[test]
+    fn plano_insuficiente_sem_plano_vira_plan_refused_none() {
+        let mut m = modelo();
+        let evs = apply_ws_msg(&mut m, ControlMsg::error("plano_insuficiente", "acima do plano", None));
+        match evs.as_slice() {
+            [RoomEvent::PlanRefused(p)] => {
+                assert_eq!(p.plan, zap_proto::plan::PlanId::None);
+                assert_eq!(p.action, PlanAction::Publish);
+                assert_eq!(p.field, None);
+                assert_eq!(p.message, "acima do plano");
+            }
+            outro => panic!("esperava PlanRefused, veio {outro:?}"),
+        }
     }
 
     #[test]

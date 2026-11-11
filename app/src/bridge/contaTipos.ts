@@ -13,6 +13,9 @@ export interface ContaSessao { access_token: string; user?: { email?: string } }
 /** INITIAL_SESSION, SIGNED_IN, TOKEN_REFRESHED, SIGNED_OUT (outros eventos são ignorados). */
 export type ContaEvento = string
 
+export interface ContaResposta<T> { data: T | null; error: ContaErro | null }
+export interface ContaConsulta { select(colunas: string): { maybeSingle(): PromiseLike<ContaResposta<unknown>> } }
+
 export interface ContaClient {
   auth: {
     signInWithOAuth(args: {
@@ -29,13 +32,16 @@ export interface ContaClient {
     }): Promise<{ data: { url: string | null }; error: ContaErro | null }>
     unlinkIdentity(identity: ContaIdentidade): Promise<{ error: ContaErro | null }>
     signOut(): Promise<{ error: ContaErro | null }>
+    refreshSession(): Promise<{ data: { session: ContaSessao | null } | null; error: ContaErro | null }>
     /** Para os timers de renovação (o cliente real tem; o mock pode omitir). */
     stopAutoRefresh?(): Promise<void>
     onAuthStateChange(cb: (evento: ContaEvento, sessao: ContaSessao | null) => void): {
       data: { subscription: { unsubscribe(): void } }
     }
   }
-  functions: { invoke(nome: string): Promise<{ error: ContaErro | null }> }
+  /** Só o que o app usa do PostgREST: `from(t).select(cols).maybeSingle()`. */
+  from(tabela: 'config_publica' | 'assinaturas'): ContaConsulta
+  functions: { invoke(nome: string, opcoes?: { body?: unknown }): Promise<{ data?: unknown; error: ContaErro | null }> }
 }
 
 /** Estado da conta para a interface (contaStore.ts). */

@@ -23,6 +23,7 @@ pub mod diag_text;
 pub mod discovery_view;
 pub mod engine;
 mod engine_music;
+mod engine_plan;
 mod engine_room;
 mod engine_share;
 mod engine_tick;
@@ -31,6 +32,18 @@ pub mod error;
 pub mod music;
 pub mod notify;
 pub mod online;
+pub mod plan_check;
+pub mod plan_gate;
+#[cfg(test)]
+mod plan_it_camera;
+#[cfg(test)]
+mod plan_it_join;
+#[cfg(test)]
+mod plan_it_locks;
+#[cfg(test)]
+mod plan_it_ref;
+#[cfg(test)]
+mod plan_it_share;
 pub mod playout;
 pub mod publish;
 pub mod room;
@@ -53,6 +66,7 @@ pub use diag::{DiagInput, DiagReport};
 pub use engine_music::MusicReport;
 pub use error::CoreError;
 pub use online::{ServerState, ServerStatus, ServerTestResult};
+pub use plan_gate::{PlanAction, PlanNotice, PresetLock, QualityLocks};
 pub use settings::{InstallMode, Settings};
 pub use snapshot::Snapshot;
 pub use types::*;

@@ -38,7 +38,7 @@ describe('ContaLogada', () => {
 
   it('mostra o plano sem preço nem Assinar', () => {
     abrir([google, email], { id: 'fullhd', pode_entrar: true })
-    expect(screen.getByText('Plano: Transmissor Full HD')).toBeTruthy()
+    expect(screen.getByText('Plano: beta gratuito (Full HD)')).toBeTruthy()
     expect(screen.queryByText(/Assinar/)).toBeNull()
     expect(screen.queryByText(/R\$/)).toBeNull()
   })

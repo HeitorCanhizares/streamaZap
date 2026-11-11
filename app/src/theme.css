@@ -82,7 +82,7 @@ body {
   color: var(--verde-texto);
 }
 
-.zp-btn-primary:hover {
+.zp-btn-primary:hover:not(:disabled) {
   background: var(--verde-hover);
 }
 
@@ -91,7 +91,7 @@ body {
   color: var(--texto-2);
 }
 
-.zp-btn-ghost:hover {
+.zp-btn-ghost:hover:not(:disabled) {
   background: var(--hover);
   color: var(--texto);
 }
@@ -101,8 +101,14 @@ body {
   color: var(--verde-texto);
 }
 
-.zp-btn-danger:hover {
+.zp-btn-danger:hover:not(:disabled) {
   background: var(--vermelho-texto);
+}
+
+/* Botão desligado (ex.: "Plano atual" na tela de planos) não pode parecer clicável. */
+.zp-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Cartões e campos */

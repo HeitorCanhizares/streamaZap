@@ -21,6 +21,16 @@ pub enum Preset {
 }
 
 impl Preset {
+    /// (altura, fps) do preset: 720/1080 e 30/60.
+    pub fn height_fps(self) -> (u32, u32) {
+        match self {
+            Preset::P720p30 => (720, 30),
+            Preset::P720p60 => (720, 60),
+            Preset::P1080p30 => (1080, 30),
+            Preset::P1080p60 => (1080, 60),
+        }
+    }
+
     pub fn to_rate(self) -> zap_rate::ladder::Preset {
         use zap_rate::ladder::Preset as R;
         match self {

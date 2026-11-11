@@ -40,7 +40,7 @@ pub struct OnlineRoom {
     /// Conexão da ponte (também registrada em `ConnPool` para as assinaturas).
     pub(crate) bridge: tokio::sync::Mutex<Option<Arc<PubConn>>>,
     /// `trilha.publicar` esperando `trilha.publicada` (chave: `local_id`).
-    pub(crate) pending: Mutex<HashMap<String, oneshot::Sender<Track>>>,
+    pub(crate) pending: Mutex<HashMap<String, oneshot::Sender<Result<Track, CoreError>>>>,
     pub(crate) publish: BridgePublish,
     pub(crate) direct: DirectState,
     /// `true` depois de `leave`/sala encerrada: as tarefas de reconexão desistem.

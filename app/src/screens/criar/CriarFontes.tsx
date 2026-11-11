@@ -9,7 +9,7 @@ import { cenaDaFonte, fonteMeta, listaDaAba, type FonteTab } from './criarModel'
 
 export type { FonteTab } from './criarModel'
 // cameraId/onCameraId: câmera escolhida para o canto (id da lista de fontes); sem eles, sem seletor.
-export interface CriarFontesProps { sources: Sources; tab: FonteTab; onTab: (t: FonteTab) => void; selected: string | null; onSelect: (id: string) => void; cameraCorner: boolean; onCameraCorner: (v: boolean) => void; onRefresh?: () => void; cameraId?: string | null; onCameraId?: (id: string) => void; numero?: string; mostrarCanto?: boolean; cameraJeito?: CameraJeito; onCameraJeito?: (j: CameraJeito) => void; cameraCanto?: Corner; onCameraCanto?: (c: Corner) => void; mostrarNada?: boolean }
+export interface CriarFontesProps { sources: Sources; tab: FonteTab; onTab: (t: FonteTab) => void; selected: string | null; onSelect: (id: string) => void; cameraCorner: boolean; onCameraCorner: (v: boolean) => void; onRefresh?: () => void; cameraId?: string | null; onCameraId?: (id: string) => void; numero?: string; mostrarCanto?: boolean; cameraJeito?: CameraJeito; onCameraJeito?: (j: CameraJeito) => void; cameraCanto?: Corner; onCameraCanto?: (c: Corner) => void; mostrarNada?: boolean; bloqueado?: ReactNode }
 
 // Miniatura pedida ao Rust: RGBA 320x180 (foto real da fonte; ver source_thumbnail no lado Tauri).
 const THUMB_W = 320
@@ -98,11 +98,11 @@ function estiloAba(ativo: boolean): CSSProperties {
 }
 
 // Grade de fontes da aba escolhida. Cada cartão é um botão com aria-pressed.
-export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCorner, onCameraCorner, onRefresh, cameraId, onCameraId, numero = '04', mostrarCanto = true, cameraJeito, onCameraJeito, cameraCanto, onCameraCanto, mostrarNada = false }: CriarFontesProps): ReactNode {
+export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCorner, onCameraCorner, onRefresh, cameraId, onCameraId, numero = '04', mostrarCanto = true, cameraJeito, onCameraJeito, cameraCanto, onCameraCanto, mostrarNada = false, bloqueado }: CriarFontesProps): ReactNode {
   const itens: SourceItem[] = listaDaAba(sources, tab)
   const abas = mostrarNada ? [...ABAS, { value: 'nada' as FonteTab, label: 'Nada por enquanto' }] : ABAS
   const novoJeito = cameraJeito !== undefined && onCameraJeito !== undefined
-  const emTelaOuJanela = mostrarCanto && (tab === 'telas' || tab === 'janelas')
+  const emTelaOuJanela = bloqueado === undefined && mostrarCanto && (tab === 'telas' || tab === 'janelas')
   // Câmera do canto: a escolhida, ou a primeira da lista.
   const cameraAtual = cameraId && sources.cameras.some((c) => c.id === cameraId) ? cameraId : (sources.cameras[0]?.id ?? '')
 
@@ -113,6 +113,7 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
           <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--verde)' }}>{numero}</span>O que compartilhar
         </h2>
         <span style={{ flex: 1 }} />
+        {bloqueado === undefined && (<>
         <div role="tablist" aria-label="Tipo de fonte" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--borda)' }}>
           {abas.map((a) => (
             <button key={a.value} type="button" role="tab" aria-selected={tab === a.value} onClick={() => onTab(a.value)} style={estiloAba(tab === a.value)}>
@@ -133,9 +134,12 @@ export function CriarFontes({ sources, tab, onTab, selected, onSelect, cameraCor
             <path d="M5 3v4h4M19 21v-4h-4" />
           </svg>
         </button>
+        </>)}
       </div>
 
-      {tab === 'nada' ? (
+      {bloqueado !== undefined ? (
+        bloqueado
+      ) : tab === 'nada' ? (
         <div role="note" style={{ padding: '16px 18px', borderRadius: 14, border: '1px solid var(--borda)', background: 'var(--bg)' }}>
           <span style={{ fontSize: 14, color: 'var(--texto-2)', lineHeight: 1.4 }}>Você cria a sala agora e começa a transmitir quando quiser, pelo botão Compartilhar dentro da sala.</span>
         </div>

@@ -16,6 +16,8 @@ export interface DetalheSalaProps {
   mostrarFirewall: boolean; onCorrigirFirewall: () => void
   senha: string; onSenha: (s: string) => void
   ocupado: boolean; erro: string | null; onEntrar: () => void
+  /** Convite para assinar (conta sem plano para entrar no Online); aparece abaixo do acesso. */
+  convite?: ReactNode
 }
 
 const principal: CSSProperties = {
@@ -38,6 +40,7 @@ export function DetalheSala({
   ocupado,
   erro,
   onEntrar,
+  convite,
 }: DetalheSalaProps): ReactNode {
   // O aviso do firewall vale mesmo sem sala selecionada: é do computador, não da sala.
   const aviso = mostrarFirewall ? <FirewallAviso onCorrigir={onCorrigirFirewall} /> : null
@@ -46,6 +49,7 @@ export function DetalheSala({
     return (
       <main className="zp-dots" style={{ ...principal, alignItems: 'stretch' }}>
         {aviso}
+        {convite}
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <p style={{ margin: 0, color: '#A3BDB1', textAlign: 'center' }}>Escolha uma sala na lista</p>
         </div>
@@ -68,6 +72,7 @@ export function DetalheSala({
           onEntrar={onEntrar}
         />
       </div>
+      {convite}
       <div style={linha}>
         <SalaCompartilhando sala={sala} />
         <SalaNaSala sala={sala} />

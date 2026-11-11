@@ -462,6 +462,9 @@ conta).
 
 ## 7. App, frente D: conta e plano
 
+Fase 3 do app (cadeados, `plano_insuficiente`, telas de plano escondidas sem `cobranca_ativa`):
+plano detalhado em [`fase3-app-planos.md`](fase3-app-planos.md).
+
 ### Login no app desktop (Tauri)
 
 - `@supabase/supabase-js` com `flowType: 'pkce'` e `detectSessionInUrl: false`.

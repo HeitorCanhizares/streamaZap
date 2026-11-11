@@ -34,6 +34,7 @@ fn erro_com_ref() {
             code,
             message,
             reference,
+            ..
         } => {
             assert_eq!(code, "atrasado");
             assert_eq!(message, "quadro atrasado");
@@ -52,6 +53,7 @@ fn erro_sem_ref_omite_campo() {
             code,
             message,
             reference,
+            ..
         } => {
             assert_eq!(code, "nao_encontrado");
             assert_eq!(message, "sala inexistente");
@@ -328,4 +330,99 @@ fn mensagem_desconhecida() {
         Err(_) => {}
         Ok(outro) => panic!("tipo desconhecido não deveria desserializar, veio {outro:?}"),
     }
+}
+
+/// Extras de um `ControlMsg::Error`, para os testes abaixo.
+struct Extras {
+    field: Option<String>,
+    plan: Option<crate::plan::PlanId>,
+    retry_ms: Option<u64>,
+    protocol_min: Option<u32>,
+    protocol_max: Option<u32>,
+}
+
+fn extras_do_erro(msg: &ControlMsg) -> Extras {
+    match msg {
+        ControlMsg::Error {
+            field,
+            plan,
+            retry_ms,
+            protocol_min,
+            protocol_max,
+            ..
+        } => Extras {
+            field: field.clone(),
+            plan: *plan,
+            retry_ms: *retry_ms,
+            protocol_min: *protocol_min,
+            protocol_max: *protocol_max,
+        },
+        outro => panic!("esperava erro, veio {outro:?}"),
+    }
+}
+
+#[test]
+fn erro_plano_insuficiente_roundtrip() {
+    let msg = roundtrip(
+        r#"{"t":"erro","codigo":"plano_insuficiente","mensagem":"m","ref":"l_1","plano":"hd","campo":"camadas"}"#,
+    );
+    let e = extras_do_erro(&msg);
+    assert_eq!(e.field.as_deref(), Some("camadas"));
+    assert_eq!(e.plan, Some(crate::plan::PlanId::Hd));
+}
+
+#[test]
+fn erro_sem_extras_nao_ganha_chaves() {
+    let msg = roundtrip(r#"{"t":"erro","codigo":"x","mensagem":"m"}"#);
+    let e = extras_do_erro(&msg);
+    assert!(e.field.is_none() && e.plan.is_none());
+    assert!(e.retry_ms.is_none() && e.protocol_min.is_none() && e.protocol_max.is_none());
+}
+
+#[test]
+fn erro_extras_ruins_viram_none_sem_derrubar() {
+    let casos = [
+        r#"{"t":"erro","codigo":"x","mensagem":"m","plano":"ouro"}"#,
+        r#"{"t":"erro","codigo":"x","mensagem":"m","tentar_em_ms":"abc"}"#,
+        r#"{"t":"erro","codigo":"x","mensagem":"m","campo":5}"#,
+    ];
+    for json in casos {
+        let msg: ControlMsg = serde_json::from_str(json).expect("desserializa");
+        match &msg {
+            ControlMsg::Error { code, message, .. } => {
+                assert_eq!(code, "x", "{json}");
+                assert_eq!(message, "m", "{json}");
+            }
+            outro => panic!("esperava erro, veio {outro:?}"),
+        }
+        let e = extras_do_erro(&msg);
+        assert!(e.field.is_none() && e.plan.is_none() && e.retry_ms.is_none(), "{json}");
+    }
+}
+
+#[test]
+fn erro_protocolo_min_max_e_tentar_em() {
+    let msg = roundtrip(r#"{"t":"erro","codigo":"x","mensagem":"m","protocolo_min":3,"protocolo_max":4}"#);
+    let e = extras_do_erro(&msg);
+    assert_eq!((e.protocol_min, e.protocol_max), (Some(3), Some(4)));
+
+    let msg = roundtrip(r#"{"t":"erro","codigo":"x","mensagem":"m","tentar_em_ms":1500}"#);
+    assert_eq!(extras_do_erro(&msg).retry_ms, Some(1500));
+}
+
+#[test]
+fn construtor_error_igual_ao_literal() {
+    assert_eq!(
+        ControlMsg::error("x", "m", Some("r".into())),
+        ControlMsg::Error {
+            code: "x".into(),
+            message: "m".into(),
+            reference: Some("r".into()),
+            field: None,
+            plan: None,
+            retry_ms: None,
+            protocol_min: None,
+            protocol_max: None,
+        }
+    );
 }

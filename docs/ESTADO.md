@@ -1,6 +1,6 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-06 (fases 1 e 2 do plano de contas, planos e câmera prontas no app, sem
+Atualizado em 2026-11-11 (fases 1, 2 e 3 do plano de contas, planos e câmera prontas no app, sem
 lançar; ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
 depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
 Diagnóstico e do CI. Todo o trabalho (rodadas M4/M4b/M4c/M2b) está no `master`, que é a única
@@ -107,9 +107,36 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     `streamazap://auth/callback` nas Redirect URLs;
   - pôr os secrets do CI do servidor;
   - pôr `ZAP_SUPABASE_URL` e `ZAP_SUPABASE_CHAVE` no `stack.env` da VPS.
-- **Próximo no app:** fase 3 (telas de plano escondidas, cadeado nas opções acima do plano,
-  `cobranca_ativa`, extras do `erro` no `zap-proto`) e a fase 5 (social, regras no §12 do plano).
-  As duas podem ser feitas antes do projeto Supabase, mas só são testadas de verdade com ele.
+- **Fase 3 do app (planos e cadeados), pronta e sem lançar** (plano em
+  `docs/planos/fase3-app-planos.md`):
+  - `zap-proto`: o `erro` traz os extras (`campo`, `plano`, `tentar_em_ms`, `protocolo_min`/`max`),
+    tolerantes;
+  - `zap-net`/`zap-core`: o `trilha.publicar` vai com `ref` (= `local_id`), e um `erro` com esse
+    `ref` fecha o pedido na hora (antes: 5 s de espera);
+  - `zap-core` (`plan_gate`): calcula as qualidades travadas pelo plano da sessão Online
+    (`quality_locks` no snapshot) e confere o plano antes de mandar ao servidor (publicar, trocar
+    qualidade, criar e entrar em sala). A recusa vai para `plan_notice`. A câmera liga no melhor
+    preset que o plano permite, sem mudar a configuração;
+  - interface: cadeado com o selo do plano necessário; "Vire Transmissor" para o Espectador;
+    convite do Espectador para a conta sem plano; aviso de `plano_insuficiente`; plano na Conta
+    ("beta gratuito (Full HD)" sem cobrança); tela de planos com preços e `assinar`. Preço, "Ver
+    planos" e a tela de planos só aparecem com `cobranca_ativa`; uma falha ao ler conta como
+    cobrança desligada;
+  - mock do navegador: `?plano=nenhum|espectador|hd|fullhd` e `?cobranca=1`.
+- **Verificação da fase 3** neste PC: fmt, clippy, `cargo check --all-targets`, `npm run check` e
+  `npm test` (1240) passam. Os fluxos foram conferidos no navegador com o mock: cadeados no `hd`,
+  "Vire Transmissor", convite, assinar, "Já assinei, atualizar", e nenhum preço sem cobrança.
+  `cargo test --workspace` passa, menos dois testes de tempo do hardware em crates que esta fase
+  não tocou: `zap-capture` `captura_nao_segura_o_dispositivo` (p95 de 10,8 ms contra 5 ms) e
+  `zap-encode` `latencia_hardware` (p95 de 12,8 ms contra 12 ms). Os dois falham também rodando
+  sozinhos neste PC.
+- **Falta testar na fase 3, com o Supabase de verdade:**
+  - ler `config_publica` e `assinaturas` reais;
+  - `refreshSession` trazendo o claim novo;
+  - roteiro do sandbox do Asaas;
+  - evento de foco no WebView2 instalado.
+- **Próximo no app:** fase 5 (social, regras no §12 do plano); só é testada de verdade com o
+  projeto Supabase.
 
 ## Resumo
 

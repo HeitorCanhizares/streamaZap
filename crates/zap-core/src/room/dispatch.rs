@@ -260,14 +260,7 @@ fn para(target: Target, msg: ControlMsg) -> Outgoing {
 }
 
 fn erro(to: &str, codigo: &str, mensagem: &str) -> Outgoing {
-    para(
-        Target::Only(to.into()),
-        ControlMsg::Error {
-            code: codigo.into(),
-            message: mensagem.into(),
-            reference: None,
-        },
-    )
+    para(Target::Only(to.into()), ControlMsg::error(codigo, mensagem, None))
 }
 
 /// Só o dono da trilha pode mexer nela (trilha inexistente também é `false`).

@@ -1,7 +1,8 @@
 // Dados do design para uso fora do Tauri (tarefa ui-07).
 // Cada função monta objetos NOVOS a cada chamada: nada aqui é compartilhado,
 // então quem mutar o retorno não altera o mock das próximas chamadas.
-import type { MusicView, Settings, Snapshot, Sources } from './types'
+import { travasDoPlano } from './fixtures/travas'
+import type { MusicView, PlanId, Settings, Snapshot, Sources } from './types'
 
 /** Música de exemplo: um vídeo tocando há 5 s (um voto de 2 para pular) e duas na fila (uma live). */
 export function mockMusic(agoraMs = Date.now()): MusicView {
@@ -20,7 +21,34 @@ export function mockMusic(agoraMs = Date.now()): MusicView {
   }
 }
 
-export const mockSnapshot = (): Snapshot => ({
+const PLANOS: PlanId[] = ['nenhum', 'espectador', 'hd', 'fullhd']
+
+/** Plano pedido na URL do navegador (`?plano=hd`); valor desconhecido é ignorado. */
+function planoDaUrl(): PlanId | null {
+  if (typeof globalThis.location === 'undefined') return null
+  const valor = new URLSearchParams(globalThis.location.search).get('plano')
+  return PLANOS.find((p) => p === valor) ?? null
+}
+
+/** Aplica o plano ao snapshot: `account.plan` e `quality_locks`. */
+function aplicaPlano(snap: Snapshot, id: PlanId): Snapshot {
+  return {
+    ...snap,
+    account: { ...snap.account!, plan: { id, pode_entrar: id !== 'nenhum' } },
+    quality_locks: travasDoPlano(id),
+  }
+}
+
+export const mockSnapshot = (): Snapshot => {
+  const base = mockSnapshotBase()
+  const id = planoDaUrl()
+  return id ? aplicaPlano(base, id) : base
+}
+
+/** Snapshot do mock já com o plano aplicado (para testes; não lê a URL). */
+export const mockSnapshotComPlano = (id: PlanId): Snapshot => aplicaPlano(mockSnapshotBase(), id)
+
+const mockSnapshotBase = (): Snapshot => ({
   version: 1,
   me: { name: 'Você', color: '#3BF08A', install_id: 'mock-install' },
   network: { radmin_ip: '26.14.7.88', interfaces: ['Radmin VPN', 'Ethernet'] },

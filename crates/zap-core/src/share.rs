@@ -74,6 +74,15 @@ fn pedido_de_webcam(req: &ShareRequest) -> bool {
     req.source.starts_with("camera:")
 }
 
+/// Tipo da trilha de vídeo de uma fonte de tela/janela.
+fn kind_da_fonte(src: &SourceRef) -> TrackKind {
+    if matches!(src, SourceRef::Window(_)) {
+        TrackKind::Window
+    } else {
+        TrackKind::Screen
+    }
+}
+
 /// Título amigável da fonte; sem achar, o próprio id.
 fn titulo_da_fonte(src: &SourceRef, id: &str) -> String {
     let achado = match src {
@@ -168,13 +177,10 @@ impl ShareSession {
             sessao.request = Some(req);
             return Ok(());
         }
+        // O plano confere antes de qualquer mudança local: recusa deixa tudo como estava.
+        let kind = kind_da_fonte(&src);
+        let ladder = shared.plan_ladder(kind, Self::ladder_for(&src, req.preset))?;
         let ms = shared.ensure_media_server().await?;
-        let ladder = Self::ladder_for(&src, req.preset);
-        let kind = if matches!(src, SourceRef::Window(_)) {
-            TrackKind::Window
-        } else {
-            TrackKind::Screen
-        };
         let (interface, loopback) = (
             shared.settings.read().local.interface.clone(),
             shared.options.include_loopback,
@@ -238,6 +244,7 @@ impl ShareSession {
         }
         shared.current_room().ok_or(CoreError::NoRoom)?;
         let sel = parse_audio(&req.audio)?;
+        shared.plan_ladder(TrackKind::Audio, vec![])?;
         Self::start_audio(shared, sessao, false, sel).await?;
         sessao.request = Some(req);
         Ok(())
@@ -251,6 +258,7 @@ impl ShareSession {
         sel: zap_audio::AudioSelection,
     ) -> Result<(), CoreError> {
         let room = shared.current_room().ok_or(CoreError::NoRoom)?;
+        shared.plan_ladder(TrackKind::Audio, vec![])?;
         let ms = shared.ensure_media_server().await?;
         let (interface, loopback) = (
             shared.settings.read().local.interface.clone(),
@@ -307,8 +315,12 @@ impl ShareSession {
                         "para transmitir só o som, escolha o som (todo o PC ou alguns apps)".into(),
                     ));
                 }
+                shared.plan_ladder(TrackKind::Audio, vec![])?;
             } else {
-                parse_source(&req.source)?;
+                let src = parse_source(&req.source)?;
+                if !matches!(src, SourceRef::Camera(_)) {
+                    shared.plan_ladder(kind_da_fonte(&src), Self::ladder_for(&src, req.preset))?;
+                }
             }
             if !sem_audio(&req.audio) {
                 parse_audio(&req.audio)?;
@@ -330,8 +342,8 @@ impl ShareSession {
             false
         } else {
             let src = parse_source(&req.source)?;
-            let ladder = Self::ladder_for(&src, req.preset);
             if let Some(screen) = sessao.screen.as_ref() {
+                let ladder = shared.plan_ladder(kind_da_fonte(&src), Self::ladder_for(&src, req.preset))?;
                 screen.publisher.set_ladder(ladder.clone());
                 let track_id = screen.track.id.clone();
                 if let Some(room) = shared.current_room() {

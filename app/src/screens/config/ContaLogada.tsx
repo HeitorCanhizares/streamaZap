@@ -6,7 +6,8 @@ import { Button } from '../../components/Button'
 import { useContaEstado } from '../../bridge/contaStore'
 import { sair } from '../../bridge/contaAcoes'
 import { desvincular, excluirConta, vincular } from '../../bridge/contaVinculo'
-import { nomePlano, podeDesvincular, rotuloProvedor } from '../../bridge/contaModel'
+import { podeDesvincular, rotuloProvedor } from '../../bridge/contaModel'
+import { ContaPlano } from './ContaPlano'
 import type { ProvedorOAuth } from '../../bridge/contaTipos'
 
 export interface ContaLogadaProps {
@@ -21,7 +22,7 @@ const linha: CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'c
 const VINCULAVEIS: Array<[ProvedorOAuth, string]> = [['google', 'Google'], ['azure', 'Microsoft']]
 
 /**
- * Lê `useContaEstado()`. Mostra "Conectado como <email>"; "Plano: <nomePlano>" só com `plano`
+ * Lê `useContaEstado()`. Mostra "Conectado como <email>"; a linha do plano via `ContaPlano`
  * (sem preço, sem "Assinar"); lista de `identidades` com `rotuloProvedor` e e-mail, botão
  * "Desvincular" em cada (desabilitado se `!podeDesvincular`, com dica "Mantenha ao menos uma forma
  * de entrar."); botões "Vincular Google" / "Vincular Microsoft" para os provedores ainda não
@@ -39,7 +40,7 @@ export function ContaLogada({ plano }: ContaLogadaProps): ReactNode {
       <span>
         {email ? <>Conectado como <b>{email}</b></> : 'Conectado'}
       </span>
-      {plano && <span>Plano: {nomePlano(plano)}</span>}
+      <ContaPlano plano={plano} />
 
       <div style={{ ...coluna, gap: 8 }}>
         <span style={{ fontWeight: 600 }}>Contas vinculadas</span>

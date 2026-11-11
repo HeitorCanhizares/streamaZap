@@ -14,6 +14,10 @@ use crate::CoreError;
 async fn fecha_share(shared: &Arc<Shared>, r: &Result<(), CoreError>) {
     if let Err(e) = r {
         shared.state.lock().push_error(e.to_string());
+        // Recusa por plano: além do erro, vira o aviso do snapshot (os locks não se sobrepõem).
+        if let CoreError::Plan(recusa) = e {
+            shared.record_plan_refusal(recusa);
+        }
     }
     let view = shared.share.lock().await.view();
     shared.state.lock().set_share(view);
@@ -67,8 +71,21 @@ impl Core {
     /// Troca a qualidade da câmera (à parte da tela): grava `settings.video.camera_preset` e, com a
     /// câmera ligada, aplica ao vivo (`ShareSession::set_camera_quality`). Sem câmera ligada só grava.
     pub async fn set_camera_quality(&self, preset: Preset) -> Result<(), CoreError> {
-        self.update_settings(|s| s.video.camera_preset = preset);
         let shared = self.shared.clone();
+        // Qualidade acima do plano é recusada (nada é reduzido em silêncio aqui) e não é gravada.
+        if let Some(p) = shared.room_plan() {
+            if !crate::plan_gate::preset_allowed(zap_proto::TrackKind::Camera, preset, &p.limits) {
+                let r = Err(CoreError::Plan(crate::plan_gate::PlanRefusal {
+                    plan: p.id,
+                    action: crate::plan_gate::PlanAction::Publish,
+                    field: Some("camadas".into()),
+                    message: crate::plan_gate::MSG_QUALIDADE.into(),
+                }));
+                fecha_share(&shared, &r).await;
+                return r;
+            }
+        }
+        self.update_settings(|s| s.video.camera_preset = preset);
         let r = shared
             .rt
             .clone()

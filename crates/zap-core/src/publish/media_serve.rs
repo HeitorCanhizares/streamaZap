@@ -149,11 +149,11 @@ async fn assinar(
     let track = server.tracks.lock().get(&track_id).cloned();
     let Some(track) = track else {
         let _ = tx
-            .send(&ControlMsg::Error {
-                code: "trilha_inexistente".into(),
-                message: format!("trilha {track_id} não existe"),
-                reference: None,
-            })
+            .send(&ControlMsg::error(
+                "trilha_inexistente",
+                format!("trilha {track_id} não existe"),
+                None,
+            ))
             .await;
         return;
     };

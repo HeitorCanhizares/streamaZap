@@ -18,11 +18,7 @@ const MAX_TEXTO_CHAT: usize = 1000;
 const MAX_NOME: usize = 32;
 
 fn erro(code: &str, message: &str, reference: Option<String>) -> ControlMsg {
-    ControlMsg::Error {
-        code: code.to_string(),
-        message: message.to_string(),
-        reference,
-    }
+    ControlMsg::error(code, message, reference)
 }
 
 /// `chat.mensagem` de uma entrada guardada (`cliente_id` só para quem enviou).

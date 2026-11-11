@@ -366,13 +366,12 @@ pub async fn control_loop(hub: Arc<Hub>, who: String, mut rx: ControlRx, saida: 
             | ControlMsg::DirectFailed { .. } => {}
             outra => {
                 if !hub.handle_sub_message_via(&who, &outra, Via::Quic) {
-                    let _ = saida.send(ControlMsg::Error {
-                        code: "invalido".into(),
-                        message: "Pelo QUIC o servidor de teste só aceita relatorio, ping e assinaturas; \
-                                  use o WebSocket"
-                            .into(),
-                        reference: None,
-                    });
+                    let _ = saida.send(ControlMsg::error(
+                        "invalido",
+                        "Pelo QUIC o servidor de teste só aceita relatorio, ping e assinaturas; \
+                                  use o WebSocket",
+                        None,
+                    ));
                 }
             }
         }

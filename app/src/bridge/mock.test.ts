@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
-import { mockSettings, mockSnapshot, mockSources } from './mock'
+import { mockSettings, mockSnapshot, mockSnapshotComPlano, mockSources } from './mock'
 
 describe('mockSnapshot', () => {
   it('traz as três salas do design com os nomes exatos', () => {
@@ -152,5 +152,69 @@ describe('api.settingsSet no mock (merge por seção)', () => {
   it('trocar só install mantém check, download e channel da seção update', async () => {
     const s = await api.settingsSet({ update: { install: 'ask' } as never })
     expect(s.update).toEqual({ check: true, download: true, install: 'ask', channel: 'estavel' })
+  })
+})
+
+describe('mockSnapshot com plano (?plano=)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sem parâmetro não tem quality_locks nem account.plan', () => {
+    const snap = mockSnapshot()
+    expect('quality_locks' in snap).toBe(false)
+    expect(Object.keys(snap)).not.toContain('quality_locks')
+    expect('plan' in snap.account!).toBe(false)
+  })
+
+  it('mockSnapshotComPlano("hd") trava só 1080p', () => {
+    const snap = mockSnapshotComPlano('hd')
+    expect(snap.quality_locks!.can_publish).toBe(true)
+    expect(snap.quality_locks!.screen).toEqual([
+      { preset: '1080p30', needs: 'fullhd' },
+      { preset: '1080p60', needs: 'fullhd' },
+    ])
+    expect(snap.account!.plan).toEqual({ id: 'hd', pode_entrar: true })
+  })
+
+  it('espectador não publica e tem 4 travados', () => {
+    const snap = mockSnapshotComPlano('espectador')
+    expect(snap.quality_locks!.can_publish).toBe(false)
+    expect(snap.quality_locks!.screen).toHaveLength(4)
+    expect(snap.account!.plan!.pode_entrar).toBe(true)
+  })
+
+  it('nenhum não pode entrar', () => {
+    expect(mockSnapshotComPlano('nenhum').account!.plan).toEqual({ id: 'nenhum', pode_entrar: false })
+  })
+
+  it('fullhd tem listas vazias', () => {
+    const q = mockSnapshotComPlano('fullhd').quality_locks!
+    expect(q.can_publish).toBe(true)
+    expect(q.screen).toEqual([])
+    expect(q.camera).toEqual([])
+  })
+
+  it('?plano=hd na URL traz as travas do hd', () => {
+    vi.stubGlobal('location', { search: '?plano=hd' })
+    const snap = mockSnapshot()
+    expect(snap.quality_locks!.screen).toHaveLength(2)
+    expect(snap.account!.plan!.id).toBe('hd')
+  })
+
+  it('plano inválido ou outro parâmetro sozinho não adiciona chaves', () => {
+    for (const search of ['?plano=ouro', '?cobranca=1']) {
+      vi.stubGlobal('location', { search })
+      const snap = mockSnapshot()
+      expect('quality_locks' in snap).toBe(false)
+      expect('plan' in snap.account!).toBe(false)
+    }
+  })
+
+  it('?plano=hd&musica traz travas e música juntas', () => {
+    vi.stubGlobal('location', { search: '?plano=hd&musica' })
+    const snap = mockSnapshot()
+    expect(snap.quality_locks).toBeDefined()
+    expect(snap.room!.music).toBeDefined()
   })
 })

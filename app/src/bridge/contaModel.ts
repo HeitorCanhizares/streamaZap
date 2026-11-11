@@ -1,5 +1,5 @@
 // Funções puras da conta (plano contas-planos-camera §7). Tarefa front-03.
-import type { AccountView, PlanView } from './types'
+import type { AccountView, PlanId, PlanView } from './types'
 import type { ContaIdentidade, ProvedorOAuth } from './contaTipos'
 
 /** Nome do provedor na tela: google -> 'Google', azure -> 'Microsoft', email -> 'E-mail'; outro: o próprio texto. */
@@ -17,7 +17,7 @@ export function rotuloProvedor(provider: string): string {
 }
 
 /** Nome do plano (sem preço): nenhum 'Sem plano', espectador 'Espectador', hd 'Transmissor HD', fullhd 'Transmissor Full HD'. */
-export function nomePlano(plano: PlanView): string {
+export function nomePlano(plano: PlanView | { id: PlanId }): string {
   switch (plano.id) {
     case 'nenhum':
       return 'Sem plano'

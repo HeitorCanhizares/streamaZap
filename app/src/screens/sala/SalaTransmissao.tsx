@@ -2,6 +2,9 @@
 // som), o som, a qualidade e a câmera, sem sair da sala. Usa as mesmas seções de Criar sala.
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { api } from '../../bridge/api'
+import { melhorPermitido, travaDe } from '../../bridge/planoModel'
+import { useSnapshot } from '../../bridge/store'
+import { useTravas } from '../../bridge/usePlano'
 import type { Corner, Preset, ShareView, SourceItem, Sources } from '../../bridge/types'
 import { CameraJeito } from '../criar/CameraJeito'
 import { CameraQualidade } from '../criar/CameraQualidade'
@@ -9,6 +12,7 @@ import { cantoDoLayout, jeitoDoLayout, layoutDe, presetAjustado, type CameraJeit
 import { CriarFontes } from '../criar/CriarFontes'
 import { CriarQualidade } from '../criar/CriarQualidade'
 import { CriarSom } from '../criar/CriarSom'
+import { VireTransmissor } from '../planos/VireTransmissor'
 import { abaDaFonte, erroDoPedido, listaDaAba, montarPedido, somDoPedido, type FonteTab, type SomModo } from '../criar/criarModel'
 
 export interface SalaTransmissaoProps {
@@ -32,6 +36,8 @@ const botao = (primario: boolean): CSSProperties => ({
 
 export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada, onClose }: SalaTransmissaoProps): ReactNode {
   const pedido = share?.request
+  const snap = useSnapshot()
+  const travas = useTravas(snap.room?.mode ?? 'local')
   const inicial = somDoPedido(pedido?.audio ?? 'none')
   const [sources, setSources] = useState<Sources>(SOURCES_VAZIO)
   const [tab, setTab] = useState<FonteTab>(pedido ? abaDaFonte(pedido.source) : 'telas')
@@ -85,6 +91,11 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
     // Só ao abrir o painel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Preset da tela acima do plano: cai para o melhor que o plano deixa.
+  useEffect(() => {
+    if (travas.ativo && travaDe(preset, travas.tela)) setPreset(melhorPermitido(preset, travas.tela))
+  }, [travas.ativo, travas.tela, preset])
 
   // Esc fecha o painel.
   useEffect(() => {
@@ -189,6 +200,9 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfgPronta, cameraInfo, cameraPreset])
 
+  // Câmera: mostra o melhor que o plano deixa, sem gravar a configuração.
+  const cameraPresetVisto = travas.ativo ? melhorPermitido(cameraPreset, travas.camera) : cameraPreset
+
   return (
     <div
       role="presentation"
@@ -223,6 +237,10 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
           </button>
         </div>
 
+        {!travas.podeTransmitir ? (
+          <VireTransmissor />
+        ) : (
+          <>
         <CriarFontes
           sources={sources}
           tab={tab}
@@ -246,6 +264,7 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
             onEncoder={setEncoder}
             adaptavel={adaptavel}
             onAdaptavel={setAdaptavel}
+            travasTela={travas.ativo ? travas.tela : undefined}
             numero="03"
           />
         </div>
@@ -280,7 +299,7 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
           )}
           <div style={{ flex: '1 1 100%', display: 'flex', flexWrap: 'wrap', gap: 18 }}>
             <div style={{ flex: '1 1 320px', minWidth: 0 }}>
-              <CameraQualidade preset={cameraPreset} camera={cameraInfo} onPreset={(p) => void mudarPreset(p)} />
+              <CameraQualidade preset={cameraPresetVisto} camera={cameraInfo} onPreset={(p) => void mudarPreset(p)} travas={travas.ativo ? travas.camera : undefined} />
             </div>
             <div style={{ flex: '1 1 320px', minWidth: 0 }}>
               <CameraJeito
@@ -292,6 +311,9 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
             </div>
           </div>
         </section>
+
+          </>
+        )}
 
         {erro !== null && (
           <p role="alert" style={{ margin: 0, color: 'var(--vermelho)', fontSize: 14 }}>{erro}</p>
@@ -305,9 +327,11 @@ export function SalaTransmissao({ share, camOn, onToggleCamera, onCameraTrocada,
           )}
           <span style={{ flex: 1 }} />
           <button type="button" onClick={onClose} style={botao(false)}>Cancelar</button>
-          <button type="button" className="zp-criar-cta" disabled={busy} onClick={() => void aplicar()} style={botao(true)}>
-            {busy ? 'Aplicando…' : share ? 'Aplicar' : 'Começar a transmitir'}
-          </button>
+          {travas.podeTransmitir && (
+            <button type="button" className="zp-criar-cta" disabled={busy} onClick={() => void aplicar()} style={botao(true)}>
+              {busy ? 'Aplicando…' : share ? 'Aplicar' : 'Começar a transmitir'}
+            </button>
+          )}
         </div>
       </div>
     </div>

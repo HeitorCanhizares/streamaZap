@@ -9,13 +9,36 @@ type Assinante = (evento: ContaEvento, sessao: ContaSessao | null) => void
  * entram direto (SIGNED_IN, e-mail 'voce@exemplo.com', token 'mock-token', identidade do provedor,
  * e uma URL https de mentira, que `api.abrirUrl` ignora fora do Tauri); `signInWithOtp` sempre ok; `verifyOtp` aceita só o token '123456' (senão o erro
  * `otp_expired`, como o Supabase) e entra com o e-mail dado (identidade 'email'); `linkIdentity` acrescenta a
- * identidade e emite SIGNED_IN; `unlinkIdentity` remove; `signOut` dispara SIGNED_OUT; `functions.invoke` ok.
+ * identidade e emite SIGNED_IN; `unlinkIdentity` remove; `signOut` dispara SIGNED_OUT; (a assinatura fica no
+ * 'banco'); `refreshSession` gera 'mock-token-N' e emite TOKEN_REFRESHED; `from('config_publica')` e
+ * `from('assinaturas')` leem das opções; `functions.invoke('assinar')` valida como o servidor e grava a
+ * assinatura na hora; os outros nomes devolvem ok.
  */
 /** URL do "login" de mentira: https para passar na checagem de quem chama; nunca é aberta. */
 const URL_MOCK = 'https://mock.supabase.co/auth/v1/authorize'
 
-export function criarMockConta(): ContaClient {
+export const PRECOS_MOCK = {
+  espectador: { mensal: 390, anual: 3900 },
+  hd: { mensal: 790, anual: 7900 },
+  fullhd: { mensal: 1490, anual: 14900 },
+}
+export interface MockContaOpcoes {
+  /** Padrão: `?cobranca=1` na URL (navegador), senão false. */
+  cobrancaAtiva?: boolean
+  /** Linha inicial de `assinaturas` (formato do banco). */
+  assinatura?: { plano: string; status: string; ciclo: string; valido_ate: string } | null
+  /** `from('config_publica')` devolve erro. */
+  falharConfig?: boolean
+}
+
+export function criarMockConta(opcoes: MockContaOpcoes = {}): ContaClient {
   let sessao: ContaSessao | null = null
+  const cobranca =
+    opcoes.cobrancaAtiva ??
+    (typeof globalThis.location !== 'undefined' &&
+      new URLSearchParams(globalThis.location.search).get('cobranca') === '1')
+  let assinatura: MockContaOpcoes['assinatura'] = opcoes.assinatura ?? null
+  let contadorToken = 1
   let identidades: ContaIdentidade[] = []
   const assinantes = new Set<Assinante>()
 
@@ -75,6 +98,13 @@ export function criarMockConta(): ContaClient {
         emitir('SIGNED_OUT', null)
         return { error: null }
       },
+      async refreshSession() {
+        if (!sessao) return { data: { session: null }, error: null }
+        contadorToken += 1
+        sessao = { ...sessao, access_token: `mock-token-${contadorToken}` }
+        emitir('TOKEN_REFRESHED', sessao)
+        return { data: { session: sessao }, error: null }
+      },
       async stopAutoRefresh() {},
       onAuthStateChange(cb) {
         assinantes.add(cb)
@@ -86,9 +116,57 @@ export function criarMockConta(): ContaClient {
         }
       },
     },
+    from(tabela) {
+      return {
+        select: () => ({
+          maybeSingle: async () => {
+            if (tabela === 'config_publica') {
+              if (opcoes.falharConfig) {
+                return { data: null, error: { message: 'mock: config indisponível' } }
+              }
+              return {
+                data: { cobranca_ativa: cobranca, plano_padrao: 'fullhd', precos: PRECOS_MOCK },
+                error: null,
+              }
+            }
+            return { data: sessao && assinatura ? { ...assinatura } : null, error: null }
+          },
+        }),
+      }
+    },
     functions: {
-      async invoke() {
-        return { error: null }
+      async invoke(nome, opcoes2) {
+        if (nome !== 'assinar') return { error: null }
+        const falha = (codigo: string, mensagem: string) => ({
+          error: { message: mensagem, context: { json: async () => ({ erro: codigo, mensagem }) } },
+        })
+        const body = (opcoes2?.body ?? {}) as { plano?: string; ciclo?: string; cpf_cnpj?: string }
+        if (!sessao) return falha('nao_autenticado', 'Entre na sua conta.')
+        if (!cobranca) return falha('cobranca_desligada', 'As assinaturas ainda não estão abertas.')
+        const { plano, ciclo, cpf_cnpj: doc } = body
+        if (
+          !plano ||
+          !ciclo ||
+          !['espectador', 'hd', 'fullhd'].includes(plano) ||
+          !['mensal', 'anual'].includes(ciclo)
+        ) {
+          return falha('invalido', 'Pedido inválido.')
+        }
+        if (doc !== undefined && doc.length !== 11 && doc.length !== 14) {
+          return falha('invalido', 'Informe um CPF ou CNPJ válido.')
+        }
+        if (assinatura?.status === 'ativa' && assinatura.plano === plano) {
+          return falha('ja_assinante', 'Você já tem esse plano.')
+        }
+        const dias = ciclo === 'anual' ? 365 : 30
+        // Como se o pagamento fosse na hora.
+        assinatura = {
+          plano,
+          status: 'ativa',
+          ciclo,
+          valido_ate: new Date(Date.now() + dias * 86_400_000).toISOString(),
+        }
+        return { data: { link: `https://sandbox.asaas.com/i/mock-${plano}-${ciclo}` }, error: null }
       },
     },
   }

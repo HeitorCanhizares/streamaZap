@@ -10,6 +10,8 @@ import { SalaMetrics } from './components/shell/SalaMetrics'
 import { UpdateAviso } from './components/shell/UpdateAviso'
 import { UpdateBanner } from './components/shell/UpdateBanner'
 import type { NavTarget } from './components/shell/types'
+import { AvisoPlano } from './screens/planos/AvisoPlano'
+import { PlanosModal } from './screens/planos/PlanosModal'
 import { SalasScreen } from './screens/salas/SalasScreen'
 import { CriarScreen } from './screens/criar/CriarScreen'
 import { SalaScreen } from './screens/sala/SalaScreen'
@@ -97,10 +99,12 @@ export function App(): ReactNode {
       />
       <UpdateBanner onOpenConfig={() => setView('config')} />
       <UpdateAviso />
+      <AvisoPlano />
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <NavRail active={view} onNavigate={onNavigate} inRoom={temSala} profileName={snap.me.name} />
         <main style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>{tela}</main>
       </div>
+      <PlanosModal />
     </div>
   )
 }

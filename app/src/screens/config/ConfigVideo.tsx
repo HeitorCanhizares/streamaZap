@@ -5,6 +5,8 @@ import type { Preset, Sources } from '../../bridge/types'
 import { PreviaCamera } from './PreviaCamera'
 import { CameraQualidade } from '../criar/CameraQualidade'
 import { presetAjustado } from '../criar/cameraModel'
+import { seloPlano, travaDe } from '../../bridge/planoModel'
+import { useTravas } from '../../bridge/usePlano'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 
 // Cards do design, na ordem.
@@ -29,6 +31,8 @@ function botao(on: boolean): CSSProperties {
 
 export function ConfigVideo({ settings, onChange, sources }: ConfigSecaoProps & { sources: Sources }): ReactNode {
   const video = settings.video
+  // Só informa: o padrão não trava nada, mesmo no Local.
+  const travas = useTravas('online')
   const selecionado = PRESETS.map((p) => p.value).lastIndexOf(video.default_preset)
   const auto = video.smoothing_auto
   const camera = sources.cameras.find((c) => c.id === video.camera_id) ?? sources.cameras[0]
@@ -89,6 +93,7 @@ export function ConfigVideo({ settings, onChange, sources }: ConfigSecaoProps & 
         <div role="radiogroup" aria-labelledby="q-label" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
           {PRESETS.map((p, i) => {
             const on = i === selecionado
+            const lock = travas.ativo ? travaDe(p.value, travas.tela) : undefined
             return (
               <button
                 key={i}
@@ -104,6 +109,9 @@ export function ConfigVideo({ settings, onChange, sources }: ConfigSecaoProps & 
               >
                 <span style={{ fontFamily: mono, fontWeight: 600, fontSize: 13 }}>{p.res}</span>
                 <span style={{ fontSize: 11, color: '#A3BDB1' }}>{p.fps}</span>
+                {lock && (
+                  <span style={{ fontSize: 10.5, color: 'var(--texto-2)' }}>{`Online: ${seloPlano(lock.needs ?? 'fullhd')}`}</span>
+                )}
               </button>
             )
           })}
@@ -117,6 +125,11 @@ export function ConfigVideo({ settings, onChange, sources }: ConfigSecaoProps & 
           camera={camera}
           rotulo="Qualidade padrão da câmera"
         />
+        {travas.ativo && travas.camera.length > 0 && (
+          <span style={{ fontSize: 10.5, color: 'var(--texto-2)' }}>
+            No Online, algumas qualidades da câmera dependem do seu plano.
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 14, borderRadius: 14, background: '#0A100E', border: '1px solid #1F332D' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

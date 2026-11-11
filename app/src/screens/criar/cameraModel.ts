@@ -1,6 +1,7 @@
 // Modelo puro da câmera (plano contas-planos-camera, B2 e B4): jeito (canto/solta), cantos e
 // qualidades que a câmera aguenta. Esqueleto: a tarefa front-05 preenche os corpos.
 import type { CameraLayout, Corner, Preset, SourceItem } from '../../bridge/types'
+import { MEDIDAS_PRESET } from '../../bridge/presets'
 
 /** Escolha de quem transmite: câmera desligada, no canto da tela ou solta. */
 export type CameraJeito = 'off' | 'canto' | 'solta'
@@ -34,14 +35,6 @@ export function layoutDe(jeito: JeitoLigado, canto: Corner): CameraLayout {
 /** Uma qualidade da câmera na lista; `desligado` quando a câmera não faz (com o motivo). */
 export interface OpcaoPreset { preset: Preset; desligado: boolean; motivo?: string }
 
-/** Altura e fps de cada qualidade. */
-const MEDIDAS: Record<Preset, { altura: number; fps: number }> = {
-  '720p30': { altura: 720, fps: 30 },
-  '720p60': { altura: 720, fps: 60 },
-  '1080p30': { altura: 1080, fps: 30 },
-  '1080p60': { altura: 1080, fps: 60 },
-}
-
 /** Ordem de exibição das 4 qualidades. */
 const PRESETS_EXIBIDOS: Preset[] = ['720p30', '720p60', '1080p30', '1080p60']
 
@@ -50,7 +43,7 @@ const PRESETS_DE_BUSCA: Preset[] = ['1080p60', '1080p30', '720p60', '720p30']
 
 /** Preset que a câmera não faz: passa da altura máxima ou do fps máximo do item (se informados). */
 function desligadoPara(preset: Preset, camera: SourceItem | undefined): boolean {
-  const { altura, fps } = MEDIDAS[preset]
+  const { altura, fps } = MEDIDAS_PRESET[preset]
   return (
     (camera?.max_height !== undefined && altura > camera.max_height) ||
     (camera?.max_fps !== undefined && fps > camera.max_fps)
@@ -73,9 +66,9 @@ export function opcoesDaCamera(camera: SourceItem | undefined): OpcaoPreset[] {
 /** A maior qualidade que a câmera faz e que não passa de `preset` (o próprio, se couber). */
 export function presetAjustado(preset: Preset, camera: SourceItem | undefined): Preset {
   if (!desligadoPara(preset, camera)) return preset
-  const pedido = MEDIDAS[preset]
+  const pedido = MEDIDAS_PRESET[preset]
   const achado = PRESETS_DE_BUSCA.find((p) => {
-    const m = MEDIDAS[p]
+    const m = MEDIDAS_PRESET[p]
     return m.altura <= pedido.altura && m.fps <= pedido.fps && !desligadoPara(p, camera)
   })
   return achado ?? '720p30'

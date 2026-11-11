@@ -313,6 +313,12 @@ pub struct Snapshot {
     /// Conta e plano da sessão Online (e o que a tela precisa para pedir senha/conta).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<crate::online::AccountView>,
+    /// Presets acima do plano (tela e câmera). Só existe com plano na sessão Online.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_locks: Option<crate::plan_gate::QualityLocks>,
+    /// Última recusa por plano; `seq` cresce a cada recusa.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_notice: Option<crate::plan_gate::PlanNotice>,
 }
 
 impl Snapshot {
@@ -505,6 +511,8 @@ impl Snapshot {
             newer_protocol: None,
             server: None,
             account: None,
+            quality_locks: None,
+            plan_notice: None,
         }
     }
 }
@@ -573,6 +581,76 @@ mod tests {
         recebidas.sort_unstable();
         esperadas.sort_unstable();
         assert_eq!(recebidas, esperadas);
+    }
+
+    fn snapshot_com_plano() -> Snapshot {
+        use crate::plan_gate::{PlanAction, PlanNotice, PresetLock, QualityLocks};
+        use zap_proto::plan::PlanId;
+        let trava = PresetLock {
+            preset: Preset::P1080p30,
+            needs: Some(PlanId::FullHd),
+        };
+        let trava60 = PresetLock {
+            preset: Preset::P1080p60,
+            needs: Some(PlanId::FullHd),
+        };
+        let mut snap = Snapshot::example();
+        snap.quality_locks = Some(QualityLocks {
+            can_publish: true,
+            screen: vec![trava, trava60],
+            camera: vec![trava, trava60],
+        });
+        snap.plan_notice = Some(PlanNotice {
+            seq: 1,
+            plan: PlanId::Hd,
+            action: PlanAction::Publish,
+            field: Some("camadas".into()),
+            message: "Seu plano não permite essa qualidade".into(),
+        });
+        snap
+    }
+
+    #[test]
+    fn plano_omitido_quando_none() {
+        let valor = serde_json::to_value(Snapshot::example()).expect("serializa");
+        let objeto = valor.as_object().expect("objeto JSON");
+        assert!(!objeto.contains_key("quality_locks"));
+        assert!(!objeto.contains_key("plan_notice"));
+    }
+
+    #[test]
+    fn plano_json_exato_e_roundtrip() {
+        let snap = snapshot_com_plano();
+        let valor = serde_json::to_value(&snap).expect("serializa");
+        let par = serde_json::json!({"preset": "1080p30", "needs": "fullhd"});
+        let par60 = serde_json::json!({"preset": "1080p60", "needs": "fullhd"});
+        assert_eq!(
+            valor["quality_locks"],
+            serde_json::json!({"can_publish": true, "screen": [par, par60], "camera": [par, par60]})
+        );
+        assert_eq!(
+            valor["plan_notice"],
+            serde_json::json!({
+                "seq": 1,
+                "plan": "hd",
+                "action": "transmitir",
+                "field": "camadas",
+                "message": "Seu plano não permite essa qualidade"
+            })
+        );
+        let volta: Snapshot = serde_json::from_value(valor).expect("desserializa");
+        assert_eq!(volta, snap);
+    }
+
+    #[test]
+    fn json_antigo_sem_plano_desserializa() {
+        let mut valor = serde_json::to_value(snapshot_com_plano()).expect("serializa");
+        let objeto = valor.as_object_mut().expect("objeto JSON");
+        objeto.remove("quality_locks");
+        objeto.remove("plan_notice");
+        let snap: Snapshot = serde_json::from_value(valor).expect("desserializa");
+        assert!(snap.quality_locks.is_none());
+        assert!(snap.plan_notice.is_none());
     }
 
     #[test]

@@ -22,6 +22,10 @@ pub struct UiState {
     newer_protocol: Option<u32>,
     server: Option<crate::online::ServerStatus>,
     account: Option<crate::online::AccountView>,
+    quality_locks: Option<crate::plan_gate::QualityLocks>,
+    plan_notice: Option<crate::plan_gate::PlanNotice>,
+    /// Contador das recusas por plano (vira `PlanNotice.seq`).
+    plan_seq: u64,
 }
 
 impl UiState {
@@ -40,6 +44,9 @@ impl UiState {
             newer_protocol: None,
             server: None,
             account: None,
+            quality_locks: None,
+            plan_notice: None,
+            plan_seq: 0,
         }
     }
     pub fn set_me(&mut self, me: Me) {
@@ -62,7 +69,28 @@ impl UiState {
     }
     /// Conta/plano da sessão Online (`None` = sem servidor).
     pub fn set_account(&mut self, a: Option<crate::online::AccountView>) {
+        // Calculado uma vez por mudança de conta, não a cada snapshot.
+        self.quality_locks = a
+            .as_ref()
+            .and_then(|v| v.plan)
+            .map(|p| crate::plan_gate::quality_locks(&p.limits));
         self.account = a;
+    }
+    /// Guarda a última recusa por plano com um `seq` novo (1, 2, ...) e devolve esse `seq`.
+    pub fn set_plan_notice(&mut self, r: &crate::plan_gate::PlanRefusal) -> u64 {
+        self.plan_seq += 1;
+        self.plan_notice = Some(crate::plan_gate::PlanNotice {
+            seq: self.plan_seq,
+            plan: r.plan,
+            action: r.action,
+            field: r.field.clone(),
+            message: r.message.clone(),
+        });
+        self.plan_seq
+    }
+    /// Apaga `plan_notice` (o `seq` continua crescendo).
+    pub fn clear_plan_notice(&mut self) {
+        self.plan_notice = None;
     }
     pub fn set_peers(&mut self, p: Vec<PeerListing>) {
         self.peers = p;
@@ -116,6 +144,8 @@ impl UiState {
             newer_protocol: self.newer_protocol,
             server: self.server.clone(),
             account: self.account.clone(),
+            quality_locks: self.quality_locks.clone(),
+            plan_notice: self.plan_notice.clone(),
         })
     }
 }
@@ -124,6 +154,7 @@ impl UiState {
 mod tests {
     use super::*;
     use crate::types::RoomMode;
+    use zap_proto::plan::{limits, PlanId, PlanInfo};
 
     fn me(nome: &str) -> Me {
         Me {
@@ -242,6 +273,55 @@ mod tests {
         assert!(st.snapshot().room.is_some());
         st.set_room(None);
         assert!(st.snapshot().room.is_none());
+    }
+
+    fn recusa() -> crate::plan_gate::PlanRefusal {
+        crate::plan_gate::PlanRefusal {
+            plan: PlanId::Hd,
+            action: crate::plan_gate::PlanAction::Publish,
+            field: Some("camadas".into()),
+            message: crate::plan_gate::MSG_QUALIDADE.into(),
+        }
+    }
+
+    fn conta_com(plan: Option<PlanInfo>) -> Option<crate::online::AccountView> {
+        Some(crate::online::AccountView {
+            plan,
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn plan_notice_seq_cresce_e_clear_nao_zera() {
+        let mut st = UiState::new(me("Ana"));
+        assert_eq!(st.set_plan_notice(&recusa()), 1);
+        assert_eq!(st.set_plan_notice(&recusa()), 2);
+        assert_eq!(st.snapshot().plan_notice.as_ref().map(|n| n.seq), Some(2));
+        st.clear_plan_notice();
+        assert!(st.snapshot().plan_notice.is_none());
+        assert_eq!(st.set_plan_notice(&recusa()), 3);
+        let n = st.snapshot().plan_notice.clone().expect("aviso");
+        assert_eq!((n.seq, n.plan, n.field.as_deref()), (3, PlanId::Hd, Some("camadas")));
+    }
+
+    #[test]
+    fn set_account_calcula_quality_locks() {
+        let mut st = UiState::new(me("Ana"));
+        assert!(st.snapshot().quality_locks.is_none());
+
+        st.set_account(conta_com(Some(PlanInfo::of(PlanId::Hd))));
+        let q = st.snapshot().quality_locks.clone().expect("travas");
+        assert_eq!(q, crate::plan_gate::quality_locks(&limits(PlanId::Hd)));
+        assert_eq!(q.screen.len(), 2);
+        assert_eq!(q.camera.len(), 2);
+
+        st.set_account(conta_com(None));
+        assert!(st.snapshot().quality_locks.is_none());
+
+        st.set_account(conta_com(Some(PlanInfo::of(PlanId::Hd))));
+        assert!(st.snapshot().quality_locks.is_some());
+        st.set_account(None);
+        assert!(st.snapshot().quality_locks.is_none());
     }
 
     #[test]

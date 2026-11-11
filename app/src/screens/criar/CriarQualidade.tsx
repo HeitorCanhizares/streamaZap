@@ -1,16 +1,20 @@
 import { useEffect, type ReactNode } from 'react'
-import type { Preset, SourceItem } from '../../bridge/types'
+import type { Preset, PresetLock, SourceItem } from '../../bridge/types'
 import { PRESETS_UI } from './criarModel'
 import { CameraQualidade } from './CameraQualidade'
 import { presetAjustado } from './cameraModel'
+import { travaDe, seloPlano } from '../../bridge/planoModel'
+import { SeloPlano } from '../../components/SeloPlano'
+import { useCliqueTravado } from '../planos/useCliqueTravado'
 
-export interface CriarQualidadeProps { encoders: string[]; preset: Preset; onPreset: (p: Preset) => void; encoder: string; onEncoder: (e: string) => void; adaptavel: boolean; onAdaptavel: (v: boolean) => void; numero?: string; cameraPreset?: Preset; onCameraPreset?: (p: Preset) => void; cameraInfo?: SourceItem }
+export interface CriarQualidadeProps { encoders: string[]; preset: Preset; onPreset: (p: Preset) => void; encoder: string; onEncoder: (e: string) => void; adaptavel: boolean; onAdaptavel: (v: boolean) => void; numero?: string; cameraPreset?: Preset; onCameraPreset?: (p: Preset) => void; cameraInfo?: SourceItem; travasTela?: PresetLock[]; travasCamera?: PresetLock[] }
 
 // Seção 06 "Qualidade" (2-criar-sala.html 167-191).
 
 const MONO = "'JetBrains Mono', monospace"
 
-export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder, adaptavel, onAdaptavel, numero = '06', cameraPreset, onCameraPreset, cameraInfo }: CriarQualidadeProps): ReactNode {
+export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder, adaptavel, onAdaptavel, numero = '06', cameraPreset, onCameraPreset, cameraInfo, travasTela, travasCamera }: CriarQualidadeProps): ReactNode {
+  const cliqueTravado = useCliqueTravado()
   const bloco = { display: 'flex', flexDirection: 'column' as const, gap: 12, padding: 20, borderRadius: 18, background: 'var(--superficie)', border: '1px solid var(--borda)' }
 
   // Opção "auto" é o padrão: o servidor escolhe o codificador disponível.
@@ -37,16 +41,20 @@ export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder,
       <div role="radiogroup" aria-label={doisSeletores ? 'Qualidade da tela' : 'Qualidade'} style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
         {PRESETS_UI.map((p) => {
           const ativo = preset === p.value
+          const lock = travaDe(p.value, travasTela ?? [])
           return (
             <button
               key={p.value}
               type="button"
               role="radio"
               aria-checked={ativo}
-              onClick={() => onPreset(p.value)}
+              aria-disabled={lock ? 'true' : undefined}
+              data-travado={lock ? 'true' : undefined}
+              title={lock ? `Precisa do plano ${seloPlano(lock.needs ?? 'fullhd')}` : undefined}
+              onClick={() => { if (lock) cliqueTravado.aoClicar(lock); else onPreset(p.value) }}
               style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                padding: '10px 4px', borderRadius: 12, cursor: 'pointer',
+                padding: '10px 4px', borderRadius: 12, cursor: 'pointer', opacity: lock ? 0.6 : 1,
                 border: `1px solid ${ativo ? 'var(--verde)' : 'var(--borda)'}`,
                 background: ativo ? 'rgba(59,240,138,0.1)' : 'var(--bg)',
                 color: ativo ? 'var(--verde)' : 'var(--texto)',
@@ -54,14 +62,18 @@ export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder,
             >
               <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600 }}>{p.res}</span>
               <span style={{ fontSize: 11, color: 'var(--texto-2)' }}>{p.fps}</span>
+              {lock && <SeloPlano plano={lock.needs ?? 'fullhd'} cadeado />}
             </button>
           )
         })}
       </div>
+      {cliqueTravado.explicacao !== null && (
+        <p role="status" style={{ margin: 0, fontSize: 11.5, color: 'var(--texto-2)' }}>{cliqueTravado.explicacao}</p>
+      )}
       {doisSeletores && (
         <>
           <div style={subtitulo}>Câmera</div>
-          <CameraQualidade preset={cameraPreset} onPreset={onCameraPreset} camera={cameraInfo} />
+          <CameraQualidade preset={cameraPreset} onPreset={onCameraPreset} camera={cameraInfo} travas={travasCamera} />
         </>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

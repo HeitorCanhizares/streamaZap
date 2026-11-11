@@ -13,11 +13,7 @@ use crate::{
 const MAX_VIDEO_TRACKS: usize = 8;
 
 fn erro(code: &str, message: &str, reference: Option<String>) -> ControlMsg {
-    ControlMsg::Error {
-        code: code.to_string(),
-        message: message.to_string(),
-        reference,
-    }
+    ControlMsg::error(code, message, reference)
 }
 
 fn eh_tela(kind: TrackKind) -> bool {

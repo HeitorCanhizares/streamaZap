@@ -16,9 +16,13 @@ const PUBLISH_TIMEOUT: Duration = Duration::from_secs(5);
 impl OnlineRoom {
     /// `TrackPublish{local_id, kind, title, layers, audio, address: None}` pelo WebSocket;
     /// espera `TrackPublished` com o mesmo `local_id` (entregue por `room_events` via `pending`)
-    /// por 5 s (`Connect("servidor não respondeu")` senão; `Error` do servidor com `ref`/código
-    /// → `CoreError::Server`). Devolve a `Track` com `id`/`number` do servidor (já no modelo).
+    /// por 5 s (`Connect("servidor não respondeu")` senão). O pedido sai com `ref = local_id`
+    /// (`send_ref`): o servidor repete o `ref` no erro e `room_events` completa o pendente na hora
+    /// com `CoreError::Server`, sem esperar o tempo limite. Antes de enviar, confere as camadas
+    /// contra o plano da sessão (sem ajustar: quem chama já ajustou) → `CoreError::Plan`.
+    /// Devolve a `Track` com `id`/`number` do servidor (já no modelo).
     pub async fn publish_track(&self, spec: TrackSpec) -> Result<Track, CoreError> {
+        self.check_plan(spec.kind, &spec.layers)?;
         let ws = self
             .session
             .ws()
@@ -36,12 +40,13 @@ impl OnlineRoom {
             address: None,
             camera_layout: spec.camera_layout,
         };
-        if let Err(e) = ws.send(msg).await {
+        if let Err(e) = ws.send_ref(msg, local_id.clone()).await {
             self.pending.lock().remove(&local_id);
             return Err(e.into());
         }
         match tokio::time::timeout(PUBLISH_TIMEOUT, rx).await {
-            Ok(Ok(track)) => {
+            Ok(Ok(Err(e))) => Err(e),
+            Ok(Ok(Ok(track))) => {
                 // Garante que a trilha esteja no modelo mesmo se `room_events` ainda não aplicou.
                 self.model.lock().upsert_track(track.clone());
                 Ok(track)
@@ -58,6 +63,7 @@ impl OnlineRoom {
     }
 
     /// `TrackUpdate{track_id, title, layers, camera_layout}`; o modelo muda quando chega `TrackUpdated`.
+    /// Com `layers`, confere o plano da sessão antes de enviar (trilha desconhecida: o servidor decide).
     pub async fn update_track(
         &self,
         track_id: &str,
@@ -65,6 +71,13 @@ impl OnlineRoom {
         layers: Option<Vec<LayerSpec>>,
         camera_layout: Option<zap_proto::CameraLayout>,
     ) -> Result<(), CoreError> {
+        if let Some(l) = &layers {
+            // Solta o lock do modelo antes de qualquer `await`.
+            let kind = self.model.lock().track_by_id(track_id).map(|t| t.kind);
+            if let Some(kind) = kind {
+                self.check_plan(kind, l)?;
+            }
+        }
         let ws = self
             .session
             .ws()
@@ -76,6 +89,16 @@ impl OnlineRoom {
             camera_layout,
         })
         .await?;
+        Ok(())
+    }
+
+    /// Defesa de plano: sem plano na sessão (servidor sem conta) não confere nada.
+    fn check_plan(&self, kind: zap_proto::TrackKind, layers: &[LayerSpec]) -> Result<(), CoreError> {
+        if let Ok(shared) = self.shared() {
+            if let Some(p) = shared.session_plan() {
+                crate::plan_gate::check_layers(kind, layers, &p).map_err(CoreError::Plan)?;
+            }
+        }
         Ok(())
     }
 

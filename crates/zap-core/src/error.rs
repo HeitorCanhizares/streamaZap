@@ -36,6 +36,10 @@ pub enum CoreError {
     /// `message` vai direto para a interface; `code` é o de `docs/api/README.md#erros`.
     #[error("{message}")]
     Server { code: String, message: String },
+    /// Ação acima do plano da sessão Online (`plano_insuficiente`), conferida no app ou recusada
+    /// pelo servidor. A mensagem vai para a interface; o resto vai para `Snapshot.plan_notice`.
+    #[error("{}", .0.message)]
+    Plan(crate::plan_gate::PlanRefusal),
 }
 
 impl From<zap_net::online::ApiError> for CoreError {
@@ -81,6 +85,7 @@ impl CoreError {
             CoreError::Rejected(_) => "recusado",
             CoreError::Connect(_) => "conexao",
             CoreError::Server { code, .. } => codigo_estatico(code),
+            CoreError::Plan(_) => "plano_insuficiente",
             _ => "erro",
         }
     }

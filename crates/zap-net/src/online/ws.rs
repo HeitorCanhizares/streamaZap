@@ -12,10 +12,31 @@ pub(crate) const PING_INTERVAL_SECS: u64 = 15;
 /// Sem nenhum frame por este tempo = conexão morta.
 pub(crate) const DEAD_AFTER_SECS: u64 = 45;
 
+/// Item da fila de saída do WebSocket.
+#[derive(Debug, Clone)]
+pub(crate) struct Outgoing {
+    pub msg: ControlMsg,
+    pub reference: Option<String>,
+}
+
+/// JSON de saída (puro): `msg` serializado; com `reference`, acrescenta `"ref"` no objeto.
+/// `None` se a serialização falhar (o item é descartado, como hoje).
+pub(crate) fn outgoing_json(out: &Outgoing) -> Option<String> {
+    let Some(referencia) = &out.reference else {
+        return serde_json::to_string(&out.msg).ok();
+    };
+    let mut valor = serde_json::to_value(&out.msg).ok()?;
+    // Mensagens de controle são sempre objeto; se não for, segue sem `ref`.
+    if let Some(objeto) = valor.as_object_mut() {
+        objeto.insert("ref".to_string(), serde_json::Value::String(referencia.clone()));
+    }
+    serde_json::to_string(&valor).ok()
+}
+
 /// Lado de envio.
 #[derive(Debug, Clone)]
 pub struct WsTx {
-    pub(crate) tx: mpsc::Sender<ControlMsg>,
+    pub(crate) tx: mpsc::Sender<Outgoing>,
 }
 
 /// Lado de recepção. `Ping` do servidor é respondido internamente e não chega aqui;
@@ -29,7 +50,19 @@ impl WsTx {
     /// Erro `Network("websocket fechado")` se a conexão caiu.
     pub async fn send(&self, msg: ControlMsg) -> Result<(), ApiError> {
         self.tx
-            .send(msg)
+            .send(Outgoing { msg, reference: None })
+            .await
+            .map_err(|_| ApiError::Network("websocket fechado".into()))
+    }
+
+    /// Igual a `send`, com `"ref": reference` no topo do JSON. O servidor repete o `ref` no `erro`
+    /// que responder a esse pedido. Erro `Network("websocket fechado")` se a conexão caiu.
+    pub async fn send_ref(&self, msg: ControlMsg, reference: String) -> Result<(), ApiError> {
+        self.tx
+            .send(Outgoing {
+                msg,
+                reference: Some(reference),
+            })
             .await
             .map_err(|_| ApiError::Network("websocket fechado".into()))
     }
@@ -106,7 +139,7 @@ async fn connect_with(
     };
 
     let (mut sink, mut stream) = stream.split();
-    let (out_tx, mut out_rx) = mpsc::channel::<ControlMsg>(64);
+    let (out_tx, mut out_rx) = mpsc::channel::<Outgoing>(64);
     let (in_tx, in_rx) = mpsc::channel::<Result<ControlMsg, ApiError>>(64);
 
     tokio::spawn(async move {
@@ -117,8 +150,8 @@ async fn connect_with(
             tokio::select! {
                 saida = out_rx.recv() => {
                     // Todos os WsTx descartados: encerra.
-                    let Some(msg) = saida else { break };
-                    let Ok(texto) = serde_json::to_string(&msg) else { continue };
+                    let Some(out) = saida else { break };
+                    let Some(texto) = outgoing_json(&out) else { continue };
                     if sink.send(Message::Text(texto)).await.is_err() {
                         let _ = in_tx.send(Err(ApiError::Network("websocket fechado".into()))).await;
                         break;
@@ -334,6 +367,74 @@ mod tests {
         .await;
         let (_tx, _rx) = connect(&base, "a b&c=é").await.unwrap();
         assert_eq!(trx.recv().await.unwrap(), "a b&c=é");
+    }
+
+    #[test]
+    fn outgoing_json_sem_ref() {
+        let msg = ControlMsg::RoomJoin { room_id: "abc".into() };
+        let out = Outgoing {
+            msg: msg.clone(),
+            reference: None,
+        };
+        let v: serde_json::Value = serde_json::from_str(&outgoing_json(&out).unwrap()).unwrap();
+        assert_eq!(v, serde_json::to_value(&msg).unwrap());
+        assert!(v.get("ref").is_none());
+    }
+
+    #[test]
+    fn outgoing_json_com_ref() {
+        let msg = ControlMsg::RoomJoin { room_id: "abc".into() };
+        let out = Outgoing {
+            msg: msg.clone(),
+            reference: Some("l_1".into()),
+        };
+        let mut v: serde_json::Value = serde_json::from_str(&outgoing_json(&out).unwrap()).unwrap();
+        assert_eq!(v["ref"], "l_1");
+        assert_eq!(v["t"], "sala.entrar");
+        v.as_object_mut().unwrap().remove("ref");
+        assert_eq!(v, serde_json::to_value(&msg).unwrap());
+    }
+
+    #[tokio::test]
+    async fn send_ref_chega_com_ref_no_servidor() {
+        let (ttx, mut trx) = mpsc::unbounded_channel::<String>();
+        let base = servidor(move |mut s, _| {
+            let ttx = ttx.clone();
+            async move {
+                while let Some(Ok(m)) = s.recv().await {
+                    if let AMsg::Text(t) = m {
+                        let _ = ttx.send(t.to_string());
+                    }
+                }
+            }
+        })
+        .await;
+        let (tx, _rx) = connect(&base, "tok").await.unwrap();
+        tx.send_ref(ControlMsg::TrackRemove { track_id: "t1".into() }, "l_1".into())
+            .await
+            .unwrap();
+        let t = tokio::time::timeout(Duration::from_secs(10), trx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&t).unwrap();
+        assert_eq!(v["ref"], "l_1");
+        assert_eq!(v["t"], "trilha.remover");
+        assert_eq!(v["trilha_id"], "t1");
+    }
+
+    #[tokio::test]
+    async fn send_ref_apos_fechar_devolve_erro() {
+        let base = servidor(|mut s, _| async move {
+            let _ = s.close().await;
+        })
+        .await;
+        let (tx, mut rx) = connect(&base, "tok").await.unwrap();
+        assert!(rx.recv().await.is_none());
+        assert_eq!(
+            tx.send_ref(ControlMsg::Ping { ts_ms: 1 }, "l_1".into()).await,
+            Err(ApiError::Network("websocket fechado".into()))
+        );
     }
 
     #[tokio::test]

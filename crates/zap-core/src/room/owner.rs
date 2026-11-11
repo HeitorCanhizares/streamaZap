@@ -589,22 +589,14 @@ mod tests {
         let eh = |t: &'static str| move |m: &ControlMsg| matches!(m, ControlMsg::Error { code, .. } if code == t);
         sala.send_all(vec![Outgoing {
             target: Target::Only(ana.clone()),
-            msg: ControlMsg::Error {
-                code: "so_ana".into(),
-                message: "x".into(),
-                reference: None,
-            },
+            msg: ControlMsg::error("so_ana", "x", None),
         }])
         .await;
         le_ate(&mut rx1, eh("so_ana")).await;
 
         sala.send_all(vec![Outgoing {
             target: Target::AllBut(ana),
-            msg: ControlMsg::Error {
-                code: "menos_ana".into(),
-                message: "x".into(),
-                reference: None,
-            },
+            msg: ControlMsg::error("menos_ana", "x", None),
         }])
         .await;
         // Bia recebe as duas? Não: só a segunda; a primeira não era para ela.

@@ -2,6 +2,7 @@
 // aqui vai no canto dela), o cabeçalho e os controles, que somem com o mouse parado.
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import type { RoomView, ShareView, TileView } from '../../bridge/types'
+import { useTravas } from '../../bridge/usePlano'
 import { VideoFrame } from '../../components/VideoFrame'
 import { CanvasSlot } from './CanvasSlot'
 import { CelulaMusica } from './musica/BlocoMusica'
@@ -205,10 +206,11 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
   const { room, celulas } = p
   const ocioso = useOcioso()
   const mudo = p.muted ?? false
+  const travas = useTravas(room.mode)
 
   // Guarda as últimas props para os atalhos sem reinscrever o listener a cada render.
-  const ref = useRef({ p, acordar: ocioso.acordar })
-  ref.current = { p, acordar: ocioso.acordar }
+  const ref = useRef({ p, acordar: ocioso.acordar, podeTransmitir: travas.podeTransmitir })
+  ref.current = { p, acordar: ocioso.acordar, podeTransmitir: travas.podeTransmitir }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -223,7 +225,8 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
       } else if (e.key === 'm' || e.key === 'M') {
         pr.onToggleMute?.()
       } else if (e.key === 'c' || e.key === 'C') {
-        pr.onToggleCamera()
+        // Plano sem transmissão: a câmera fica travada, a tecla não faz nada.
+        if (ref.current.podeTransmitir) pr.onToggleCamera()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -318,6 +321,7 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
             onLeave={p.onLeave}
             visivel={ocioso.visivel}
             onPreso={ocioso.prender}
+            podeTransmitir={travas.podeTransmitir}
           />
         </VideoFrame>
       </div>

@@ -225,6 +225,7 @@ impl OnlineSession {
             let mut st = shared.state.lock();
             st.set_server(None);
             st.set_account(None);
+            st.clear_plan_notice();
             st.set_online_rooms(vec![]);
         }
         shared.notifier.touch();

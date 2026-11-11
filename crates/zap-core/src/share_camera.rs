@@ -76,7 +76,11 @@ impl ShareSession {
         };
         let src = camera_source(camera_id)?;
         let modes = modes_for(&src);
-        let plan = plan_with(&src, &modes, preset);
+        // Ligar usa o melhor preset que o plano permite, sem mexer na configuração salva.
+        let preset = shared.camera_preset_for_plan(preset);
+        let mut plan = plan_with(&src, &modes, preset);
+        // Recusa => nada ligado e nada gravado.
+        plan.ladder = shared.plan_ladder(TrackKind::Camera, plan.ladder)?;
         let ms = shared.ensure_media_server().await?;
         let track = room
             .publish_track(TrackSpec {
@@ -126,7 +130,9 @@ impl ShareSession {
         let track_id = atual.track.id.clone();
         let publisher = atual.publisher.clone();
         // Os modos guardados ao ligar: a câmera está aberta pela captura agora.
-        let novo = plan_with(&info.src, &info.modes, preset);
+        let mut novo = plan_with(&info.src, &info.modes, preset);
+        // Confere (e ajusta) a escada antes de mexer em qualquer coisa: recusa => câmera igual.
+        novo.ladder = shared.plan_ladder(TrackKind::Camera, novo.ladder)?;
         let ladder = novo.ladder.clone();
 
         if same_capture(&info.plan, &novo) {

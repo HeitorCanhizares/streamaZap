@@ -6,6 +6,8 @@ import { obterCliente, descartarCliente } from './contaClient'
 import { setContaEstado, resetConta } from './contaStore'
 import { tratarDeepLink } from './contaAcoes'
 import { carregarIdentidades } from './contaVinculo'
+import { iniciarPlanos, type PlanosSync } from './planoSync'
+import { resetPlano } from './planoStore'
 import { useSnapshot } from './store'
 import { useOnlineEnabled } from './onlineStore'
 
@@ -29,6 +31,7 @@ export function iniciarConta(conta: AccountProviderView | undefined, ligado: boo
   let cancelado = false
   let unsubAuth: (() => void) | null = null
   let unsubLink: (() => void) | null = null
+  let planos: PlanosSync | null = null
 
   // Repassar o token ao núcleo é best-effort: rejeição é engolida.
   const enviarToken = (token: string | null): void => {
@@ -39,6 +42,7 @@ export function iniciarConta(conta: AccountProviderView | undefined, ligado: boo
     try {
       const cliente = await obterCliente(conta)
       if (cancelado) return
+      planos = iniciarPlanos()
       const { data } = cliente.auth.onAuthStateChange((evento, sessao) => {
         if (cancelado) return
         if (evento === 'INITIAL_SESSION' || evento === 'SIGNED_IN' || evento === 'TOKEN_REFRESHED') {
@@ -51,17 +55,21 @@ export function iniciarConta(conta: AccountProviderView | undefined, ligado: boo
             if (evento !== 'TOKEN_REFRESHED') {
               // Fora do callback: chamar o auth lá dentro trava o supabase-js (deadlock).
               setTimeout(() => {
-                if (!cancelado) void carregarIdentidades()
+                if (cancelado) return
+                void carregarIdentidades()
+                planos?.aoEntrar()
               }, 0)
             }
           } else if (evento === 'INITIAL_SESSION') {
             setContaEstado({ sessao: 'fora', email: null, identidades: [], otpEmail: null })
+            planos?.aoSair()
             enviarToken(null)
           }
           return
         }
         if (evento === 'SIGNED_OUT') {
           setContaEstado({ sessao: 'fora', email: null, identidades: [], otpEmail: null })
+          planos?.aoSair()
           enviarToken(null)
         }
       })
@@ -86,8 +94,10 @@ export function iniciarConta(conta: AccountProviderView | undefined, ligado: boo
     cancelado = true
     unsubAuth?.()
     unsubLink?.()
+    planos?.parar()
     void descartarCliente()
     resetConta()
+    resetPlano()
   }
 }
 

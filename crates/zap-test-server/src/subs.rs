@@ -21,11 +21,7 @@ fn ultimos_keyframes() -> &'static Mutex<HashMap<(String, u8), u64>> {
 }
 
 fn erro(code: &str, message: &str, reference: Option<String>) -> ControlMsg {
-    ControlMsg::Error {
-        code: code.to_string(),
-        message: message.to_string(),
-        reference,
-    }
+    ControlMsg::error(code, message, reference)
 }
 
 /// Sala em que o espectador `who` está: a do WebSocket (`sala.entrar`) ou, sem ela, a do

@@ -20,11 +20,7 @@ pub(crate) fn estado(sala: &RoomData, agora: Instant) -> ControlMsg {
 }
 
 fn erro(mensagem: &str) -> ControlMsg {
-    ControlMsg::Error {
-        code: "musica_invalida".into(),
-        message: mensagem.into(),
-        reference: None,
-    }
+    ControlMsg::error("musica_invalida", mensagem, None)
 }
 
 /// Pedido de música de `who` pelo WebSocket (precisa estar na sala, como no chat). Mudou → estado
@@ -33,11 +29,7 @@ pub(crate) fn tratar(inner: &mut Inner, who: &str, msg: ControlMsg) {
     let Some(sala_id) = inner.participants.get(who).and_then(|p| p.ws_room.clone()) else {
         inner.send_to(
             who,
-            ControlMsg::Error {
-                code: "proibido".into(),
-                message: "entre na sala antes de mexer na música".into(),
-                reference: None,
-            },
+            ControlMsg::error("proibido", "entre na sala antes de mexer na música", None),
         );
         return;
     };

@@ -96,11 +96,7 @@ pub async fn run_socket(hub: Arc<Hub>, socket: WebSocket, participant_id: String
                         Ok(ControlMsg::Pong { .. }) => {}
                         Ok(msg) => hub.handle_ws_message(&participant_id, msg),
                         Err(()) => {
-                            let _ = tx.send(ControlMsg::Error {
-                                code: "invalido".into(),
-                                message: "JSON inválido ou tipo de mensagem desconhecido".into(),
-                                reference: None,
-                            });
+                            let _ = tx.send(ControlMsg::error("invalido", "JSON inválido ou tipo de mensagem desconhecido", None));
                         }
                     },
                     // Ping/Pong do próprio WebSocket (o axum responde sozinho) e binário: só

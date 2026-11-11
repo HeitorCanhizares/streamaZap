@@ -42,8 +42,35 @@ pub(crate) async fn create_online(shared: &Arc<Shared>, req: CreateRoom) -> Resu
     if shared.current_room().is_some() {
         return Err(CoreError::AlreadyInRoom);
     }
-    let room = OnlineRoom::create(shared, req).await?;
+    confere_plano(shared)?;
+    let room = OnlineRoom::create(shared, req)
+        .await
+        .map_err(|e| erro_do_plano(shared, e))?;
     guarda_sala(shared, room).await
+}
+
+/// Plano da conta que não entra em sala (`pode_entrar` falso): recusa antes de qualquer POST.
+/// Sem plano (servidor sem conta) não confere nada.
+fn confere_plano(shared: &Shared) -> Result<(), CoreError> {
+    if let Some(p) = shared.session_plan() {
+        crate::plan_gate::check_join(&p).map_err(CoreError::Plan)?;
+    }
+    Ok(())
+}
+
+/// `plano_insuficiente` do REST (criar/entrar) vira recusa por plano; outros erros passam.
+fn erro_do_plano(shared: &Shared, e: CoreError) -> CoreError {
+    match e {
+        CoreError::Server { code, message } => crate::plan_gate::error_from_server(
+            &code,
+            &message,
+            None,
+            None,
+            shared.session_plan().map(|p| p.id),
+            crate::plan_gate::PlanAction::Join,
+        ),
+        outro => outro,
+    }
 }
 
 /// `JoinTarget::Code`: `convert::parse_code` + `OnlineRoom::join`; mesmo acabamento de
@@ -55,9 +82,12 @@ pub(crate) async fn join_online(shared: &Arc<Shared>, code: String, password: Op
     if shared.current_room().is_some() {
         return Err(CoreError::AlreadyInRoom);
     }
+    confere_plano(shared)?;
     let code = convert::parse_code(&code)?;
     let password = password.filter(|p| !p.is_empty());
-    let room = OnlineRoom::join(shared, code, password).await?;
+    let room = OnlineRoom::join(shared, code, password)
+        .await
+        .map_err(|e| erro_do_plano(shared, e))?;
     guarda_sala(shared, room).await
 }
 
