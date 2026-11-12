@@ -9,7 +9,7 @@ import type { InstallMode, UpdateInfo } from '../../bridge/types'
 import type { ConfigSecaoProps } from './ConfigPerfil'
 
 // Versão exibida na seção. Constante local até o app ler a versão do pacote.
-const VERSAO = 'v3.2.1'
+const VERSAO = 'v3.3.0'
 
 const CANAIS = [
   { value: 'estavel', label: 'Estável' },
@@ -204,7 +204,7 @@ export function ConfigSobre({ settings, onChange }: ConfigSecaoProps): ReactNode
         <span style={{ color: '#3BF08A' }}>Zap</span>
       </span>
       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: '#A3BDB1' }}>
-        {`versão ${VERSAO.replace(/^v/, '')} · protocolo 3 · licença MIT`}
+        {`versão ${VERSAO.replace(/^v/, '')} · protocolo 4 · licença MIT`}
       </span>
 
       {estado}

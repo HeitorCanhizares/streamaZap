@@ -1,8 +1,8 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-12 (fases 1, 2 e 3 do plano de contas, planos e câmera prontas no app, sem
-lançar; o servidor com todo o plano em produção e o Supabase com as migrations; ver "Contas,
-planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
+Atualizado em 2026-11-12 (**v3.3.0 lançada**, com as fases 1, 2 e 3 do plano de contas, planos e
+câmera e o convite que entra na sala; o servidor com todo o plano em produção e o Supabase com as
+migrations; ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
 depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
 Diagnóstico e do CI. Todo o trabalho (rodadas M4/M4b/M4c/M2b) está no `master`, que é a única
 branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
@@ -56,7 +56,16 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   conta e plano no `/v1/info`, `POST /sessoes` e `renovar`, erros `conta_necessaria` e
   `plano_insuficiente`). O servidor usa os crates do app no `6814c1c` (fase 3) e está em
   produção desde 2026-11-12.
-- **Fase 1 no app (v3.3.0), pronta e sem lançar:**
+- **v3.3.0 lançada em 2026-11-12** (tag `v3.3.0`, `release-v3.yml`), com as fases 1, 2 e 3 e o
+  convite. Entraram junto, na hora de lançar:
+  - os botões de login (e de vincular) só aparecem para os provedores ligados no projeto do
+    Supabase (`GET /auth/v1/settings`, `lerProvedores`); se a leitura falhar, aparecem todos. Hoje o
+    Microsoft fica escondido, e aparece sozinho quando for ligado no painel;
+  - a tela Sobre diz "protocolo 4" (dizia 3 desde a v3.0.0).
+  Do jeito que está, o portátil (zip) não registra o `streamazap://`: o `register_all()` só roda
+  em `debug_assertions`. Nele, o convite e a volta do login não abrem o app; as notas da release
+  mandam usar o instalador.
+- **Fase 1 no app (v3.3.0), lançada:**
   - J: procura atualização na abertura e a cada 6 h, baixa sozinho e instala fora de sala (app
     minimizado ou PC parado há 2 min), com aviso de 30 s e "Adiar 1 h"; "Atualizado para a vX" na
     tela Salas; opções em Configurações → Sobre;
@@ -68,13 +77,15 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - B3: webcam como fonte vira a trilha `camera` de verdade (uma câmera por pessoa);
   - B4: câmera no canto escolhido ou solta, escolhida por quem transmite e trocada ao vivo; quem
     assiste pode soltar ou pôr no canto só para si.
-- **Falta verificar na fase 1** (não dá sem o hardware ou sem lançar):
+- **Falta verificar na fase 1** (lançada sem estes testes, por decisão do dono):
   - câmera de verdade: modos do Media Foundation, troca de qualidade ao vivo, troca de dispositivo;
   - bancada de 1080p60 na câmera (se não passar, a opção 1080p60 da câmera sai, §5 B2 do plano);
-  - atualização sozinha pelo canal beta (instalar fora de sala e reabrir em "Atualizado para a vX");
+  - atualização sozinha: a passagem da 3.2.1 para a 3.3.0 ainda usa o atualizador antigo (instala
+    ao fechar). O jeito novo (instalar fora de sala e reabrir em "Atualizado para a vX") só é visto
+    na próxima versão;
   - o jeito da câmera numa sala Online depende do servidor repassar o campo `camera` (B4 do servidor).
-- **Para lançar a v3.3.0:** subir a versão (ver "Antes de qualquer push") depois dos testes acima.
-- **Fase 2 no app (frente D, login com conta), pronta e sem lançar:**
+- **Fase 2 no app (frente D, login com conta), lançada na v3.3.0** (conta opcional; Google só para
+  os "Test users" do app do Google):
   - login pelo Supabase (`supabase-js` com PKCE) com Google, Microsoft e e-mail com código de 6
     dígitos; contas vinculadas (desvincular só com 2 ou mais), sair e excluir conta;
   - a sessão do Supabase fica no Gerenciador de Credenciais do Windows (comandos `auth_store_*`,
@@ -150,7 +161,7 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     confirmar a região do Supabase (São Paulo);
   - avisos do banco: a migration `20261112120000_advisors` (servidor `48f4edd`) tirou os quatro
     avisos. Ficaram só os de propósito e o de índice sem uso.
-- **Convite que entra direto na sala (I2 do plano), pronto e sem lançar:**
+- **Convite que entra direto na sala (I2 do plano), lançado na v3.3.0:**
   - O **Copiar convite** (cabeçalho da sala e resumo da tela Criar) leva o link
     `https://heitorcanhizares.github.io/streamaZap/sala/#ZAP-7K2Q`, ou `#<ip do Radmin>` na sala
     Local, e o código. É https porque WhatsApp e Discord não deixam clicar em `streamazap://`.
@@ -166,9 +177,8 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     trouxe o app para Salas com o código preenchido e o erro. Falta o teste com duas pessoas,
     uma criando a sala e a outra clicando no link, que só dá depois de instalar a v3.3.0.
   - Só funciona com o app novo instalado: o esquema `streamazap://` é registrado pelo NSIS da
-    v3.3.0. A página `sala/` vai ao ar com o próximo `git subtree split` para o `gh-pages`
-    (`site/README.md`).
-- **Fase 3 do app (planos e cadeados), pronta e sem lançar** (plano em
+    v3.3.0. A página `sala/` está no ar desde 2026-11-12 (`gh-pages`, ver `site/README.md`).
+- **Fase 3 do app (planos e cadeados), lançada na v3.3.0 com a cobrança desligada** (plano em
   `docs/planos/fase3-app-planos.md`):
   - `zap-proto`: o `erro` traz os extras (`campo`, `plano`, `tentar_em_ms`, `protocolo_min`/`max`),
     tolerantes;
