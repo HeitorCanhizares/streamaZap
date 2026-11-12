@@ -1,7 +1,8 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-11 (fases 1, 2 e 3 do plano de contas, planos e câmera prontas no app, sem
-lançar; ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
+Atualizado em 2026-11-12 (fases 1, 2 e 3 do plano de contas, planos e câmera prontas no app, sem
+lançar; o servidor com todo o plano em produção e o Supabase com as migrations; ver "Contas,
+planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
 depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
 Diagnóstico e do CI. Todo o trabalho (rodadas M4/M4b/M4c/M2b) está no `master`, que é a única
 branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
@@ -53,8 +54,8 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
 
 - **Contrato:** fechado nos commits `ecd1b1a` e `48f9b9b` (câmera solta ou no canto, `zap_proto::plan`,
   conta e plano no `/v1/info`, `POST /sessoes` e `renovar`, erros `conta_necessaria` e
-  `plano_insuficiente`). O servidor já usa os crates do app no `6814c1c` (fase 3), com commit
-  lá e sem push.
+  `plano_insuficiente`). O servidor usa os crates do app no `6814c1c` (fase 3) e está em
+  produção desde 2026-11-12.
 - **Fase 1 no app (v3.3.0), pronta e sem lançar:**
   - J: procura atualização na abertura e a cada 6 h, baixa sozinho e instala fora de sala (app
     minimizado ou PC parado há 2 min), com aviso de 30 s e "Adiar 1 h"; "Atualizado para a vX" na
@@ -96,27 +97,31 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - deep link com o app instalado pelo NSIS, com o app aberto e com o app fechado;
   - login mantido depois de fechar e abrir o app (sessão lida do Gerenciador de Credenciais);
   - renovar com um JWT de verdade do Supabase (os testes usam o token falso do servidor de teste).
-- **Servidor:** o código do plano está todo pronto lá; falta o push, que faz deploy e espera o OK
-  do dono.
-  - Tudo com commit na main dele, nenhum enviado:
-    - `2a42530`: E fase 2 (sessão com conta: JWKS do Supabase, `requer_conta`, `renovar`);
-    - `e2a3f8f`: B4;
-    - `0ae91c3`: E fase 3 (limites de plano), F (registros de acesso), C (pasta `supabase/`, com
-      a parte social; formato do Realtime no `supabase/README.md` §4b) e os crates do app no
-      `6814c1c`, com um teste de compatibilidade que lê o `plano_insuficiente` do servidor com
-      o `ControlMsg` do app (pelo WebSocket e pelo QUIC).
-  - Ordem de deploy da fase 3: servidor primeiro, depois o app.
+- **Servidor: todo o plano em produção desde 2026-11-12** (push de `2a42530`, `e2a3f8f` e `0ae91c3`
+  pelo Gitea; deploy e workflow `supabase` verdes):
+  - `2a42530`: E fase 2 (sessão com conta: JWKS do Supabase, `requer_conta`, `renovar`);
+  - `e2a3f8f`: B4;
+  - `0ae91c3`: E fase 3 (limites de plano), F (registros de acesso), C (pasta `supabase/`, com a
+    parte social; formato do Realtime no `supabase/README.md` §4b) e os crates do app no
+    `6814c1c`, com um teste de compatibilidade que lê o `plano_insuficiente` do servidor com o
+    `ControlMsg` do app (pelo WebSocket e pelo QUIC);
+  - Supabase: as 6 migrations aplicadas e `excluir-conta`, `social-convidar` e `social-chamar`
+    publicadas. Sem aviso de `pg_cron` indisponível no log;
+  - o job `banco-real` (não bloqueia) falhou em 11 testes, todos com "permission denied to set
+    role supabase_auth_admin": é o harness de teste no Supabase local, não o banco de produção.
+    Mas o hook `plano_no_token` segue sem prova no Postgres de verdade;
+  - produção logo depois do deploy: `/v1/info` com `requer_conta: false` e sem a parte do
+    Supabase (o `stack.env` ainda sem `ZAP_SUPABASE_*`), e `/v1/admin/metricas` com 404 (o
+    `deploy.sh` antigo ignora o `ZAP_ADMIN_TOKEN`).
+  - O push do servidor vai pelo Gitea (`git.heitorcanhizares.net`, que leva ao GitHub pelo push
+    mirror). No Git Bash a credencial falha; no PowerShell funciona.
 - **Com o dono, para o login funcionar de verdade:**
-  - criar o projeto do Supabase (passos no `supabase/README.md` §2 do servidor), com
-    `streamazap://auth/callback` nas Redirect URLs;
-  - secrets do CI do servidor: os 8 cadastrados em 2026-11-12 (`ZAP_ADMIN_TOKEN` e os três
-    `SUPABASE_*` incluídos). O push com `supabase/**` já dispara o workflow `supabase`
-    (migrations e 3 funções), sem precisar do workflow_dispatch;
+  - projeto do Supabase criado e os 8 secrets do CI do servidor cadastrados (2026-11-12);
   - pôr `ZAP_SUPABASE_URL` e `ZAP_SUPABASE_CHAVE` no `stack.env` da VPS e reinstalar o
-    `deploy.sh` (sem isso o `ZAP_ADMIN_TOKEN` não é gravado);
-  - depois das migrations: hook `public.plano_no_token` (passo 11 do §2) e conferir o `pg_cron`;
-  - o push do servidor vai pelo Gitea (`git.heitorcanhizares.net`, que leva ao GitHub pelo
-    push mirror). Em 2026-11-12 ele respondia 530 (túnel da Cloudflare fora).
+    `deploy.sh`; depois rodar de novo o job de deploy, para recriar o servidor com os dois;
+  - painel (`supabase/README.md` §2 do servidor): hook `public.plano_no_token` (passo 11, já
+    possível) e o que faltar dos passos 2 e 5 a 12 (`streamazap://auth/callback` nas Redirect
+    URLs, provedores, SMTP, Realtime só privado); `ZAP_CHAVE_SERVICO` nos secrets das funções.
 - **Fase 3 do app (planos e cadeados), pronta e sem lançar** (plano em
   `docs/planos/fase3-app-planos.md`):
   - `zap-proto`: o `erro` traz os extras (`campo`, `plano`, `tentar_em_ms`, `protocolo_min`/`max`),
