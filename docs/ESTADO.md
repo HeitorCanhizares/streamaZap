@@ -93,7 +93,15 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     projeto do supabase.co;
   - erros do Supabase aparecem em português (pelo código do erro).
 - **Falta verificar na fase 2** (precisa do projeto Supabase e do app instalado):
-  - login Google, Microsoft e e-mail de ponta a ponta contra um projeto Supabase de verdade;
+  - login Google, Microsoft e e-mail de ponta a ponta contra um projeto Supabase de verdade.
+    Primeira tentativa em 2026-11-12, com o app em dev (o `register_all` do dev aponta o
+    `streamazap://` para o `target\debug\streamazap.exe`). Falhou só por configuração do painel:
+    - Google e Microsoft deram 400 `provider is not enabled`;
+    - o e-mail veio no modelo padrão, só com link; aberto no navegador, criou e confirmou a
+      conta, mas sem sessão no app.
+    Pelo MCP do Supabase (`.mcp.json` na raiz, sem commit), o banco está certo: migrations,
+    funções, cron, `config_publica` e o hook dando `fullhd`. Desde o `3349497`, o pedido de
+    e-mail manda `emailRedirectTo`, e um link clicado abre o app;
   - deep link com o app instalado pelo NSIS, com o app aberto e com o app fechado;
   - login mantido depois de fechar e abrir o app (sessão lida do Gerenciador de Credenciais);
   - renovar com um JWT de verdade do Supabase (os testes usam o token falso do servidor de teste).
