@@ -162,6 +162,9 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - Na interface, o `useConvites` espera a conta carregar (até 3 s) e entrega o convite à tela
     Salas. Ela troca o modo e entra; se a sala pede senha, o painel fica aberto com o código
     preenchido. Já numa sala, o `ConfirmarConvite` pergunta antes de sair dela.
+  - Testado no app em dev (2026-11-12): `streamazap://sala/ZAP-2345`, um código que não existe,
+    trouxe o app para Salas com o código preenchido e o erro. Falta o teste com duas pessoas,
+    uma criando a sala e a outra clicando no link, que só dá depois de instalar a v3.3.0.
   - Só funciona com o app novo instalado: o esquema `streamazap://` é registrado pelo NSIS da
     v3.3.0. A página `sala/` vai ao ar com o próximo `git subtree split` para o `gh-pages`
     (`site/README.md`).
