@@ -97,7 +97,7 @@ describe('e-mail e código', () => {
 
   it('e-mail ok guarda otpEmail', async () => {
     await entrarEmail('  a@b.com ')
-    expect(f.auth.signInWithOtp).toHaveBeenCalledWith({ email: 'a@b.com' })
+    expect(f.auth.signInWithOtp).toHaveBeenCalledWith({ email: 'a@b.com', options: { emailRedirectTo: REDIRECT } })
     expect(getContaEstado().otpEmail).toBe('a@b.com')
   })
 

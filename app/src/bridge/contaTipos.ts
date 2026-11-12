@@ -22,7 +22,7 @@ export interface ContaClient {
       provider: ProvedorOAuth
       options: { redirectTo: string; skipBrowserRedirect: boolean; scopes?: string }
     }): Promise<{ data: { url: string | null }; error: ContaErro | null }>
-    signInWithOtp(args: { email: string }): Promise<{ error: ContaErro | null }>
+    signInWithOtp(args: { email: string; options: { emailRedirectTo: string } }): Promise<{ error: ContaErro | null }>
     verifyOtp(args: { email: string; token: string; type: 'email' }): Promise<{ error: ContaErro | null }>
     exchangeCodeForSession(code: string): Promise<{ error: ContaErro | null }>
     getUserIdentities(): Promise<{ data: { identities: ContaIdentidade[] } | null; error: ContaErro | null }>

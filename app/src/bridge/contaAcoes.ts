@@ -55,7 +55,11 @@ export async function entrarOAuth(provedor: ProvedorOAuth): Promise<void> {
   })
 }
 
-/** `signInWithOtp({ email })` (email com trim, vazio = aviso); sucesso: `otpEmail = email`. */
+/**
+ * `signInWithOtp({ email, options: { emailRedirectTo: REDIRECT } })` (email com trim, vazio =
+ * aviso); sucesso: `otpEmail = email`. O caminho normal é digitar o código; o `emailRedirectTo`
+ * faz um link clicado no e-mail abrir o app (`?code=`, por `tratarDeepLink`), não o navegador.
+ */
 export async function entrarEmail(email: string): Promise<void> {
   const limpo = email.trim()
   if (limpo === '') {
@@ -63,7 +67,7 @@ export async function entrarEmail(email: string): Promise<void> {
     return
   }
   await comCliente(async (cliente) => {
-    const { error } = await cliente.auth.signInWithOtp({ email: limpo })
+    const { error } = await cliente.auth.signInWithOtp({ email: limpo, options: { emailRedirectTo: REDIRECT } })
     if (error) setContaEstado({ aviso: traduzirErro(error, 'Não foi possível enviar o código.') })
     else setContaEstado({ otpEmail: limpo })
   })
