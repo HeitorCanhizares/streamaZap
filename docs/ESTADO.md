@@ -1,6 +1,7 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-12 (**v3.3.0 lançada**, com as fases 1, 2 e 3 do plano de contas, planos e
+Atualizado em 2026-11-12 (**v3.3.1 lançada**: o portátil passa a abrir pelos links
+`streamazap://`; antes, no mesmo dia, a **v3.3.0**, com as fases 1, 2 e 3 do plano de contas, planos e
 câmera e o convite que entra na sala; o servidor com todo o plano em produção e o Supabase com as
 migrations; ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
 depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
@@ -64,11 +65,14 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - a tela Sobre diz "protocolo 4" (dizia 3 desde a v3.0.0).
   Na v3.3.0, o portátil (zip) não registra o `streamazap://` (o `register_all()` só rodava em
   `debug_assertions`): nele, o convite e a volta do login não abrem o app, e as notas da release
-  mandam usar o instalador. Corrigido depois da v3.3.0, para a próxima versão:
+  mandam usar o instalador.
+- **v3.3.1 lançada em 2026-11-12** (tag `v3.3.1`), só com a correção do portátil:
   `deep_link_setup::registrar_esquema` roda no Windows também no release e registra o esquema
   quando ele não abre o próprio exe (`is_registered`). Vale o último app aberto. É a mesma chave
   do NSIS (`HKCU\Software\Classes\streamazap`, instalação `currentUser`), que o desinstalador
-  apaga.
+  apaga. Testado com o exe release antes de lançar: com o app fechado, `streamazap://sala/...`
+  abriu esse exe com a URL. É a primeira atualização que passa pelo atualizador novo da v3.3.0
+  (baixa sozinho e instala fora de sala); ver se a passagem 3.3.0 → 3.3.1 funcionou.
 - **Fase 1 no app (v3.3.0), lançada:**
   - J: procura atualização na abertura e a cada 6 h, baixa sozinho e instala fora de sala (app
     minimizado ou PC parado há 2 min), com aviso de 30 s e "Adiar 1 h"; "Atualizado para a vX" na
@@ -85,8 +89,8 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - câmera de verdade: modos do Media Foundation, troca de qualidade ao vivo, troca de dispositivo;
   - bancada de 1080p60 na câmera (se não passar, a opção 1080p60 da câmera sai, §5 B2 do plano);
   - atualização sozinha: a passagem da 3.2.1 para a 3.3.0 ainda usa o atualizador antigo (instala
-    ao fechar). O jeito novo (instalar fora de sala e reabrir em "Atualizado para a vX") só é visto
-    na próxima versão;
+    ao fechar). O jeito novo (instalar fora de sala e reabrir em "Atualizado para a vX") é visto
+    pela primeira vez na passagem 3.3.0 → 3.3.1;
   - o jeito da câmera numa sala Online depende do servidor repassar o campo `camera` (B4 do servidor).
 - **Fase 2 no app (frente D, login com conta), lançada na v3.3.0** (conta opcional; Google só para
   os "Test users" do app do Google):
