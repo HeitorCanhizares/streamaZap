@@ -308,6 +308,17 @@ export const api = {
     if (!isTauri()) return []
     return call<string[]>('deep_link_pendentes')
   },
+  // Escuta o evento `zap://convite` (payload = alvo já validado no Rust: 'ZAP-7K2Q' ou 'ip:porta').
+  escutarConvite: async (cb: (alvo: string) => void): Promise<() => void> => {
+    if (!isTauri()) return () => undefined
+    const { listen } = await import('@tauri-apps/api/event')
+    return listen<string>('zap://convite', (e) => cb(e.payload))
+  },
+  // Convites que chegaram com a interface fechada (o app aberto do zero pelo link). Uma vez só.
+  convitesPendentes: async (): Promise<string[]> => {
+    if (!isTauri()) return []
+    return call<string[]>('convites_pendentes')
+  },
   diagnosticsRun: async (): Promise<DiagReport> => {
     if (!isTauri()) return mockDiagReport()
     return call<DiagReport>('diagnostics_run')

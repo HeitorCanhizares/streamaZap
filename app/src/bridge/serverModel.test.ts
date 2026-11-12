@@ -60,9 +60,9 @@ describe('normalizarCodigo', () => {
 
 describe('conviteTexto', () => {
   it('com nome da sala', () => {
-    expect(conviteTexto('ZAP-7K2Q', ' Jogatina ')).toBe('Entra na minha sala "Jogatina" no streamaZap: ZAP-7K2Q')
+    expect(conviteTexto('ZAP-7K2Q', ' Jogatina ')).toBe('Entra na minha sala "Jogatina" no streamaZap: https://heitorcanhizares.github.io/streamaZap/sala/#ZAP-7K2Q (código ZAP-7K2Q)')
   })
   it('sem nome da sala', () => {
-    expect(conviteTexto('ZAP-7K2Q', '   ')).toBe('Entra na minha sala no streamaZap: ZAP-7K2Q')
+    expect(conviteTexto('ZAP-7K2Q', '   ')).toBe('Entra na minha sala no streamaZap: https://heitorcanhizares.github.io/streamaZap/sala/#ZAP-7K2Q (código ZAP-7K2Q)')
   })
 })

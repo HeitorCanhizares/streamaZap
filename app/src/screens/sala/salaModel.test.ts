@@ -70,13 +70,13 @@ describe('watching', () => {
 describe('inviteText', () => {
   it('com codigo usa o codigo', () => {
     expect(inviteText(sala(), mockSnapshot().network)).toBe(
-      'Entra na sala "Sexta do Rush" no streamaZap: código ZAP-7K2Q',
+      'Entra na sala "Sexta do Rush" no streamaZap: https://heitorcanhizares.github.io/streamaZap/sala/#ZAP-7K2Q (código ZAP-7K2Q)',
     )
   })
 
   it('sem codigo e com radmin_ip usa o IP', () => {
     const net = { radmin_ip: '26.14.7.88', interfaces: [] }
-    expect(inviteText(semCodigo(), net)).toBe('Entra na sala "Sexta do Rush" no streamaZap: 26.14.7.88')
+    expect(inviteText(semCodigo(), net)).toBe('Entra na sala "Sexta do Rush" no streamaZap: https://heitorcanhizares.github.io/streamaZap/sala/#26.14.7.88 (IP 26.14.7.88)')
   })
 
   it('sem codigo e sem radmin_ip mostra so o nome', () => {

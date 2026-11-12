@@ -65,6 +65,13 @@ pub fn deep_link_pendentes(pendentes: tauri::State<'_, crate::deep_link_setup::D
     pendentes.tirar()
 }
 
+/// `convites_pendentes() -> Vec<String>`: alvos de convite de sala (`ZAP-7K2Q` ou `ip:porta`) que
+/// chegaram com a interface ainda fechada (o app aberto do zero pelo link). Esvazia a fila.
+#[tauri::command]
+pub fn convites_pendentes(convites: tauri::State<'_, crate::deep_link_setup::ConvitesPendentes>) -> Vec<String> {
+    convites.tirar()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,6 +126,7 @@ mod tests {
             assert!(lib.contains(&t), "faltando {t}");
         }
         assert!(lib.contains("commands::auth::deep_link_pendentes,"));
+        assert!(lib.contains("commands::auth::convites_pendentes,"));
     }
 
     #[test]

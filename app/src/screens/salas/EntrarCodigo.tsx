@@ -5,6 +5,8 @@ import { Button } from '../../components/Button'
 import { normalizarCodigo } from '../../bridge/serverModel'
 
 export interface EntrarCodigoProps {
+  /** Código com que o campo abre (convite pelo link); vazio por padrão. */
+  codigoInicial?: string
   /** Chamado com o código já normalizado ('ZAP-7K2Q') e a senha (null se vazia). */
   onEntrar: (codigo: string, senha: string | null) => void
   onCancelar: () => void
@@ -16,8 +18,8 @@ const MSG_CODIGO_INVALIDO = 'Código inválido. Ele tem o formato ZAP-XXXX.'
 
 // Os campos são <input> diretos (e não o TextField) porque precisamos de aria-label,
 // da fonte mono e do onKeyDown para o Enter, que o TextField não expõe.
-export function EntrarCodigo({ onEntrar, onCancelar, ocupado, erro }: EntrarCodigoProps): ReactNode {
-  const [codigo, setCodigo] = useState('')
+export function EntrarCodigo({ codigoInicial = '', onEntrar, onCancelar, ocupado, erro }: EntrarCodigoProps): ReactNode {
+  const [codigo, setCodigo] = useState(codigoInicial)
   const [senha, setSenha] = useState('')
   const [erroLocal, setErroLocal] = useState<string | null>(null)
 

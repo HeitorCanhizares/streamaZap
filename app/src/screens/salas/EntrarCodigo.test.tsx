@@ -38,6 +38,13 @@ describe('EntrarCodigo', () => {
     expect(p.onEntrar).toHaveBeenCalledWith('ZAP-7K2Q', null)
   })
 
+  it('codigoInicial abre o campo preenchido (convite pelo link)', () => {
+    const p = monta({ codigoInicial: 'ZAP-7K2Q' })
+    expect(campoCodigo().value).toBe('ZAP-7K2Q')
+    fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+    expect(p.onEntrar).toHaveBeenCalledWith('ZAP-7K2Q', null)
+  })
+
   it('com senha chama onEntrar com a senha', () => {
     const p = monta()
     fireEvent.change(campoCodigo(), { target: { value: 'zap-7k2q' } })

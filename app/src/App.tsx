@@ -1,11 +1,14 @@
 // Tarefa ui-28: navegação pelo trilho lateral e pelas telas (porte do esqueleto de docs/design).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { isTauri } from './bridge/api'
+import { api, isTauri } from './bridge/api'
+import { alvoParaEntrar, rotuloAlvo } from './bridge/convite'
 import { carregarOnlineEnabled } from './bridge/onlineStore'
 import { useContaSync } from './bridge/contaSync'
 import { useSnapshot } from './bridge/store'
+import { useConvites, type ConvitePedido } from './bridge/useConvites'
 import { NavRail } from './components/NavRail'
 import { TitleBar } from './components/TitleBar'
+import { ConfirmarConvite } from './components/shell/ConfirmarConvite'
 import { SalaMetrics } from './components/shell/SalaMetrics'
 import { UpdateAviso } from './components/shell/UpdateAviso'
 import { UpdateBanner } from './components/shell/UpdateBanner'
@@ -53,6 +56,43 @@ export function App(): ReactNode {
     else setView((v) => (v === 'sala' ? 'salas' : v))
   }, [temSala])
 
+  // Convite de sala (link `streamazap://sala/<alvo>`): fora de sala vai direto para Salas, que
+  // entra; já numa sala, pergunta antes de sair dela.
+  const convites = useConvites()
+  const [conviteSalas, setConviteSalas] = useState<ConvitePedido | null>(null)
+  const [confirmar, setConfirmar] = useState<ConvitePedido | null>(null)
+  const [saindo, setSaindo] = useState(false)
+  const [erroSaida, setErroSaida] = useState<string | null>(null)
+  const { pedido: pedidoConvite, limpar: limparConvite } = convites
+  useEffect(() => {
+    if (pedidoConvite === null) return
+    limparConvite()
+    if (alvoParaEntrar(pedidoConvite.alvo) === null) return
+    if (temSala) {
+      setErroSaida(null)
+      setConfirmar(pedidoConvite)
+    } else {
+      setConviteSalas(pedidoConvite)
+      setView('salas')
+    }
+  }, [pedidoConvite, limparConvite, temSala])
+
+  async function sairEEntrar(p: ConvitePedido): Promise<void> {
+    setSaindo(true)
+    setErroSaida(null)
+    try {
+      await api.roomLeave()
+      setConfirmar(null)
+      setConviteSalas(p)
+      setView('salas')
+    } catch (e) {
+      setErroSaida(String(e))
+    } finally {
+      setSaindo(false)
+    }
+  }
+  const destinoConfirmar = confirmar === null ? null : alvoParaEntrar(confirmar.alvo)
+
   // 'Sala atual' só faz sentido com sala ativa; 'Salas' sempre leva à lista.
   function onNavigate(to: NavTarget): void {
     if (to === 'sala' && !temSala) return
@@ -69,7 +109,14 @@ export function App(): ReactNode {
   let tela: ReactNode
   switch (view) {
     case 'salas':
-      tela = <SalasScreen onCreate={() => setView('criar')} onEntered={() => setView('sala')} />
+      tela = (
+        <SalasScreen
+          onCreate={() => setView('criar')}
+          onEntered={() => setView('sala')}
+          convite={conviteSalas}
+          onConviteTratado={() => setConviteSalas(null)}
+        />
+      )
       break
     case 'criar':
       tela = <CriarScreen onCreated={() => setView('sala')} onCancel={() => setView('salas')} />
@@ -105,6 +152,16 @@ export function App(): ReactNode {
         <main style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>{tela}</main>
       </div>
       <PlanosModal />
+      {confirmar !== null && destinoConfirmar !== null ? (
+        <ConfirmarConvite
+          destino={rotuloAlvo(destinoConfirmar)}
+          salaAtual={snap.room?.name ?? 'atual'}
+          ocupado={saindo}
+          erro={erroSaida}
+          onConfirmar={() => void sairEEntrar(confirmar)}
+          onCancelar={() => setConfirmar(null)}
+        />
+      ) : null}
     </div>
   )
 }

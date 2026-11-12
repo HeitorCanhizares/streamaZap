@@ -99,7 +99,7 @@ describe('CriarResumo', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     render(<CriarResumo {...props()} />)
     fireEvent.click(screen.getByText('Copiar convite'))
-    expect(writeText).toHaveBeenCalledWith('Entra na minha sala "Sala do Heitor" no streamaZap: ZAP-7K2Q')
+    expect(writeText).toHaveBeenCalledWith('Entra na minha sala "Sala do Heitor" no streamaZap: https://heitorcanhizares.github.io/streamaZap/sala/#ZAP-7K2Q (código ZAP-7K2Q)')
     expect(screen.getByText('Copiado!')).toBeTruthy()
     act(() => { vi.advanceTimersByTime(1500) })
     expect(screen.getByText('Copiar convite')).toBeTruthy()

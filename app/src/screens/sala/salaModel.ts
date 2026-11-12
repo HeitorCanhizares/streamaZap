@@ -1,5 +1,6 @@
 // Funcoes puras da tela da sala (tarefa ui-ligacao-06).
 import { cantoDoLayout, jeitoDoLayout } from '../criar/cameraModel'
+import { linkConvite } from '../../bridge/site'
 import type { CameraLayout, Corner, NetworkStatus, Participant, RoomView, TileView, TrackView } from '../../bridge/types'
 
 /** Ids de tile reservados para o "Voce" (a propria tela e a propria camera, camada 2). */
@@ -40,12 +41,13 @@ export function watching(room: RoomView, main: Pick<TileView, 'track_id'> | null
   return { name: dono.name, kind: kindLabel(track.kind) }
 }
 
-/** Texto do convite copiado. Ex.: 'Entra na sala "Sexta do Rush" no streamaZap: código ZAP-7K2Q'.
- *  Sem codigo e com radmin_ip: 'Entra na sala "X" no streamaZap: <radmin_ip>'. Sem nada: so o nome. */
+/** Texto do convite copiado, com o link que abre o app e entra na sala. Ex.:
+ *  'Entra na sala "Sexta do Rush" no streamaZap: https://…/sala/#ZAP-7K2Q (código ZAP-7K2Q)'.
+ *  Sem codigo e com radmin_ip: '…: https://…/sala/#<radmin_ip> (IP <radmin_ip>)'. Sem nada: so o nome. */
 export function inviteText(room: RoomView, network: NetworkStatus): string {
   const base = `Entra na sala "${room.name}" no streamaZap`
-  if (room.code) return `${base}: código ${room.code}`
-  if (network.radmin_ip) return `${base}: ${network.radmin_ip}`
+  if (room.code) return `${base}: ${linkConvite(room.code)} (código ${room.code})`
+  if (network.radmin_ip) return `${base}: ${linkConvite(network.radmin_ip)} (IP ${network.radmin_ip})`
   return base
 }
 

@@ -10,9 +10,13 @@ de abrir o Online.
 | Página inicial | `index.html` | `/` |
 | Política de privacidade | `privacidade/index.html` | `/privacidade/` |
 | Termos de uso do beta | `termos/index.html` | `/termos/` |
+| Convite para sala | `sala/index.html` | `/sala/#ZAP-7K2Q` ou `/sala/#26.14.7.88` |
 
-- Sem build e sem JavaScript: HTML + `estilo.css`. As fontes (OFL, licenças em `fontes/`) e o ícone
-  vão junto, então o site não chama nenhum serviço de fora (a política diz isso).
+- Sem build: HTML + `estilo.css`. Só a página `sala/` tem um script curto, inline: lê o alvo do
+  fragmento (`#ZAP-7K2Q`, que nunca vai ao servidor) e abre `streamazap://sala/<alvo>`, que o app
+  valida de novo e usa para entrar na sala. O app copia esse link no **Copiar convite**.
+- As fontes (OFL, licenças em `fontes/`) e o ícone vão junto, então o site não chama nenhum serviço
+  de fora (a política diz isso).
 - Todos os caminhos são relativos: funciona na raiz de um domínio e também em
   `usuario.github.io/streamaZap/`.
 - Visual: tokens e fontes de `docs/design/README.md`. `tela-salas.webp` é o `docs/design/prints/1-salas.png`.

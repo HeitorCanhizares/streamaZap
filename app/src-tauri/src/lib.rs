@@ -60,6 +60,7 @@ pub fn run() {
             commands::auth::auth_store_set,
             commands::auth::auth_store_remove,
             commands::auth::deep_link_pendentes,
+            commands::auth::convites_pendentes,
             commands::online::online_set_account,
             commands::online::server_test,
             commands::online::room_preview,

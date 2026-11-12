@@ -1,9 +1,11 @@
 // Tarefa salas-14: compõe a tela Salas (ListaSalas + DetalheSala) e liga à ponte.
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../../bridge/api'
+import { alvoParaEntrar } from '../../bridge/convite'
 import { useOnlineEnabled } from '../../bridge/onlineStore'
 import { useSnapshot } from '../../bridge/store'
 import { useTravas } from '../../bridge/usePlano'
+import type { ConvitePedido } from '../../bridge/useConvites'
 import { ConviteEspectador } from '../planos/ConviteEspectador'
 import type { JoinTarget, RoomMode } from '../../bridge/types'
 import { Button } from '../../components/Button'
@@ -16,7 +18,15 @@ import { EntrarCodigo } from './EntrarCodigo'
 import { ListaSalas } from './ListaSalas'
 import { contar, filtrarSalas, salasDoModo, type FiltroSala } from './model'
 
-export interface SalasScreenProps { onCreate: () => void; onEntered: () => void; onAbrirConfig?: () => void }
+export interface SalasScreenProps {
+  onCreate: () => void
+  onEntered: () => void
+  onAbrirConfig?: () => void
+  /** Convite de sala recebido pelo link: a tela entra direto (ou abre o painel, se faltar senha). */
+  convite?: ConvitePedido | null
+  /** Chamado assim que a tela pega o convite, para ele não ser tratado de novo. */
+  onConviteTratado?: () => void
+}
 
 // Porta padrão do protocolo local quando o usuário digita só o IP.
 const PORTA_PADRAO = 47800
@@ -34,7 +44,7 @@ function lerAlvoManual(texto: string): JoinTarget | null {
   return { ip, port }
 }
 
-export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenProps): ReactNode {
+export function SalasScreen({ onCreate, onEntered, onAbrirConfig, convite, onConviteTratado }: SalasScreenProps): ReactNode {
   const snap = useSnapshot()
 
   const modoInicial: RoomMode = snap.rooms[0]?.mode ?? 'local'
@@ -58,6 +68,10 @@ export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenP
   const [promptCodigo, setPromptCodigo] = useState(false)
   const [manual, setManual] = useState('')
   const [firewallOculto, setFirewallOculto] = useState(false)
+  // Código que o painel "Entrar com código" abre preenchido (convite pelo link).
+  const [codigoInicial, setCodigoInicial] = useState('')
+  // Alvo do convite esperando o modo da tela trocar para então entrar.
+  const [entrarConvite, setEntrarConvite] = useState<JoinTarget | null>(null)
 
   const todas = salasDoModo(snap.rooms, modo)
   const contagens = contar(todas)
@@ -130,6 +144,42 @@ export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenP
     if (nome !== '' && nome !== snap.me.name) void api.settingsSet({ name: nome })
   }
 
+  // Convite pelo link: troca para o modo certo e abre o painel já preenchido (se a sala pedir
+  // senha, a pessoa só digita a senha). A entrada vem no efeito seguinte, com o modo já trocado.
+  const conviteSeq = convite?.seq
+  useEffect(() => {
+    if (!convite) return
+    onConviteTratado?.()
+    const alvo = alvoParaEntrar(convite.alvo)
+    if (alvo === null) return
+    if ('code' in alvo) {
+      if (!habilitado) {
+        setErro(`O convite é para a sala Online ${alvo.code}: ative o modo Online em Configurações para entrar.`)
+        return
+      }
+      trocarModo('online')
+      setCodigoInicial(alvo.code)
+      setPromptCodigo(true)
+    } else if ('ip' in alvo) {
+      trocarModo('local')
+      setManual(`${alvo.ip}:${alvo.port}`)
+      setPromptManual(true)
+    } else {
+      return
+    }
+    setEntrarConvite(alvo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- só um convite novo (seq) dispara
+  }, [conviteSeq])
+
+  useEffect(() => {
+    if (entrarConvite === null) return
+    const modoAlvo: RoomMode = 'code' in entrarConvite ? 'online' : 'local'
+    if (modo !== modoAlvo) return
+    setEntrarConvite(null)
+    void entrar(entrarConvite)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `entrar` é recriada a cada render
+  }, [entrarConvite, modo])
+
   return (
     <div style={{ display: 'flex', height: '100%', minHeight: 0, minWidth: 0 }}>
       <ListaSalas
@@ -153,6 +203,7 @@ export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenP
         onAbrirConfig={onAbrirConfig}
         onEntrarManual={() => {
           setErro(null)
+          setCodigoInicial('')
           if (habilitado && modo === 'online') {
             setPromptManual(false)
             setPromptCodigo(true)
@@ -173,6 +224,8 @@ export function SalasScreen({ onCreate, onEntered, onAbrirConfig }: SalasScreenP
         ) : null}
         {habilitado && promptCodigo ? (
           <EntrarCodigo
+            key={codigoInicial}
+            codigoInicial={codigoInicial}
             onEntrar={entrarPorCodigo}
             onCancelar={() => {
               setPromptCodigo(false)

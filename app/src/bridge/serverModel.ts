@@ -1,4 +1,5 @@
 // Funções puras do modo Online na interface (frente ui-online). Tarefa ui-online-01.
+import { linkConvite } from './site'
 import type { ServerStatus, ServerTestResult } from './types'
 
 export type TomServidor = 'ok' | 'warn' | 'bad' | 'off'
@@ -60,9 +61,13 @@ export function normalizarCodigo(texto: string): string | null {
   return ALFABETO_CODIGO.test(codigo) ? `ZAP-${codigo}` : null
 }
 
-/** Texto do convite copiado para a área de transferência. */
+/**
+ * Texto do convite copiado para a área de transferência: o link (abre o app e entra na sala) e o
+ * código, para quem preferir digitar.
+ */
 export function conviteTexto(codigo: string, nomeSala: string): string {
   const nome = nomeSala.trim()
-  if (!nome) return `Entra na minha sala no streamaZap: ${codigo}`
-  return `Entra na minha sala "${nome}" no streamaZap: ${codigo}`
+  const fim = `${linkConvite(codigo)} (código ${codigo})`
+  if (!nome) return `Entra na minha sala no streamaZap: ${fim}`
+  return `Entra na minha sala "${nome}" no streamaZap: ${fim}`
 }
