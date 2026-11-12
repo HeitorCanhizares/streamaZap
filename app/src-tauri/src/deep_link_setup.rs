@@ -61,17 +61,35 @@ fn emitir(handle: &tauri::AppHandle, urls: Vec<String>) {
     }
 }
 
+/// `true` se o esquema precisa ser registrado: o `is_registered` não confirmou que ele já abre
+/// este executável (não registrado, outro exe ou erro ao ler).
+#[cfg(any(debug_assertions, windows))]
+fn precisa_registrar<E>(registrado_aqui: Result<bool, E>) -> bool {
+    !matches!(registrado_aqui, Ok(true))
+}
+
+/// Faz o `streamazap://` abrir este executável, se ainda não abre. O instalador NSIS já registra
+/// o esquema, mas o portátil (zip) e o app em dev não passam por ele; sem isso, o convite e a
+/// volta do login não abrem o app. Vale o último app aberto (instalado, portátil ou dev). No
+/// Windows é a mesma chave que o NSIS usa (`HKCU\Software\Classes\streamazap`, instalação
+/// `currentUser`), e o desinstalador a apaga. No Linux, só em desenvolvimento.
+#[cfg(any(debug_assertions, windows))]
+fn registrar_esquema(app: &tauri::App) {
+    let dl = app.deep_link();
+    if precisa_registrar(dl.is_registered(crate::deep_link::SCHEME)) && dl.register_all().is_err() {
+        // Sem detalhes: o erro pode conter caminhos/URLs.
+        tracing::warn!("não foi possível registrar o esquema streamazap://");
+    }
+}
+
 /// Liga o plugin: `on_open_url` (instância aberta, inclusive via single-instance) emite
 /// [`crate::deep_link::EVENT`] para cada URL de callback e [`crate::deep_link::EVENT_INVITE`] para
 /// cada convite de sala; a URL que abriu o app (`get_current`) vai para [`DeepLinkPendentes`] ou
-/// [`ConvitesPendentes`], porque a interface ainda não está escutando. Em `debug_assertions`
-/// chama `register_all()` (no instalado, o NSIS registra o esquema).
+/// [`ConvitesPendentes`], porque a interface ainda não está escutando. Antes, registra o esquema
+/// para este executável ([`registrar_esquema`]: no Windows sempre, no Linux só em dev).
 pub fn setup(app: &tauri::App) -> Result<(), Box<dyn Error>> {
-    #[cfg(debug_assertions)]
-    if app.deep_link().register_all().is_err() {
-        // Sem detalhes: o erro pode conter caminhos/URLs.
-        tracing::warn!("não foi possível registrar o esquema streamazap:// em desenvolvimento");
-    }
+    #[cfg(any(debug_assertions, windows))]
+    registrar_esquema(app);
 
     let handle = app.handle().clone();
     app.deep_link().on_open_url(move |event| {
@@ -153,6 +171,13 @@ mod tests {
     #[test]
     fn convite_nao_vira_callback() {
         assert!(urls_para_emitir(s(&["streamazap://sala/ZAP-7K2Q"])).is_empty());
+    }
+
+    #[test]
+    fn registra_so_se_nao_abre_este_exe() {
+        assert!(!precisa_registrar::<()>(Ok(true)));
+        assert!(precisa_registrar::<()>(Ok(false)));
+        assert!(precisa_registrar(Err("leitura do registro falhou")));
     }
 
     #[test]

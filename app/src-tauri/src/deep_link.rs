@@ -4,6 +4,9 @@
 
 use std::net::{Ipv4Addr, SocketAddrV4};
 
+/// Esquema do app (o mesmo de `plugins.deep-link.desktop.schemes` no `tauri.conf.json`).
+pub const SCHEME: &str = "streamazap";
+
 /// Só URLs que começam assim chegam à interface.
 pub const CALLBACK_PREFIX: &str = "streamazap://auth/callback";
 
@@ -199,6 +202,14 @@ mod tests {
         for url in recusadas {
             assert_eq!(room_invite(url), None, "deveria recusar: {url}");
         }
+    }
+
+    #[test]
+    fn esquema_bate_com_o_tauri_conf_e_os_prefixos() {
+        let conf = include_str!("../tauri.conf.json");
+        assert!(conf.contains(&format!("\"schemes\": [\"{SCHEME}\"]")));
+        assert!(CALLBACK_PREFIX.starts_with(&format!("{SCHEME}://")));
+        assert!(INVITE_PREFIX.starts_with(&format!("{SCHEME}://")));
     }
 
     #[test]

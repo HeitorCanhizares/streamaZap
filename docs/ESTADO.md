@@ -62,9 +62,13 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     Supabase (`GET /auth/v1/settings`, `lerProvedores`); se a leitura falhar, aparecem todos. Hoje o
     Microsoft fica escondido, e aparece sozinho quando for ligado no painel;
   - a tela Sobre diz "protocolo 4" (dizia 3 desde a v3.0.0).
-  Do jeito que está, o portátil (zip) não registra o `streamazap://`: o `register_all()` só roda
-  em `debug_assertions`. Nele, o convite e a volta do login não abrem o app; as notas da release
-  mandam usar o instalador.
+  Na v3.3.0, o portátil (zip) não registra o `streamazap://` (o `register_all()` só rodava em
+  `debug_assertions`): nele, o convite e a volta do login não abrem o app, e as notas da release
+  mandam usar o instalador. Corrigido depois da v3.3.0, para a próxima versão:
+  `deep_link_setup::registrar_esquema` roda no Windows também no release e registra o esquema
+  quando ele não abre o próprio exe (`is_registered`). Vale o último app aberto. É a mesma chave
+  do NSIS (`HKCU\Software\Classes\streamazap`, instalação `currentUser`), que o desinstalador
+  apaga.
 - **Fase 1 no app (v3.3.0), lançada:**
   - J: procura atualização na abertura e a cada 6 h, baixa sozinho e instala fora de sala (app
     minimizado ou PC parado há 2 min), com aviso de 30 s e "Adiar 1 h"; "Atualizado para a vX" na
