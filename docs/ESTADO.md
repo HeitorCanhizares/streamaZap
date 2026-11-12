@@ -53,7 +53,8 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
 
 - **Contrato:** fechado nos commits `ecd1b1a` e `48f9b9b` (câmera solta ou no canto, `zap_proto::plan`,
   conta e plano no `/v1/info`, `POST /sessoes` e `renovar`, erros `conta_necessaria` e
-  `plano_insuficiente`). O servidor sobe o `rev` para o `48f9b9b` depois do push.
+  `plano_insuficiente`). O servidor já usa os crates do app no `6814c1c` (fase 3), ainda sem
+  commit lá.
 - **Fase 1 no app (v3.3.0), pronta e sem lançar:**
   - J: procura atualização na abertura e a cada 6 h, baixa sozinho e instala fora de sala (app
     minimizado ou PC parado há 2 min), com aviso de 30 s e "Adiar 1 h"; "Atualizado para a vX" na
@@ -101,6 +102,9 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     `renovar`) e B4 (2a42530 e e2a3f8f).
   - Prontos e verificados, sem commit: E fase 3 (limites de plano), F (registros de acesso) e C
     (pasta `supabase/`, com a parte social; formato do Realtime no `supabase/README.md` §4b).
+  - Também sem commit: `zap-proto`, `zap-rate` e `zap-net` no `6814c1c`, com um teste de
+    compatibilidade que lê o `plano_insuficiente` do servidor com o `ControlMsg` do app (pelo
+    WebSocket e pelo QUIC). O servidor compilou sem mudanças.
   - Ordem de deploy da fase 3: servidor primeiro, depois o app.
 - **Com o dono, para o login funcionar de verdade:**
   - criar o projeto do Supabase (passos no `supabase/README.md` §2 do servidor), com
