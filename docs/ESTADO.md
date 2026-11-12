@@ -109,9 +109,10 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     publicadas. Sem aviso de `pg_cron` indisponível no log;
   - o job `banco-real` (não bloqueia) falhou em 11 testes, todos com "permission denied to set
     role supabase_auth_admin": é o harness de teste no Supabase local, não o banco de produção.
-    Mas o hook `plano_no_token` segue sem prova no Postgres de verdade. O conserto (o CI dá ao
-    `postgres` o direito de trocar para o `supabase_auth_admin`, sem herdar nada dele) está
-    pronto no servidor, sem commit, esperando o OK do dono;
+    Consertado no `c926508` (o CI dá ao `postgres` o direito de trocar para o
+    `supabase_auth_admin`, sem herdar nada dele): no run seguinte, o `banco-real` passou com 122
+    de 123 testes (0 falhas, 1 que só roda no PGlite), incluindo os 8 do hook `plano_no_token` e
+    o asaas de ponta a ponta. O hook já tem prova num Postgres de verdade;
   - VPS arrumada no mesmo dia: o `deploy.sh` novo instalado, `ZAP_SUPABASE_URL` e
     `ZAP_SUPABASE_CHAVE` no `stack.env` (`ZAP_REQUER_CONTA` de fora até a fase 6) e o servidor
     recriado. Conferido de fora: `/v1/info` traz `conta {provedor: supabase, url, chave}` com
@@ -124,7 +125,7 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
   - projeto do Supabase criado, os 8 secrets do CI do servidor cadastrados e a VPS com a conta
     ligada (2026-11-12);
   - painel (`supabase/README.md` §2 do servidor): hook `public.plano_no_token` (passo 11, já
-    possível) e o que faltar dos passos 2 e 5 a 12 (`streamazap://auth/callback` nas Redirect
+    possível e provado no `banco-real`) e o que faltar dos passos 2 e 5 a 12 (`streamazap://auth/callback` nas Redirect
     URLs, provedores, SMTP, Realtime só privado); `ZAP_CHAVE_SERVICO` nos secrets das funções.
 - **Fase 3 do app (planos e cadeados), pronta e sem lançar** (plano em
   `docs/planos/fase3-app-planos.md`):
