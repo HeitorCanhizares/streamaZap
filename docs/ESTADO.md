@@ -109,8 +109,14 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
 - **Com o dono, para o login funcionar de verdade:**
   - criar o projeto do Supabase (passos no `supabase/README.md` §2 do servidor), com
     `streamazap://auth/callback` nas Redirect URLs;
-  - pôr os secrets do CI do servidor;
-  - pôr `ZAP_SUPABASE_URL` e `ZAP_SUPABASE_CHAVE` no `stack.env` da VPS.
+  - secrets do CI do servidor: os 8 cadastrados em 2026-11-12 (`ZAP_ADMIN_TOKEN` e os três
+    `SUPABASE_*` incluídos). O push com `supabase/**` já dispara o workflow `supabase`
+    (migrations e 3 funções), sem precisar do workflow_dispatch;
+  - pôr `ZAP_SUPABASE_URL` e `ZAP_SUPABASE_CHAVE` no `stack.env` da VPS e reinstalar o
+    `deploy.sh` (sem isso o `ZAP_ADMIN_TOKEN` não é gravado);
+  - depois das migrations: hook `public.plano_no_token` (passo 11 do §2) e conferir o `pg_cron`;
+  - o push do servidor vai pelo Gitea (`git.heitorcanhizares.net`, que leva ao GitHub pelo
+    push mirror). Em 2026-11-12 ele respondia 530 (túnel da Cloudflare fora).
 - **Fase 3 do app (planos e cadeados), pronta e sem lançar** (plano em
   `docs/planos/fase3-app-planos.md`):
   - `zap-proto`: o `erro` traz os extras (`campo`, `plano`, `tentar_em_ms`, `protocolo_min`/`max`),
