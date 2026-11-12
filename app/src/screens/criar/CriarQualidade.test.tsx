@@ -58,6 +58,14 @@ describe('CriarQualidade', () => {
     expect(select.value).toBe('auto')
   })
 
+  it('lista do núcleo com "auto": uma opção só por valor, nomes em português', () => {
+    render(<CriarQualidade {...props({ encoders: ['auto', 'hardware', 'software'] })} />)
+    const select = screen.getByLabelText('Codificador') as HTMLSelectElement
+    const opcoes = Array.from(select.options)
+    expect(opcoes.map((o) => o.value)).toEqual(['auto', 'hardware', 'software'])
+    expect(opcoes.map((o) => o.textContent)).toEqual(['Automático', 'Placa de vídeo', 'Processador'])
+  })
+
   it('mudar o codificador chama onEncoder', () => {
     const onEncoder = vi.fn()
     render(<CriarQualidade {...props({ onEncoder })} />)

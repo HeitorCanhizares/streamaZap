@@ -13,12 +13,19 @@ export interface CriarQualidadeProps { encoders: string[]; preset: Preset; onPre
 
 const MONO = "'JetBrains Mono', monospace"
 
+// Nomes em português dos codificadores que o núcleo manda; outro nome aparece como veio.
+const NOME_CODIFICADOR: Record<string, string> = { hardware: 'Placa de vídeo', software: 'Processador' }
+
 export function CriarQualidade({ encoders, preset, onPreset, encoder, onEncoder, adaptavel, onAdaptavel, numero = '06', cameraPreset, onCameraPreset, cameraInfo, travasTela, travasCamera }: CriarQualidadeProps): ReactNode {
   const cliqueTravado = useCliqueTravado()
   const bloco = { display: 'flex', flexDirection: 'column' as const, gap: 12, padding: 20, borderRadius: 18, background: 'var(--superficie)', border: '1px solid var(--borda)' }
 
-  // Opção "auto" é o padrão: o servidor escolhe o codificador disponível.
-  const opcoes = [{ value: 'auto', label: 'Automático' }, ...encoders.map((e) => ({ value: e, label: e }))]
+  // Opção "auto" é o padrão: o app escolhe o codificador disponível. O núcleo já manda "auto" na
+  // lista ("auto" | "hardware" | "software"); ele sai daqui para não aparecer duas vezes.
+  const opcoes = [
+    { value: 'auto', label: 'Automático' },
+    ...encoders.filter((e) => e !== 'auto').map((e) => ({ value: e, label: NOME_CODIFICADOR[e] ?? e })),
+  ]
 
   // Dois seletores (Tela e Câmera) só quando quem chama passa as props da câmera.
   const doisSeletores = onCameraPreset !== undefined && cameraPreset !== undefined
