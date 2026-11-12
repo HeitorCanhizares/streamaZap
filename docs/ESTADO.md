@@ -109,16 +109,20 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     publicadas. Sem aviso de `pg_cron` indisponível no log;
   - o job `banco-real` (não bloqueia) falhou em 11 testes, todos com "permission denied to set
     role supabase_auth_admin": é o harness de teste no Supabase local, não o banco de produção.
-    Mas o hook `plano_no_token` segue sem prova no Postgres de verdade;
-  - produção logo depois do deploy: `/v1/info` com `requer_conta: false` e sem a parte do
-    Supabase (o `stack.env` ainda sem `ZAP_SUPABASE_*`), e `/v1/admin/metricas` com 404 (o
-    `deploy.sh` antigo ignora o `ZAP_ADMIN_TOKEN`).
+    Mas o hook `plano_no_token` segue sem prova no Postgres de verdade. O conserto (o CI dá ao
+    `postgres` o direito de trocar para o `supabase_auth_admin`, sem herdar nada dele) está
+    pronto no servidor, sem commit, esperando o OK do dono;
+  - VPS arrumada no mesmo dia: o `deploy.sh` novo instalado, `ZAP_SUPABASE_URL` e
+    `ZAP_SUPABASE_CHAVE` no `stack.env` (`ZAP_REQUER_CONTA` de fora até a fase 6) e o servidor
+    recriado. Conferido de fora: `/v1/info` traz `conta {provedor: supabase, url, chave}` com
+    `requer_conta: false`, `/v1/admin/metricas` sem token responde 401, e a JWKS do projeto
+    (`uwstanonwupdnmzdlqcu.supabase.co`) tem chave ES256;
   - O push do servidor vai pelo Gitea (`git.heitorcanhizares.net`, que leva ao GitHub pelo push
-    mirror). No Git Bash a credencial falha; no PowerShell funciona.
+    mirror). No Git Bash a credencial falha; no PowerShell funciona. A porta 22 da VPS fecha
+    por alguns minutos depois de muitas conexões seguidas: usar uma conexão só.
 - **Com o dono, para o login funcionar de verdade:**
-  - projeto do Supabase criado e os 8 secrets do CI do servidor cadastrados (2026-11-12);
-  - pôr `ZAP_SUPABASE_URL` e `ZAP_SUPABASE_CHAVE` no `stack.env` da VPS e reinstalar o
-    `deploy.sh`; depois rodar de novo o job de deploy, para recriar o servidor com os dois;
+  - projeto do Supabase criado, os 8 secrets do CI do servidor cadastrados e a VPS com a conta
+    ligada (2026-11-12);
   - painel (`supabase/README.md` §2 do servidor): hook `public.plano_no_token` (passo 11, já
     possível) e o que faltar dos passos 2 e 5 a 12 (`streamazap://auth/callback` nas Redirect
     URLs, provedores, SMTP, Realtime só privado); `ZAP_CHAVE_SERVICO` nos secrets das funções.
