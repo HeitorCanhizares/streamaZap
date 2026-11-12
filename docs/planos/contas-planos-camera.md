@@ -930,7 +930,8 @@ o app aberto (ou só minimiza) nunca recebe a versão nova. A regra "nunca reini
 O que é só para cobrar (MEI, Asaas, NFS-e, termos de cobrança) está no checklist de §10.
 
 Rascunho da política, dos termos do beta e da página inicial em `site/` (2026-11-12; ver
-`site/README.md`): falta o e-mail de contato, a revisão do advogado e publicar.
+`site/README.md`), publicado em <https://heitorcanhizares.github.io/streamaZap/>: falta a revisão
+do advogado.
 
 - [ ] **Política de privacidade:**
   - o que guarda: e-mail, contas vinculadas, plano, IP + porta + horário por 6 meses;
