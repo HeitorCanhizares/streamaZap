@@ -125,8 +125,10 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
 - **Com o dono, para o login funcionar de verdade:**
   - projeto do Supabase criado, os 8 secrets do CI do servidor cadastrados e a VPS com a conta
     ligada (2026-11-12);
-  - painel (`supabase/README.md` §2 do servidor): hook `public.plano_no_token` (passo 11, já
-    possível e provado no `banco-real`) e o que faltar dos passos 2 e 5 a 12 (`streamazap://auth/callback` nas Redirect
+  - painel (`supabase/README.md` §2 do servidor): hook `public.plano_no_token` ligado em
+    2026-11-12 (passo 11; falta a prova de ponta a ponta do passo 14: login de verdade com JWT
+    `plano: "fullhd"` e `POST /v1/sessoes` com `plano.id` `fullhd`; se o login falhar, desligar
+    o hook e olhar o log do Auth) e o que faltar dos passos 2 e 5 a 12 (`streamazap://auth/callback` nas Redirect
     URLs, provedores, SMTP, Realtime só privado); `ZAP_CHAVE_SERVICO` nos secrets das funções.
 - **Fase 3 do app (planos e cadeados), pronta e sem lançar** (plano em
   `docs/planos/fase3-app-planos.md`):
