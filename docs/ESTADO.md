@@ -137,7 +137,18 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     2026-11-12 (passo 11; falta a prova de ponta a ponta do passo 14: login de verdade com JWT
     `plano: "fullhd"` e `POST /v1/sessoes` com `plano.id` `fullhd`; se o login falhar, desligar
     o hook e olhar o log do Auth) e o que faltar dos passos 2 e 5 a 12 (`streamazap://auth/callback` nas Redirect
-    URLs, provedores, SMTP, Realtime só privado); `ZAP_CHAVE_SERVICO` nos secrets das funções.
+    URLs, provedores, SMTP, Realtime só privado); `ZAP_CHAVE_SERVICO` nos secrets das funções;
+  - Google ligado no Supabase em 2026-11-12. O app do Google está em modo de teste, e só as contas
+    em "Test users" entram. Conferido de fora: o `/authorize` leva ao Google com o callback
+    certo. O login de ponta a ponta ainda não foi testado. O Microsoft fica para depois. Do SMTP
+    do Resend e dos dois modelos de e-mail não houve confirmação;
+  - para publicar o app do Google: página inicial e política no ar em
+    `https://heitorcanhizares.github.io/streamaZap/` (`/privacidade/` e `/termos/`), pelo
+    branch `gh-pages`, com a fonte em `site/`. Falta o advogado ler o texto. Para a política
+    ficar verdadeira, faltam o limite de tamanho dos logs do Docker (que guardam IP) e
+    confirmar a região do Supabase (São Paulo);
+  - avisos do banco: a migration `20261112120000_advisors` (servidor `48f4edd`) tirou os quatro
+    avisos. Ficaram só os de propósito e o de índice sem uso.
 - **Fase 3 do app (planos e cadeados), pronta e sem lançar** (plano em
   `docs/planos/fase3-app-planos.md`):
   - `zap-proto`: o `erro` traz os extras (`campo`, `plano`, `tentar_em_ms`, `protocolo_min`/`max`),
