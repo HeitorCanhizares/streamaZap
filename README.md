@@ -25,27 +25,40 @@ python -m http.server 8787 --bind 127.0.0.1 --directory site
 
 Ou `preview_start` com o nome `site` (`.claude/launch.json`).
 
-## Antes de publicar
+## No ar
 
-1. Trocar `EMAIL_CONTATO` pelo e-mail de contato em todos os arquivos. Conferir que não sobrou:
-   `grep -rn EMAIL_CONTATO site` não pode achar nada.
-2. O texto legal precisa passar por um advogado antes de abrir o Online ao público (inclusive a
+GitHub Pages do repositório, servido pelo branch `gh-pages` (só o conteúdo de `site/`, sem o resto
+do `master`):
+
+- página inicial: <https://heitorcanhizares.github.io/streamaZap/>
+- política de privacidade: <https://heitorcanhizares.github.io/streamaZap/privacidade/>
+- termos de uso: <https://heitorcanhizares.github.io/streamaZap/termos/>
+
+No Google Auth Platform → Branding: essas URLs, e `heitorcanhizares.github.io` em "Authorized
+domains". Se o Google pedir para verificar o domínio, o Search Console dá um arquivo HTML ou uma
+meta tag para a propriedade de prefixo de URL `https://heitorcanhizares.github.io/streamaZap/`: o
+arquivo vai em `site/`, a meta tag no `<head>` de `index.html`. Se ele exigir o domínio inteiro
+(`heitorcanhizares.github.io/`), aí precisa do repositório `HeitorCanhizares.github.io` ou de um
+domínio próprio (CNAME num subdomínio de `heitorcanhizares.net`).
+
+## Atualizar o site
+
+Depois de commitar a mudança em `site/` no `master`:
+
+```bash
+git subtree split --prefix site --branch gh-pages
+git push origin gh-pages
+```
+
+O `split` é determinístico: refaz o mesmo histórico e só acrescenta os commits novos, sem mexer no
+branch atual. O Pages publica em um ou dois minutos. `.nojekyll` desliga o Jekyll do Pages.
+
+## Cuidados
+
+1. O texto legal precisa passar por um advogado antes de abrir o Online ao público (inclusive a
    idade mínima de 18 anos e o ECA Digital, §14 do plano).
-3. Para o que a política promete ficar verdade:
+2. Para o que a política promete ficar verdade:
    - os logs do container do servidor (Docker) têm IP e hoje não têm rotação: pôr `max-size` no
      `docker-compose.yml` do servidor (frente H) para não passarem dos 6 meses;
    - "Supabase em São Paulo": conferir a região do projeto no painel (o plano diz `sa-east-1`).
-4. Ao mudar o que o app ou o servidor guarda, atualizar a política (e a data da versão).
-
-## Publicar
-
-Qualquer hospedagem estática que sirva a pasta `site/` como raiz:
-
-- **Cloudflare Pages:** projeto ligado ao repositório, sem comando de build, pasta de saída `site`,
-  domínio próprio num subdomínio de `heitorcanhizares.net` (não `streamazap.`, que é o servidor).
-- **GitHub Pages:** workflow com `actions/upload-pages-artifact` (`path: site`) e
-  `actions/deploy-pages`, e Pages ligado em Settings → Pages → Source: GitHub Actions.
-
-Depois, no Google Auth Platform → Branding: página inicial `https://<domínio>/`, política
-`https://<domínio>/privacidade/`, termos `https://<domínio>/termos/`, e o domínio em
-"Authorized domains" (verificado no Search Console).
+3. Ao mudar o que o app ou o servidor guarda, atualizar a política (e a data da versão).
