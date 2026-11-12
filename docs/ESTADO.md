@@ -139,9 +139,10 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     o hook e olhar o log do Auth) e o que faltar dos passos 2 e 5 a 12 (`streamazap://auth/callback` nas Redirect
     URLs, provedores, SMTP, Realtime só privado); `ZAP_CHAVE_SERVICO` nos secrets das funções;
   - Google ligado no Supabase em 2026-11-12. O app do Google está em modo de teste, e só as contas
-    em "Test users" entram. Conferido de fora: o `/authorize` leva ao Google com o callback
-    certo. O login de ponta a ponta ainda não foi testado. O Microsoft fica para depois. Do SMTP
-    do Resend e dos dois modelos de e-mail não houve confirmação;
+    em "Test users" entram. **O login com Google funcionou de ponta a ponta** no app em dev
+    (2026-11-12, testado pelo dono): Google, depois `streamazap://auth/callback`, depois a sessão no
+    app. O Microsoft fica para depois. Do SMTP do Resend e dos dois modelos de e-mail não houve
+    confirmação;
   - para publicar o app do Google: página inicial e política no ar em
     `https://heitorcanhizares.github.io/streamaZap/` (`/privacidade/` e `/termos/`), pelo
     branch `gh-pages`, com a fonte em `site/`. Falta o advogado ler o texto. Para a política
@@ -149,6 +150,21 @@ Trabalho conjunto com a sessão do servidor (`streamazap-servidor`). Fases na §
     confirmar a região do Supabase (São Paulo);
   - avisos do banco: a migration `20261112120000_advisors` (servidor `48f4edd`) tirou os quatro
     avisos. Ficaram só os de propósito e o de índice sem uso.
+- **Convite que entra direto na sala (I2 do plano), pronto e sem lançar:**
+  - O **Copiar convite** (cabeçalho da sala e resumo da tela Criar) leva o link
+    `https://heitorcanhizares.github.io/streamaZap/sala/#ZAP-7K2Q`, ou `#<ip do Radmin>` na sala
+    Local, e o código. É https porque WhatsApp e Discord não deixam clicar em `streamazap://`.
+  - A página `site/sala/` lê o fragmento, que não vai ao servidor, e abre
+    `streamazap://sala/<alvo>`. Sem o app instalado, oferece o download.
+  - No Rust, `deep_link::room_invite` valida o alvo (código pelo `RoomCode::parse`, ou IPv4 com
+    porta 47800 por padrão) e emite `zap://convite` só com o alvo normalizado. Os convites que
+    chegam com o app fechado esperam em `convites_pendentes`.
+  - Na interface, o `useConvites` espera a conta carregar (até 3 s) e entrega o convite à tela
+    Salas. Ela troca o modo e entra; se a sala pede senha, o painel fica aberto com o código
+    preenchido. Já numa sala, o `ConfirmarConvite` pergunta antes de sair dela.
+  - Só funciona com o app novo instalado: o esquema `streamazap://` é registrado pelo NSIS da
+    v3.3.0. A página `sala/` vai ao ar com o próximo `git subtree split` para o `gh-pages`
+    (`site/README.md`).
 - **Fase 3 do app (planos e cadeados), pronta e sem lançar** (plano em
   `docs/planos/fase3-app-planos.md`):
   - `zap-proto`: o `erro` traz os extras (`campo`, `plano`, `tentar_em_ms`, `protocolo_min`/`max`),
