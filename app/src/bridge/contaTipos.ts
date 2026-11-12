@@ -55,4 +55,9 @@ export interface ContaEstado {
   /** E-mail para o qual o código de 6 dígitos foi pedido (null = campo do código escondido). */
   otpEmail: string | null
   ocupado: boolean
+  /**
+   * Provedores OAuth com botão (ligados no projeto do Supabase). Começa com todos e vira a lista do
+   * `/auth/v1/settings` quando ela chega; se a leitura falhar, fica com todos.
+   */
+  provedores: readonly ProvedorOAuth[]
 }

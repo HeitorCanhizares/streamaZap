@@ -1,11 +1,12 @@
 // Liga o login ao app: cria o cliente, repassa o token ao núcleo e ouve o deep link. Tarefa front-10.
 import { useEffect } from 'react'
 import type { AccountProviderView } from './types'
-import { api } from './api'
+import { api, isTauri } from './api'
 import { obterCliente, descartarCliente } from './contaClient'
 import { setContaEstado, resetConta } from './contaStore'
 import { tratarDeepLink } from './contaAcoes'
 import { carregarIdentidades } from './contaVinculo'
+import { lerProvedores } from './contaProvedores'
 import { iniciarPlanos, type PlanosSync } from './planoSync'
 import { resetPlano } from './planoStore'
 import { useSnapshot } from './store'
@@ -21,7 +22,8 @@ import { useOnlineEnabled } from './onlineStore'
  *    otpEmail:null }` e `api.onlineSetAccount(null)`;
  *  - outros eventos: ignora.
  * Também `api.escutarDeepLink(tratarDeepLink)` e, depois, os callbacks que chegaram antes
- * (`api.deepLinkPendentes()`, o app aberto do zero pela volta do login). A função devolvida cancela os dois (mesmo que
+ * (`api.deepLinkPendentes()`, o app aberto do zero pela volta do login). No Tauri, lê os provedores
+ * ligados (`lerProvedores`) para `provedores` (falha: ficam todos). A função devolvida cancela os dois (mesmo que
  * ainda estejam subindo), chama `descartarCliente()` e `resetConta()`. Falha ao criar o cliente:
  * `aviso` em português. `api.onlineSetAccount` que rejeita é engolido.
  */
@@ -36,6 +38,12 @@ export function iniciarConta(conta: AccountProviderView | undefined, ligado: boo
   // Repassar o token ao núcleo é best-effort: rejeição é engolida.
   const enviarToken = (token: string | null): void => {
     void api.onlineSetAccount(token).catch(() => undefined)
+  }
+
+  if (isTauri()) {
+    void lerProvedores(conta.url, conta.key).then((provedores) => {
+      if (!cancelado && provedores) setContaEstado({ provedores })
+    })
   }
 
   void (async () => {

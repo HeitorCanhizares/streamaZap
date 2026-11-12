@@ -4,6 +4,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { Button } from '../../components/Button'
 import { cancelarCodigo, confirmarCodigo, entrarEmail, entrarOAuth } from '../../bridge/contaAcoes'
 import { useContaEstado } from '../../bridge/contaStore'
+import { rotuloProvedor } from '../../bridge/contaModel'
 
 const rotulo: CSSProperties = { fontSize: 12.5, color: '#A3BDB1' }
 const campo: CSSProperties = {
@@ -13,7 +14,8 @@ const coluna: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6
 const linha: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 10 }
 
 /**
- * Lê o `useContaEstado()`. Botões "Entrar com Google" e "Entrar com Microsoft" (`entrarOAuth`),
+ * Lê o `useContaEstado()`. Botões "Entrar com Google" e "Entrar com Microsoft" (`entrarOAuth`), só
+ * os de `provedores` (os ligados no Supabase),
  * campo "E-mail" + botão "Enviar código" (`entrarEmail`); com `otpEmail` mostra o campo "Código
  * de 6 dígitos" + "Confirmar" (`confirmarCodigo`) e "Cancelar" (`cancelarCodigo`). `aviso` em
  * `role="alert"`. Tudo desabilitado com `ocupado`.
@@ -22,14 +24,24 @@ export function ContaEntrar(): ReactNode {
   const estado = useContaEstado()
   const [email, setEmail] = useState('')
   const [codigo, setCodigo] = useState('')
-  const { ocupado, otpEmail, aviso } = estado
+  const { ocupado, otpEmail, aviso, provedores } = estado
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={linha}>
-        <Button disabled={ocupado} onClick={() => void entrarOAuth('google')}>Entrar com Google</Button>
-        <Button variant="ghost" disabled={ocupado} onClick={() => void entrarOAuth('azure')}>Entrar com Microsoft</Button>
-      </div>
+      {provedores.length > 0 && (
+        <div style={linha}>
+          {provedores.map((p) => (
+            <Button
+              key={p}
+              variant={p === 'google' ? undefined : 'ghost'}
+              disabled={ocupado}
+              onClick={() => void entrarOAuth(p)}
+            >
+              {`Entrar com ${rotuloProvedor(p)}`}
+            </Button>
+          ))}
+        </div>
+      )}
       {otpEmail == null ? (
         <>
           <div style={coluna}>

@@ -27,6 +27,7 @@ describe('store da conta', () => {
       aviso: null,
       otpEmail: null,
       ocupado: false,
+      provedores: ['google', 'azure'],
     })
     expect(getContaEstado()).toEqual(estadoInicialConta())
   })

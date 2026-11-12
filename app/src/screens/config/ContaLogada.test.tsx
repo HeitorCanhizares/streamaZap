@@ -74,6 +74,13 @@ describe('ContaLogada', () => {
     expect(screen.queryByText('Vincular Microsoft')).toBeNull()
   })
 
+  it('Vincular só aparece para provedor ligado', () => {
+    abrir([email])
+    act(() => setContaEstado({ provedores: ['google'] }))
+    expect(screen.getByText('Vincular Google')).toBeTruthy()
+    expect(screen.queryByText('Vincular Microsoft')).toBeNull()
+  })
+
   it('Sair chama sair', () => {
     abrir()
     fireEvent.click(screen.getByText('Sair'))

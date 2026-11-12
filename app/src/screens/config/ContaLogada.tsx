@@ -8,7 +8,6 @@ import { sair } from '../../bridge/contaAcoes'
 import { desvincular, excluirConta, vincular } from '../../bridge/contaVinculo'
 import { podeDesvincular, rotuloProvedor } from '../../bridge/contaModel'
 import { ContaPlano } from './ContaPlano'
-import type { ProvedorOAuth } from '../../bridge/contaTipos'
 
 export interface ContaLogadaProps {
   /** `snapshot.account.plan`; ausente = não mostra a linha do plano. */
@@ -19,19 +18,17 @@ const dica: CSSProperties = { fontSize: 12, color: '#7E978B' }
 const coluna: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 12 }
 const linha: CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }
 
-const VINCULAVEIS: Array<[ProvedorOAuth, string]> = [['google', 'Google'], ['azure', 'Microsoft']]
-
 /**
  * Lê `useContaEstado()`. Mostra "Conectado como <email>"; a linha do plano via `ContaPlano`
  * (sem preço, sem "Assinar"); lista de `identidades` com `rotuloProvedor` e e-mail, botão
  * "Desvincular" em cada (desabilitado se `!podeDesvincular`, com dica "Mantenha ao menos uma forma
- * de entrar."); botões "Vincular Google" / "Vincular Microsoft" para os provedores ainda não
- * vinculados (`vincular`); "Sair" (`sair`); "Excluir conta" abre confirmação
+ * de entrar."); botões "Vincular Google" / "Vincular Microsoft" para os provedores de
+ * `provedores` ainda não vinculados (`vincular`); "Sair" (`sair`); "Excluir conta" abre confirmação
  * (`role="alertdialog"`, "Isso apaga sua conta e não pode ser desfeito.", botões "Excluir de
  * vez" -> `excluirConta`, "Cancelar"). `aviso` em `role="alert"`.
  */
 export function ContaLogada({ plano }: ContaLogadaProps): ReactNode {
-  const { email, identidades, aviso, ocupado } = useContaEstado()
+  const { email, identidades, aviso, ocupado, provedores } = useContaEstado()
   const [confirmando, setConfirmando] = useState(false)
   const podeDesv = podeDesvincular(identidades)
 
@@ -67,9 +64,9 @@ export function ContaLogada({ plano }: ContaLogadaProps): ReactNode {
       </div>
 
       <div style={linha}>
-        {VINCULAVEIS.filter(([id]) => !identidades.some((i) => i.provider === id)).map(([id, nome]) => (
+        {provedores.filter((id) => !identidades.some((i) => i.provider === id)).map((id) => (
           <Button key={id} variant="ghost" disabled={ocupado} onClick={() => void vincular(id)}>
-            {`Vincular ${nome}`}
+            {`Vincular ${rotuloProvedor(id)}`}
           </Button>
         ))}
       </div>

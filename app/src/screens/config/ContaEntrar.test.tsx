@@ -22,6 +22,16 @@ describe('ContaEntrar', () => {
     expect(acoes.entrarOAuth).toHaveBeenNthCalledWith(2, 'azure')
   })
 
+  it('só mostra os provedores ligados', () => {
+    render(<ContaEntrar />)
+    act(() => setContaEstado({ provedores: ['google'] }))
+    expect(screen.getByText('Entrar com Google')).toBeTruthy()
+    expect(screen.queryByText('Entrar com Microsoft')).toBeNull()
+    act(() => setContaEstado({ provedores: [] }))
+    expect(screen.queryByText('Entrar com Google')).toBeNull()
+    expect(screen.getByText('Enviar código')).toBeTruthy()
+  })
+
   it('envia o e-mail digitado', () => {
     render(<ContaEntrar />)
     expect(screen.queryByLabelText('Código de 6 dígitos')).toBeNull()

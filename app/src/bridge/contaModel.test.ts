@@ -1,7 +1,27 @@
 import { describe, it, expect } from 'vitest'
-import { rotuloProvedor, nomePlano, podeDesvincular, temLogin, provedorOAuth } from './contaModel'
+import { rotuloProvedor, nomePlano, podeDesvincular, temLogin, provedorOAuth, provedoresLigados } from './contaModel'
 import type { AccountView, PlanView } from './types'
 import type { ContaIdentidade } from './contaTipos'
+
+describe('provedoresLigados', () => {
+  it('lê o external do /auth/v1/settings, na ordem dos botões', () => {
+    const json = { external: { azure: false, email: true, github: true, google: true }, disable_signup: false }
+    expect(provedoresLigados(json)).toEqual(['google'])
+    expect(provedoresLigados({ external: { azure: true, google: true } })).toEqual(['google', 'azure'])
+    expect(provedoresLigados({ external: { google: false, azure: false } })).toEqual([])
+  })
+
+  it('só true conta como ligado', () => {
+    expect(provedoresLigados({ external: { google: 'true', azure: 1 } })).toEqual([])
+  })
+
+  it.each([null, undefined, 'x', 3, [], {}, { external: null }, { external: 'google' }])(
+    'formato inesperado (%j) dá null',
+    (json) => {
+      expect(provedoresLigados(json)).toBeNull()
+    },
+  )
+})
 
 describe('rotuloProvedor', () => {
   it.each([

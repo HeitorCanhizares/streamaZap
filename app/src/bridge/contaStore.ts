@@ -1,8 +1,12 @@
 // Estado da conta para a interface (mesmo padrão de onlineStore.ts: useSyncExternalStore). Tarefa front-07.
 import { useSyncExternalStore } from 'react'
 import type { ContaEstado } from './contaTipos'
+import { PROVEDORES_OAUTH } from './contaModel'
 
-/** Estado inicial: { sessao: 'carregando', email: null, identidades: [], aviso: null, otpEmail: null, ocupado: false }. */
+/**
+ * Estado inicial: { sessao: 'carregando', email: null, identidades: [], aviso: null, otpEmail: null,
+ * ocupado: false, provedores: PROVEDORES_OAUTH }.
+ */
 export function estadoInicialConta(): ContaEstado {
   return {
     sessao: 'carregando',
@@ -11,6 +15,7 @@ export function estadoInicialConta(): ContaEstado {
     aviso: null,
     otpEmail: null,
     ocupado: false,
+    provedores: PROVEDORES_OAUTH,
   }
 }
 

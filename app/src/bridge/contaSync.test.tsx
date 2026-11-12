@@ -7,11 +7,13 @@ vi.mock('./contaClient', () => ({
 }))
 vi.mock('./contaAcoes', () => ({ tratarDeepLink: vi.fn(async () => undefined) }))
 vi.mock('./contaVinculo', () => ({ carregarIdentidades: vi.fn(async () => undefined) }))
+vi.mock('./contaProvedores', () => ({ lerProvedores: vi.fn(async () => ['google']) }))
 
 import { api } from './api'
 import { obterCliente, descartarCliente } from './contaClient'
 import { tratarDeepLink } from './contaAcoes'
 import { carregarIdentidades } from './contaVinculo'
+import { lerProvedores } from './contaProvedores'
 import { getContaEstado, resetConta } from './contaStore'
 import { iniciarConta, useContaSync } from './contaSync'
 import { emptySnapshot, resetSnapshotForTests, setSnapshot } from './store'
@@ -123,6 +125,47 @@ describe('iniciarConta', () => {
     cb?.('SIGNED_IN', { access_token: 't' })
     await flush()
     expect(getContaEstado().sessao).toBe('dentro')
+  })
+
+  describe('provedores ligados', () => {
+    const g = globalThis as Record<string, unknown>
+    beforeEach(() => {
+      vi.mocked(lerProvedores).mockClear()
+      vi.spyOn(api, 'deepLinkPendentes').mockResolvedValue([])
+    })
+    afterEach(() => {
+      delete g.__TAURI_INTERNALS__
+    })
+
+    it('fora do Tauri não busca e ficam todos', async () => {
+      iniciarConta(conta, true)
+      await flush()
+      expect(lerProvedores).not.toHaveBeenCalled()
+      expect(getContaEstado().provedores).toEqual(['google', 'azure'])
+    })
+
+    it('no Tauri lê do Supabase do servidor', async () => {
+      g.__TAURI_INTERNALS__ = {}
+      iniciarConta(conta, true)
+      await flush()
+      expect(lerProvedores).toHaveBeenCalledWith('https://x.supabase.co', 'k')
+      expect(getContaEstado().provedores).toEqual(['google'])
+    })
+
+    it('falha na leitura deixa todos', async () => {
+      g.__TAURI_INTERNALS__ = {}
+      vi.mocked(lerProvedores).mockResolvedValueOnce(null)
+      iniciarConta(conta, true)
+      await flush()
+      expect(getContaEstado().provedores).toEqual(['google', 'azure'])
+    })
+
+    it('resposta depois do cleanup é ignorada', async () => {
+      g.__TAURI_INTERNALS__ = {}
+      iniciarConta(conta, true)()
+      await flush()
+      expect(getContaEstado().provedores).toEqual(['google', 'azure'])
+    })
   })
 
   it('falha ao criar o cliente põe aviso', async () => {
