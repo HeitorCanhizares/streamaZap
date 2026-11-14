@@ -1,7 +1,7 @@
 # Estado da v3 (Rust + Tauri)
 
 Atualizado em 2026-11-13 (**v3.4.0 lançada**: pausar e mudar o tempo da música da sala, para
-todos; no Online só depois de o servidor tratar as mensagens novas). Antes, em 2026-11-12, a
+todos; o servidor de produção trata pausar e buscar desde o mesmo dia). Antes, em 2026-11-12, a
 **v3.3.1** (o portátil passa a abrir pelos links `streamazap://`) e a **v3.3.0**, com as fases 1, 2 e 3 do plano de contas, planos e
 câmera e o convite que entra na sala; o servidor com todo o plano em produção e o Supabase com as
 migrations; ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
@@ -20,43 +20,16 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 - **O CI da v3 (`rust.yml`) passa com o M4 pronto** (Linux, Windows e front-end; ver "CI da v3"
   abaixo). Rode-o antes de mexer no `master` se a mudança for grande: aba Actions, "Run workflow".
 
-## Pendente no servidor de produção (`stremaZapi`)
+## Música da sala no servidor de produção (`stremaZapi`)
 
-**Pausar e mudar o tempo da música** (commit `890e922`, lançado na **v3.4.0** em 2026-11-13):
-`musica.pausar {item_id, pausada}`, `musica.buscar {item_id, posicao_ms}` e o campo `pausada` em
-`musica.estado.atual` (`docs/api/mensagens.md`, "Música da sala"). Valem para qualquer um da sala
-(decisão do dono). O servidor sobe o `rev` dos crates e trata as duas mensagens como o
-`zap-test-server/src/music.rs` (`MusicQueue::pause` e `seek`; buscar numa live dá `erro`
-`musica_invalida`). Enquanto o servidor não mandar `pausada`, a interface esconde os controles nas
-salas Online; nas Locais funciona quando o dono tem o app novo.
-
-**Música da sala no modo Online** (decisão do dono em 2026-11-06: fica documentado aqui e ele faz
-depois). O app já está pronto desde a **v3.2.1**: no Online o servidor é a fonte da fila, e
-enquanto o de produção não tiver a música, a aba **Música** de uma sala Online avisa que o
-servidor precisa ser atualizado. Nas salas Locais a música já funciona (v3.2.0).
-
-O que fazer no repositório `stremaZapi`:
-1. Subir o `rev` de `zap-proto`, `zap-rate` e `zap-net` no `Cargo.toml` para o commit da v3.2.1
-   (`9f32488`), que traz `zap_proto::music` (`MusicQueue`, `needed`, `is_video_id`).
-2. Uma `MusicQueue` por sala. Tratar `musica.adicionar`, `musica.remover`, `musica.pular` e
-   `musica.info` que chegam pelo WebSocket de quem fez `sala.entrar` (fora da sala: `erro`
-   `proibido`). O servidor dá o id do item, e quem pôs é o participante que mandou. Pedido recusado:
-   `erro` com `codigo: "musica_invalida"` só para quem pediu. `musica.remover` do item atual só vale
-   para quem pôs ou para o dono da sala.
-3. Mandar `musica.estado` (`MusicQueue::msg` com o número de membros da sala) para todos da sala:
-   - no `sala.entrar`, depois do `sala.estado` e do histórico do chat;
-   - a cada pedido que mudou a fila;
-   - quando um membro sai (`MusicQueue::left`: o voto sai junto e o limite cai);
-   - a cada 10 s com música tocando.
-4. Um laço de 1 s chamando `MusicQueue::tick` (avança no fim do vídeo). O contador do reenvio de
-   10 s é do servidor ou da sala, nunca um `static` do processo.
-5. Testar como o `zap-test-server` (os testes `musica_*` de `src/signaling.rs`) e publicar. O push
-   reinicia o servidor e zera as salas abertas.
-
-Modelo pronto para copiar: `crates/zap-test-server/src/music.rs` e os pontos que o chamam
-(`signaling.rs`, `rooms_join.rs::leave_room`, `ticker.rs`). Contrato: `docs/api/mensagens.md`,
-"Música da sala". Teste do app com o servidor de teste: `musica_numa_sala_online_passa_pelo_servidor`
-(`crates/zap-core/src/engine_music.rs`).
+Nada pendente. O servidor é a fonte da fila no Online (a `MusicQueue` do `zap-proto`) e, desde
+2026-11-13 (commit `da81736` do servidor, `rev` `99142d9` dos crates), trata também
+`musica.pausar` e `musica.buscar` e manda `pausada` em `musica.estado.atual` (lançados no app na
+**v3.4.0**, commit `890e922`; contrato em `docs/api/mensagens.md`, "Música da sala"). Pausar e
+buscar valem para qualquer um da sala (decisão do dono). Fonte sem `pausada` (servidor ou app do
+dono antigos): a interface esconde os controles. Modelo do servidor: `crates/zap-test-server/src/music.rs`
+e o teste `musica_numa_sala_online_passa_pelo_servidor` (`crates/zap-core/src/engine_music.rs`).
+Falta testar a pausa com duas pessoas numa sala Online de verdade.
 
 ## Contas, planos e câmera (plano `docs/planos/contas-planos-camera.md`)
 
