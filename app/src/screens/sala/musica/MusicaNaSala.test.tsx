@@ -98,6 +98,16 @@ describe('música na SalaScreen', () => {
     expect(iframe()).toBe(original)
   })
 
+  it('na faixa, a música fica parada no começo, fora da parte que rola para o lado', () => {
+    estado.snap = snapCom({})
+    render(<SalaScreen onLeft={() => {}} />)
+    const cartao = screen.getByTestId('cartao-musica')
+    const faixa = screen.getByRole('group', { name: 'Transmissões na sala' })
+    expect(faixa.firstElementChild).toBe(cartao)
+    expect(screen.getByTestId('faixa-rolagem').contains(cartao)).toBe(false)
+    expect(screen.getByTestId('faixa-rolagem').style.overflowX).toBe('auto')
+  })
+
   it('o player conta duração, fim e erro ao núcleo (uma vez cada)', () => {
     estado.snap = snapCom({ tracks: [] })
     const report = vi.spyOn(api, 'musicReport').mockResolvedValue(undefined)

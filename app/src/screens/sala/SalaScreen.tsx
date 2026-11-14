@@ -1,14 +1,18 @@
-// Tarefa ui-22: tela "Dentro da sala". Compõe SalaPrincipal, SalaTiles e SalaPainel.
-// Dona do estado compartilhado (lugar de cada transmissão, volumes, painel) e das assinaturas:
-// toda transmissão de outra pessoa é assinada sozinha ao aparecer (useAssinaturas).
+// Tarefa ui-22: tela "Dentro da sala". Compõe SalaPrincipal, SalaTiles, a barra da sala
+// (SalaControles, no pé da coluna) e o SalaPainel. Dona do estado compartilhado (lugar de cada
+// transmissão, volumes, tela cheia, painel) e das assinaturas: toda transmissão de outra pessoa é
+// assinada sozinha ao aparecer (useAssinaturas).
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { api } from '../../bridge/api'
+import { api, isTauri } from '../../bridge/api'
 import { useSnapshot } from '../../bridge/store'
+import { useTravas } from '../../bridge/usePlano'
 import { Button } from '../../components/Button'
+import { SalaControles } from './SalaControles'
 import { SalaPainel } from './SalaPainel'
 import { SalaPrincipal } from './SalaPrincipal'
 import { SalaTiles } from './SalaTiles'
 import { SalaTransmissao } from './SalaTransmissao'
+import { alternarTelaCheia, entrarTelaCheia, sairTelaCheia } from './telaCheia'
 import {
   celulasDaPrincipal,
   inviteText,
@@ -52,13 +56,14 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   // Como quero ver cada câmera (no canto da tela ou solta); só local, não vai ao núcleo.
   const [jeitos, setJeitos] = useState<JeitosCamera>({})
   const [volumes, setVolumes] = useState<Record<string, VolumePessoa>>({})
-  const [smoothingAuto, setSmoothingAuto] = useState(true)
   const [cameraOn, setCameraOn] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
-  // Volume geral da sala, por cima do volume de cada pessoa.
-  const [muted, setMuted] = useState(false)
-  const [volume, setVolume] = useState(100)
   const [panelOpen, setPanelOpen] = useState(true)
+  // Transmissão em tela cheia (trackId) e se a janela já estava em tela cheia antes dela (ao sair,
+  // a janela volta como estava).
+  const [cheia, setCheia] = useState<string | null>(null)
+  const janelaJaCheia = useRef(false)
+  const travas = useTravas(room?.mode ?? 'local')
   // Cartão Você oculto (escolha lembrada entre as salas).
   const [voceOculto, setVoceOcultoEstado] = useState(() => lerVoceOculto())
   const setVoceOculto = (v: boolean) => {
@@ -97,7 +102,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
       stream: s,
       lugar: cantos.has(s.trackId) ? 'canto' : lugares[s.trackId] === 'principal' ? 'principal' : 'faixa',
     }))
-  const canvasDe = useAssinaturas(pedidos, celulas.length)
+  // Em tela cheia, a transmissão pede o tamanho de quem está sozinha na principal.
+  const canvasDe = useAssinaturas(pedidos, cheia ? 1 : celulas.length)
   // Dos outros, fora da principal (as minhas ficam no cartão Você).
   const naFaixa = streams.filter((s) => !s.mine && lugares[s.trackId] !== 'principal')
   const minhaTela = streams.find((s) => s.mine && s.kind !== 'camera') ?? null
@@ -109,10 +115,47 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const temCartoes = naFaixa.some((s) => lugares[s.trackId] !== 'fechada') || (mostrarVoce && !voceOculto)
   const temBotoes = naFaixa.some((s) => lugares[s.trackId] === 'fechada') || (mostrarVoce && voceOculto)
 
-  // Volume geral: aplica no núcleo sempre que muda (e ao entrar na sala).
+  // O som é de cada transmissão (volume de cada pessoa e o da música): o volume geral do núcleo fica
+  // em 100% ao entrar na sala, mesmo que uma versão antiga o tenha deixado mais baixo ou mudo.
   useEffect(() => {
-    void Promise.resolve(api.setMasterVolume(volume / 100, muted)).catch(() => {})
-  }, [volume, muted])
+    void Promise.resolve(api.setMasterVolume(1, false)).catch(() => {})
+  }, [])
+
+  // Tela cheia de uma transmissão: a janela entra em tela cheia junto; ao sair, volta como estava.
+  const onTelaCheia = (trackId: string | null) => {
+    if (trackId) {
+      if (cheia === null) {
+        janelaJaCheia.current = !isTauri() && document.fullscreenElement != null
+        void entrarTelaCheia().then((ja) => { janelaJaCheia.current = ja }).catch(() => {})
+      }
+      setCheia(trackId)
+    } else if (cheia !== null) {
+      setCheia(null)
+      if (!janelaJaCheia.current) void sairTelaCheia().catch(() => {})
+    }
+  }
+  // A transmissão em tela cheia acabou (ou saiu da principal): sai da tela cheia.
+  const cheiaNaPrincipal = cheia !== null && celulas.some((c) => c.stream.trackId === cheia)
+  useEffect(() => {
+    if (cheia === null || cheiaNaPrincipal) return
+    setCheia(null)
+    if (!janelaJaCheia.current) void sairTelaCheia().catch(() => {})
+  }, [cheia, cheiaNaPrincipal])
+  // No navegador, o Esc da Fullscreen API tira a janela da tela cheia sem passar pelo onKey.
+  useEffect(() => {
+    if (cheia === null || isTauri()) return
+    const aoMudar = () => {
+      if (!document.fullscreenElement) setCheia(null)
+    }
+    document.addEventListener('fullscreenchange', aoMudar)
+    return () => document.removeEventListener('fullscreenchange', aoMudar)
+  }, [cheia])
+  // Saiu da sala com uma transmissão em tela cheia: a janela sai da tela cheia também.
+  const cheiaRef = useRef(cheia)
+  cheiaRef.current = cheia
+  useEffect(() => () => {
+    if (cheiaRef.current !== null && !janelaJaCheia.current) void sairTelaCheia().catch(() => {})
+  }, [])
   // Convite do cabeçalho: código da sala ou IP do Radmin, conforme o que existir.
   const invite = room ? inviteText(room, snap.network) : undefined
 
@@ -163,11 +206,6 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     void Promise.resolve(api.setVolume(ownerId, v.vol / 100, v.muted)).catch(() => {})
   }
 
-  const onSmoothingAuto = (v: boolean) => {
-    setSmoothingAuto(v)
-    void api.setSmoothing(v, snap.tiles[0]?.smoothing_ms ?? 200).catch(() => {})
-  }
-
   const onToggleCamera = () => {
     const novo = !cameraOn
     setCameraOn(novo)
@@ -210,12 +248,9 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     onLeft()
   }
 
+  // Tela cheia do app inteiro (botão da barra e F11).
   const onFullscreen = () => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => {})
-    } else {
-      void document.documentElement.requestFullscreen().catch(() => {})
-    }
+    void alternarTelaCheia().catch(() => {})
   }
 
   const onSend = (text: string) => {
@@ -230,8 +265,6 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
         atual: atualMusica,
         volume: volMusica,
         onVolume: setVolMusica,
-        volumeGeral: volume,
-        mudoGeral: muted,
         onReport: (r) => void Promise.resolve(api.musicReport(r)).catch(() => {}),
         onPausar: (p) => void Promise.resolve(api.musicPause(atualMusica.item.id, p)).catch(() => {}),
         onBuscar: (ms) => void Promise.resolve(api.musicSeek(atualMusica.item.id, ms)).catch(() => {}),
@@ -247,61 +280,70 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     // dele, sem a página inteira crescer com as mensagens. A música da sala vai pelo contexto.
     <MusicaContexto.Provider value={musica}>
       <div style={{ display: 'flex', alignItems: 'stretch', height: '100%', minHeight: 0 }}>
-        <div ref={colunaRef} data-testid="sala-coluna" style={{ position: 'relative', flex: '1 1 auto', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <SalaPrincipal
-            room={room}
-            celulas={celulas}
-            tiles={snap.tiles}
-            canvasDe={canvasDe}
-            temOutras={naFaixa.length > 0 || minhasForaDaPrincipal}
-            temFaixa={temCartoes ? true : temBotoes ? 'botao' : false}
-            volumeDe={volumeDe}
-            onVolumePessoa={onVolumePessoa}
-            onMover={onMover}
-            onJeito={onJeito}
-            share={snap.share}
-            smoothingAuto={smoothingAuto}
-            onSmoothingAuto={onSmoothingAuto}
-            onToggleCamera={onToggleCamera}
-            onToggleShare={onToggleShare}
-            onStopShare={onStopShare}
-            onLeave={() => { void onLeave() }}
-            onFullscreen={onFullscreen}
-            muted={muted}
-            volume={volume}
-            camOn={cameraOn}
-            panelOpen={panelOpen}
-            onOpenPanel={() => setPanelOpen(true)}
-            onToggleMute={() => setMuted((m) => !m)}
-            onVolume={setVolume}
-            invite={invite}
-          />
-          {(aviso || naFaixa.length > 0 || mostrarVoce) && (
-            <div style={{ padding: '0 28px 28px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
-              <SalaTiles
-                room={room}
-                streams={naFaixa}
-                lugares={lugares}
-                canvasDe={canvasDe}
-                volumeDe={volumeDe}
-                onVolumePessoa={onVolumePessoa}
-                onMover={onMover}
-                mostrarVoce={mostrarVoce}
-                voceOculto={voceOculto}
-                onVoceOculto={setVoceOculto}
-                minhaTela={minhaTela}
-                minhaCam={minhaCam}
-                meId={meId}
-                camOn={cameraOn}
-                sharing={!!snap.share}
-                onToggleCam={onToggleCamera}
-                onToggleShare={onToggleShare}
-              />
-            </div>
-          )}
-          {/* O player da música, um só: segue a vaga da célula ou do cartão sem mudar de lugar no DOM. */}
-          {musicaAberta && <CamadaMusica coluna={colunaRef} vaga={vagaMusica} />}
+        <div style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div ref={colunaRef} data-testid="sala-coluna" style={{ position: 'relative', flex: '1 1 auto', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            <SalaPrincipal
+              room={room}
+              celulas={celulas}
+              tiles={snap.tiles}
+              canvasDe={canvasDe}
+              temOutras={naFaixa.length > 0 || minhasForaDaPrincipal}
+              temFaixa={temCartoes ? (mostrarVoce && !voceOculto ? 'voce' : true) : temBotoes ? 'botao' : false}
+              volumeDe={volumeDe}
+              onVolumePessoa={onVolumePessoa}
+              onMover={onMover}
+              onJeito={onJeito}
+              share={snap.share}
+              onToggleCamera={onToggleCamera}
+              onToggleShare={onToggleShare}
+              onStopShare={onStopShare}
+              onFullscreen={onFullscreen}
+              onSairTelaCheia={() => { void sairTelaCheia().catch(() => {}) }}
+              telaCheia={cheia}
+              onTelaCheia={onTelaCheia}
+              panelOpen={panelOpen}
+              onOpenPanel={() => setPanelOpen(true)}
+              invite={invite}
+            />
+            {(aviso || naFaixa.length > 0 || mostrarVoce) && (
+              <div style={{ padding: '0 28px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
+                <SalaTiles
+                  room={room}
+                  streams={naFaixa}
+                  lugares={lugares}
+                  canvasDe={canvasDe}
+                  volumeDe={volumeDe}
+                  onVolumePessoa={onVolumePessoa}
+                  onMover={onMover}
+                  mostrarVoce={mostrarVoce}
+                  voceOculto={voceOculto}
+                  onVoceOculto={setVoceOculto}
+                  minhaTela={minhaTela}
+                  minhaCam={minhaCam}
+                  meId={meId}
+                  camOn={cameraOn}
+                  sharing={!!snap.share}
+                  onToggleCam={onToggleCamera}
+                  onToggleShare={onToggleShare}
+                />
+              </div>
+            )}
+            {/* O player da música, um só: segue a vaga da célula ou do cartão sem mudar de lugar no DOM. */}
+            {musicaAberta && <CamadaMusica coluna={colunaRef} vaga={vagaMusica} />}
+          </div>
+          {/* Barra da sala: no pé da coluna, fora das transmissões e sempre visível. */}
+          <div style={{ flex: '0 0 auto', display: 'flex', justifyContent: 'center', padding: '8px 28px 16px' }}>
+            <SalaControles
+              camOn={cameraOn}
+              sharing={!!snap.share}
+              onFullscreen={onFullscreen}
+              onToggleCam={onToggleCamera}
+              onToggleShare={onToggleShare}
+              onLeave={() => { void onLeave() }}
+              podeTransmitir={travas.podeTransmitir}
+            />
+          </div>
         </div>
         {painelTx && (
           <SalaTransmissao

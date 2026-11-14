@@ -19,9 +19,6 @@ export interface MusicaCtx {
   /** Volume que escolhi para a música (0..100) e se está muda para mim. */
   volume: VolumePessoa
   onVolume: (v: VolumePessoa) => void
-  /** Volume geral da sala por cima do da música. */
-  volumeGeral: number
-  mudoGeral: boolean
   onReport: (r: MusicReport) => void
   /** Pausa (`true`) ou retoma a música atual para todos da sala. */
   onPausar: (pausada: boolean) => void
@@ -212,13 +209,13 @@ export function CelulaMusica({ onMover, varias }: { onMover: (trackId: string, l
   )
 }
 
-/** Cartão da faixa de baixo com a música: largo (duas colunas) para o player ter 200 px de altura. */
+/** Cartão da faixa de baixo com a música: largo (356 px) para o player ter 200 px de altura. */
 export function CartaoMusica({ onMover }: { onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
   const ctx = useContext(MusicaContexto)
   if (!ctx) return null
   const volId = 'vol-musica'
   return (
-    <div data-testid="cartao-musica" style={{ gridColumn: 'span 2', minWidth: 356, display: 'flex', flexDirection: 'column', borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D' }}>
+    <div data-testid="cartao-musica" style={{ flex: '0 0 356px', width: 356, display: 'flex', flexDirection: 'column', borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D' }}>
       <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', minHeight: 200, background: '#000' }}>
         <VagaMusica ctx={ctx} />
       </div>
@@ -285,8 +282,8 @@ export function CamadaMusica({ coluna, vaga }: { coluna: RefObject<HTMLElement |
   }, [vaga, coluna])
 
   if (!ctx) return null
-  const mudo = ctx.volume.muted || ctx.mudoGeral
-  const volume = Math.round((ctx.volume.vol * ctx.volumeGeral) / 100)
+  const mudo = ctx.volume.muted
+  const volume = ctx.volume.vol
   const visivel = vaga !== null && ret !== null
   return (
     <div

@@ -25,7 +25,7 @@ export interface SalaVoceProps {
 
 // card(on) do script x-dc
 const CARD: CSSProperties = {
-  display: 'flex', flexDirection: 'column', minWidth: 0, borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D',
+  flex: '0 0 220px', width: 220, display: 'flex', flexDirection: 'column', minWidth: 0, borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D',
 }
 const meBtn = (on: boolean): CSSProperties => ({
   flex: 1, minWidth: 0, height: 44, padding: '0 6px', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, fontWeight: 600,

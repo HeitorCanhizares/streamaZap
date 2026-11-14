@@ -92,6 +92,25 @@ describe('SalaTiles', () => {
     expect(r.onMover).toHaveBeenCalledWith('t1', 'faixa')
   })
 
+  it('faixa na horizontal: cartões e fechadas numa linha só, que rola para o lado', () => {
+    montar({ lugares: { t1: 'fechada', t2: 'faixa' } })
+    const faixa = screen.getByTestId('faixa-rolagem')
+    expect(screen.getByRole('group', { name: 'Transmissões na sala' }).contains(faixa)).toBe(true)
+    expect(faixa.style.display).toBe('flex')
+    expect(faixa.style.flexDirection).toBe('')
+    expect(faixa.style.flexWrap).toBe('')
+    expect(faixa.style.overflowX).toBe('auto')
+    // As fechadas ficam no fim da mesma linha, e os botões delas lado a lado.
+    const fechadas = screen.getByRole('group', { name: 'Miniaturas fechadas' })
+    expect(fechadas.parentElement).toBe(faixa)
+    expect(faixa.lastElementChild).toBe(fechadas)
+    const botoes = screen.getByRole('button', { name: 'Reabrir webcam de Ju' }).parentElement as HTMLElement
+    expect(botoes.style.display).toBe('flex')
+    expect(botoes.style.flexDirection).toBe('')
+    // Cartão com largura fixa: não estica nem empilha.
+    expect(screen.getByTestId('cartao-faixa').style.flex).toBe('0 0 220px')
+  })
+
   it('só o som fechado: botão para ouvir de novo', () => {
     const { onMover } = montar({ streams: [t3], lugares: { t3: 'fechada' } })
     expect(screen.queryAllByTestId('cartao-faixa')).toHaveLength(0)

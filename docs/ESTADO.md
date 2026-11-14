@@ -20,6 +20,22 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 - **O CI da v3 (`rust.yml`) passa com o M4 pronto** (Linux, Windows e front-end; ver "CI da v3"
   abaixo). Rode-o antes de mexer no `master` se a mudança for grande: aba Actions, "Run workflow".
 
+## No `master`, ainda sem lançar (depois da v3.4.0)
+
+- **Tela da sala nova** (escolhida pelo dono no Claude Design, "Sala StreamaZap — controles",
+  quadro "Escolhida"):
+  - a barra da sala (câmera, Compartilhar/Transmissão, tela cheia do app e Sair) saiu de cima do
+    vídeo: é um dock no pé da coluna, sempre visível;
+  - o volume geral saiu (o núcleo fica em 100% ao entrar): o som é de cada transmissão;
+  - cada transmissão tem os próprios controles por cima da imagem: som da pessoa, suavização,
+    tela cheia só dela, mandar para baixo e fechar;
+  - sem os cantos verdes, e a faixa de baixo numa linha só, que rola para o lado, com as fechadas
+    no fim (a música fica parada no começo, fora da rolagem);
+  - tela cheia de uma transmissão (botão, tecla F, Esc para sair): a janela do Tauri entra em
+    tela cheia (`setFullscreen`; o WebView2 do wry não leva a tela cheia de um elemento até a
+    janela) e a transmissão fica sozinha por cima de tudo. O botão e o F11 da tela cheia do app
+    também passaram a usar a janela do Tauri. Testado no app em dev com uma sala local.
+
 ## Música da sala no servidor de produção (`stremaZapi`)
 
 Nada pendente. O servidor é a fonte da fila no Online (a `MusicQueue` do `zap-proto`) e, desde

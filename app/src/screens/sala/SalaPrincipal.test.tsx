@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 
 vi.mock('../../video/player', () => ({
   VideoPlayer: class { push() {} close() {} },
@@ -30,13 +30,13 @@ const tile7: TileView = { tile: 7, track_id: 't1', layer: 1, width: 1920, height
 
 function montar(over: Partial<SalaPrincipalProps> = {}) {
   const fns = {
-    onSmoothingAuto: vi.fn(), onToggleCamera: vi.fn(), onToggleShare: vi.fn(), onLeave: vi.fn(), onFullscreen: vi.fn(),
-    onToggleMute: vi.fn(),
+    onToggleCamera: vi.fn(), onToggleShare: vi.fn(), onFullscreen: vi.fn(), onSairTelaCheia: vi.fn(),
+    onTelaCheia: vi.fn<(trackId: string | null) => void>(),
     onMover: vi.fn<(trackId: string, lugar: Lugar) => void>(),
     onVolumePessoa: vi.fn<(ownerId: string, v: VolumePessoa) => void>(),
   }
   const celulas: Celula[] = [{ stream: s1, pip: null }]
-  render(
+  const r = render(
     <SalaPrincipal
       room={room}
       celulas={celulas}
@@ -44,13 +44,12 @@ function montar(over: Partial<SalaPrincipalProps> = {}) {
       canvasDe={() => document.createElement('canvas')}
       temOutras={false}
       share={null}
-      smoothingAuto
       volumeDe={() => ({ vol: 80, muted: false })}
       {...fns}
       {...over}
     />,
   )
-  return fns
+  return { ...fns, container: r.container }
 }
 
 describe('SalaPrincipal', () => {
@@ -58,7 +57,7 @@ describe('SalaPrincipal', () => {
     montar()
     const t = document.body.textContent ?? ''
     expect(t).toContain('42 ms')
-    expect(screen.getByLabelText('Suavização automática, 200 milissegundos')).toBeTruthy()
+    expect(screen.getByTitle('Suavização automática, 200 ms')).toBeTruthy()
     expect(t).toContain('camada 2')
   })
 
@@ -71,12 +70,31 @@ describe('SalaPrincipal', () => {
     expect(screen.getByText('Escolha uma transmissão aqui embaixo.')).toBeTruthy()
   })
 
-  it('botoes', () => {
-    const f = montar()
-    fireEvent.click(screen.getByText('Sair'))
-    expect(f.onLeave).toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: /^Compartilhar$/ }))
-    expect(f.onToggleShare).toHaveBeenCalled()
+  it('a barra da sala não fica aqui: nada de Sair, Compartilhar ou volume geral por cima do vídeo', () => {
+    montar()
+    expect(screen.queryByRole('toolbar', { name: 'Controles da sala' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Sair' })).toBeNull()
+    expect(screen.queryByLabelText('Silenciar a sala toda')).toBeNull()
+  })
+
+  it('a altura que fica fora do vídeo depende do que há embaixo (o cartão Você é mais alto)', () => {
+    const reserva = () => /100vh - (\d+)px/.exec(screen.getByTestId('palco').getAttribute('style') ?? '')?.[1]
+    montar()
+    expect(reserva()).toBe('260')
+    cleanup()
+    montar({ temFaixa: true })
+    expect(reserva()).toBe('425')
+    cleanup()
+    montar({ temFaixa: 'voce' })
+    expect(reserva()).toBe('465')
+    cleanup()
+    montar({ temFaixa: 'botao' })
+    expect(reserva()).toBe('320')
+  })
+
+  it('sem os cantos verdes por cima da imagem', () => {
+    const { container } = montar()
+    expect(container.querySelectorAll('[data-corner]')).toHaveLength(0)
   })
 
   it('botao_parar', () => {
@@ -84,21 +102,38 @@ describe('SalaPrincipal', () => {
     expect(screen.getAllByRole('button', { name: 'Parar' }).length).toBeGreaterThan(0)
   })
 
-  it('atalhos: C, F11 e M (mudo geral)', () => {
+  it('atalhos: C, F11, F (tela cheia da transmissão) e M (som da transmissão)', () => {
     const f = montar()
     fireEvent.keyDown(window, { key: 'c' })
     expect(f.onToggleCamera).toHaveBeenCalled()
     fireEvent.keyDown(window, { key: 'F11' })
     expect(f.onFullscreen).toHaveBeenCalled()
+    fireEvent.keyDown(window, { key: 'f' })
+    expect(f.onTelaCheia).toHaveBeenCalledWith('t1')
     fireEvent.keyDown(window, { key: 'M' })
-    expect(f.onToggleMute).toHaveBeenCalled()
+    expect(f.onVolumePessoa).toHaveBeenCalledWith('p1', { vol: 80, muted: true })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(f.onSairTelaCheia).toHaveBeenCalled()
+  })
+
+  it('atalhos com Ctrl são do sistema (Ctrl+C não liga a câmera)', () => {
+    const f = montar()
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true })
+    fireEvent.keyDown(window, { key: 'f', ctrlKey: true })
+    expect(f.onToggleCamera).not.toHaveBeenCalled()
+    expect(f.onTelaCheia).not.toHaveBeenCalled()
+  })
+
+  it('M não mexe no som quando só a minha transmissão está na tela', () => {
+    const f = montar({ celulas: [{ stream: { ...s1, mine: true }, pip: null }] })
+    fireEvent.keyDown(window, { key: 'm' })
+    expect(f.onVolumePessoa).not.toHaveBeenCalled()
   })
 
   it('estrutura', () => {
     montar()
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sexta')
     expect(screen.getByText(/AO VIVO/)).toBeTruthy()
-    expect(screen.getByRole('toolbar', { name: 'Controles da sala' })).toBeTruthy()
   })
 
   it('o canvas da transmissão fica na célula', () => {
@@ -117,10 +152,28 @@ describe('SalaPrincipal', () => {
     expect(f.onVolumePessoa).toHaveBeenCalledWith('p1', { vol: 80, muted: true })
   })
 
+  it('volume da pessoa na própria transmissão', () => {
+    const f = montar()
+    const linha = screen.getByTestId('controles-transmissao')
+    fireEvent.change(within(linha).getByLabelText('Volume de Ana'), { target: { value: '35' } })
+    expect(f.onVolumePessoa).toHaveBeenCalledWith('p1', { vol: 35, muted: false })
+    expect(linha.textContent).toContain('80%')
+  })
+
+  it('a minha transmissão não tem som para ajustar, só a tela cheia', () => {
+    montar({ celulas: [{ stream: { ...s1, mine: true }, pip: null }] })
+    expect(screen.queryByLabelText(/^Volume de/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Pôr minha tela em tela cheia' })).toBeTruthy()
+  })
+
   it('várias transmissões: uma célula para cada, lado a lado', () => {
     montar({ celulas: [{ stream: s1, pip: null }, { stream: s3, pip: null }] })
     expect(screen.getAllByTestId('celula-principal')).toHaveLength(2)
     expect(screen.getByRole('img', { name: 'Janela de Bia' })).toBeTruthy()
+    // Cada uma com o próprio som e a própria tela cheia.
+    expect(screen.getByLabelText('Volume de Ana')).toBeTruthy()
+    expect(screen.getByLabelText('Volume de Bia')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Pôr janela de Bia em tela cheia' })).toBeTruthy()
   })
 
   it('câmera do dono no canto da tela; o X manda a câmera para baixo', () => {
@@ -138,27 +191,72 @@ describe('SalaPrincipal', () => {
     expect(writeText).toHaveBeenCalledWith('Entra na sala "Sexta" no streamaZap: código ZAP-7K2Q')
   })
 
-  it('controles somem com o mouse parado e voltam ao mexer', () => {
+  it('controles da transmissão somem com o mouse parado e voltam ao mexer', () => {
     vi.useFakeTimers()
     montar()
-    const barra = screen.getByRole('toolbar', { name: 'Controles da sala' })
-    expect(barra.getAttribute('data-visivel')).toBe('true')
+    const linha = screen.getByTestId('controles-transmissao')
+    expect(linha.style.opacity).toBe('1')
     act(() => { vi.advanceTimersByTime(3000) })
-    expect(barra.getAttribute('data-visivel')).toBe('false')
-    expect(barra.style.opacity).toBe('0')
+    expect(linha.style.opacity).toBe('0')
     fireEvent.pointerMove(screen.getByTestId('palco'))
-    expect(barra.getAttribute('data-visivel')).toBe('true')
+    expect(linha.style.opacity).toBe('1')
   })
 
-  it('mouse em cima dos controles: não somem', () => {
+  it('mouse em cima dos controles da transmissão: não somem', () => {
     vi.useFakeTimers()
     montar()
-    const barra = screen.getByRole('toolbar', { name: 'Controles da sala' })
-    fireEvent.pointerEnter(barra)
+    const linha = screen.getByTestId('controles-transmissao')
+    fireEvent.pointerEnter(linha)
     act(() => { vi.advanceTimersByTime(5000) })
-    expect(barra.getAttribute('data-visivel')).toBe('true')
-    fireEvent.pointerLeave(barra)
-    expect(barra.getAttribute('data-visivel')).toBe('false')
+    expect(linha.style.opacity).toBe('1')
+    fireEvent.pointerLeave(linha)
+    act(() => { vi.advanceTimersByTime(3000) })
+    expect(linha.style.opacity).toBe('0')
+  })
+
+  describe('tela cheia de uma transmissão', () => {
+    it('o botão da transmissão pede a tela cheia dela', () => {
+      const f = montar()
+      fireEvent.click(screen.getByRole('button', { name: 'Pôr tela de Ana em tela cheia' }))
+      expect(f.onTelaCheia).toHaveBeenCalledWith('t1')
+    })
+
+    it('em tela cheia: ela sozinha por cima de tudo, com o canvas, o som e o botão de sair', () => {
+      const canvas = document.createElement('canvas')
+      const f = montar({ celulas: [{ stream: s1, pip: s2 }, { stream: s3, pip: null }], telaCheia: 't1', canvasDe: (id) => (id === 't1' ? canvas : document.createElement('canvas')) })
+      const cheia = screen.getByRole('dialog', { name: 'Transmissão em tela cheia' })
+      expect(cheia.parentElement).toBe(document.body)
+      expect(cheia.style.position).toBe('fixed')
+      expect(within(cheia).getByRole('img', { name: 'Tela de Ana' }).contains(canvas)).toBe(true)
+      // A câmera do canto vai junto; mandar para baixo e fechar não aparecem na tela cheia.
+      expect(within(cheia).getByRole('img', { name: 'Câmera de Ana' })).toBeTruthy()
+      expect(within(cheia).queryByRole('button', { name: 'Fechar tela de Ana' })).toBeNull()
+      expect(within(cheia).queryByRole('button', { name: 'Tirar a câmera de Ana do canto' })).toBeNull()
+      expect(within(cheia).getByLabelText('Volume de Ana')).toBeTruthy()
+      // Na grade fica só o lugar dela; a outra continua.
+      expect(screen.getByTestId('celula-em-tela-cheia').textContent).toContain('Em tela cheia')
+      expect(screen.getByRole('img', { name: 'Janela de Bia' })).toBeTruthy()
+      fireEvent.click(within(cheia).getByRole('button', { name: 'Sair da tela cheia' }))
+      expect(f.onTelaCheia).toHaveBeenCalledWith(null)
+    })
+
+    it('Esc e F saem da tela cheia; M silencia quem está nela', () => {
+      const f = montar({ celulas: [{ stream: s1, pip: null }, { stream: s3, pip: null }], telaCheia: 't3' })
+      fireEvent.keyDown(window, { key: 'm' })
+      expect(f.onVolumePessoa).toHaveBeenCalledWith('p2', { vol: 80, muted: true })
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(f.onTelaCheia).toHaveBeenLastCalledWith(null)
+      expect(f.onSairTelaCheia).not.toHaveBeenCalled()
+      f.onTelaCheia.mockClear()
+      fireEvent.keyDown(window, { key: 'F' })
+      expect(f.onTelaCheia).toHaveBeenCalledWith(null)
+    })
+
+    it('trilha em tela cheia que não está na principal: nada por cima', () => {
+      montar({ telaCheia: 'outra' })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.queryByTestId('celula-em-tela-cheia')).toBeNull()
+    })
   })
 
   describe('câmera: canto e jeito', () => {
@@ -168,7 +266,7 @@ describe('SalaPrincipal', () => {
     }
     const vazio = (v: string) => v === '' || v === 'auto'
 
-    it('posiciona o pip pelo canto', () => {
+    it('posiciona o pip pelo canto (embaixo, acima da linha de controles)', () => {
       let st = pos({ stream: s1, pip: s2, corner: 'sup_esq' })
       expect(st.left).toBe('26px'); expect(st.top).not.toBe(''); expect(vazio(st.right)).toBe(true); expect(vazio(st.bottom)).toBe(true)
       cleanup()
@@ -179,10 +277,10 @@ describe('SalaPrincipal', () => {
       expect(st.left).toBe('26px'); expect(st.bottom).not.toBe(''); expect(vazio(st.right)).toBe(true); expect(vazio(st.top)).toBe(true)
       cleanup()
       st = pos({ stream: s1, pip: s2, corner: 'inf_dir' })
-      expect(st.right).toBe('26px'); expect(st.bottom).toBe('96px'); expect(vazio(st.left)).toBe(true); expect(vazio(st.top)).toBe(true)
+      expect(st.right).toBe('26px'); expect(st.bottom).toBe('74px'); expect(vazio(st.left)).toBe(true); expect(vazio(st.top)).toBe(true)
       cleanup()
       st = pos({ stream: s1, pip: s2 })
-      expect(st.right).toBe('26px'); expect(st.bottom).toBe('96px'); expect(vazio(st.left)).toBe(true); expect(vazio(st.top)).toBe(true)
+      expect(st.right).toBe('26px'); expect(st.bottom).toBe('74px'); expect(vazio(st.left)).toBe(true); expect(vazio(st.top)).toBe(true)
     })
 
     it('Soltar a câmera só existe com onJeito', () => {

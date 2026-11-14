@@ -61,7 +61,7 @@ describe('webcam como fonte (trilha camera)', () => {
     const s: Stream = { trackId: 't1', ownerId: 'eu', kind: 'camera', tile: 5, mine: true }
     render(
       <SalaPrincipal room={room} celulas={[{ stream: s, pip: null }]} tiles={[]} canvasDe={canvasDe} temOutras={false} share={null}
-        smoothingAuto onSmoothingAuto={vi.fn()} onToggleCamera={onToggleCamera} onToggleShare={vi.fn()} onLeave={vi.fn()} onFullscreen={vi.fn()}
+        onToggleCamera={onToggleCamera} onToggleShare={vi.fn()} onFullscreen={vi.fn()}
         onMover={vi.fn()} onVolumePessoa={vi.fn()} volumeDe={() => ({ vol: 80, muted: false })} />,
     )
     fireEvent.keyDown(window, { key: 'c' })

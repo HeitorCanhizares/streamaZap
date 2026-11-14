@@ -1,6 +1,7 @@
 // Faixa de baixo da sala: as transmissões que não estão na tela principal (miniaturas e quem
-// compartilha só o som), ao lado do cartão "Você" quando eu estou transmitindo. Uma miniatura
-// fechada (a minha ou a de outra pessoa) vira um botão pequeno numa linha embaixo, que a reabre.
+// compartilha só o som), ao lado do cartão "Você" quando eu estou transmitindo, numa linha só que
+// rola para o lado. Uma miniatura fechada (a minha ou a de outra pessoa) vira um botão pequeno no fim
+// da mesma linha, que a reabre.
 import type { CSSProperties, ReactNode } from 'react'
 import type { RoomView } from '../../bridge/types'
 import { Avatar } from '../../components/Avatar'
@@ -35,7 +36,7 @@ export interface SalaTilesProps {
 
 // card(on) do script x-dc
 const CARD: CSSProperties = {
-  display: 'flex', flexDirection: 'column', minWidth: 0, borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D',
+  flex: '0 0 220px', width: 220, display: 'flex', flexDirection: 'column', minWidth: 0, borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D',
 }
 const small = (alert: boolean): CSSProperties => ({
   flex: '0 0 18px', width: 18, height: 18, border: 0, padding: 0, background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -161,67 +162,74 @@ export function SalaTiles(p: SalaTilesProps): ReactNode {
   const fechadas = streams.filter((s) => lugares[s.trackId] === 'fechada')
   const voceAberto = mostrarVoce && !p.voceOculto
   const temBotoes = fechadas.length > 0 || (mostrarVoce && p.voceOculto)
+  const musica = abertas.find((s) => s.kind === 'musica')
   return (
-    <div role="group" aria-label="Transmissões na sala" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
-      {abertas.map((s) => s.kind === 'musica' ? (
-        <CartaoMusica key={s.trackId} onMover={p.onMover} />
-      ) : (
-        <Cartao
-          key={s.trackId}
-          room={room}
-          stream={s}
-          canvasDe={p.canvasDe}
-          volume={p.volumeDe(s.ownerId)}
-          onVolumePessoa={p.onVolumePessoa}
-          onMover={p.onMover}
-        />
-      ))}
-      {voceAberto && (
-        <SalaVoce
-          room={room}
-          meId={p.meId ?? ''}
-          camOn={p.camOn ?? false}
-          sharing={p.sharing ?? false}
-          tela={p.minhaTela ?? null}
-          cam={p.minhaCam ?? null}
-          lugares={lugares}
-          canvasDe={p.canvasDe}
-          onMover={p.onMover}
-          onToggleCam={p.onToggleCam}
-          onToggleShare={p.onToggleShare}
-          onOcultar={p.onVoceOculto ? () => p.onVoceOculto?.(true) : undefined}
-        />
-      )}
-      {temBotoes && (
-        // Miniaturas fechadas: um botão pequeno cada, na linha de baixo inteira.
-        <div role="group" aria-label="Miniaturas fechadas" style={{ gridColumn: '1 / -1', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {fechadas.map((s) => {
-            if (s.kind === 'musica') {
-              return (
-                <button key={s.trackId} type="button" className="zp-ghost" onClick={() => p.onMover(s.trackId, 'faixa')} aria-label="Ouvir a música da sala de novo" title="Ouvir a música da sala de novo (fechada: não toca para você)" style={BOTAO_FECHADA}>
-                  <IconeReabrir />
-                  <span>Música da sala</span>
+    <div role="group" aria-label="Transmissões na sala" style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+      {/* A música fica parada no começo, fora da rolagem: o player do YouTube flutua sobre a vaga
+          (CamadaMusica) e não pode ficar cortado pela borda da faixa. */}
+      {musica && <CartaoMusica onMover={p.onMover} />}
+      <div data-testid="faixa-rolagem" style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: 14, overflowX: 'auto', paddingBottom: 4 }}>
+        {abertas.filter((s) => s !== musica).map((s) => (
+          <Cartao
+            key={s.trackId}
+            room={room}
+            stream={s}
+            canvasDe={p.canvasDe}
+            volume={p.volumeDe(s.ownerId)}
+            onVolumePessoa={p.onVolumePessoa}
+            onMover={p.onMover}
+          />
+        ))}
+        {voceAberto && (
+          <SalaVoce
+            room={room}
+            meId={p.meId ?? ''}
+            camOn={p.camOn ?? false}
+            sharing={p.sharing ?? false}
+            tela={p.minhaTela ?? null}
+            cam={p.minhaCam ?? null}
+            lugares={lugares}
+            canvasDe={p.canvasDe}
+            onMover={p.onMover}
+            onToggleCam={p.onToggleCam}
+            onToggleShare={p.onToggleShare}
+            onOcultar={p.onVoceOculto ? () => p.onVoceOculto?.(true) : undefined}
+          />
+        )}
+        {temBotoes && (
+          // Miniaturas fechadas: um botão pequeno cada, no fim da linha.
+          <div role="group" aria-label="Miniaturas fechadas" style={{ flex: '0 0 auto', alignSelf: 'center', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span aria-hidden="true" style={{ fontFamily: MONO, fontSize: 10.5, letterSpacing: '0.08em', color: '#7E978B' }}>FECHADAS</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {fechadas.map((s) => {
+                if (s.kind === 'musica') {
+                  return (
+                    <button key={s.trackId} type="button" className="zp-ghost" onClick={() => p.onMover(s.trackId, 'faixa')} aria-label="Ouvir a música da sala de novo" title="Ouvir a música da sala de novo (fechada: não toca para você)" style={BOTAO_FECHADA}>
+                      <IconeReabrir />
+                      <span>Música da sala</span>
+                    </button>
+                  )
+                }
+                const nome = room.participants.find((x) => x.id === s.ownerId)?.name ?? 'Alguém'
+                const soSom = s.kind === 'audio'
+                const rotulo = soSom ? `Ouvir ${nome} de novo` : `Reabrir ${kindLabel(s.kind).toLowerCase()} de ${nome}`
+                return (
+                  <button key={s.trackId} type="button" className="zp-ghost" onClick={() => p.onMover(s.trackId, 'faixa')} aria-label={rotulo} title={`${rotulo} (fechada: sem receber)`} style={BOTAO_FECHADA}>
+                    <IconeReabrir />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{`${nome} · ${soSom ? 'só o som' : kindLabel(s.kind)}`}</span>
+                  </button>
+                )
+              })}
+              {mostrarVoce && p.voceOculto && (
+                <button type="button" className="zp-ghost" onClick={() => p.onVoceOculto?.(false)} aria-label="Mostrar meu cartão" title="Mostrar meu cartão" style={BOTAO_FECHADA}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
+                  Você
                 </button>
-              )
-            }
-            const nome = room.participants.find((x) => x.id === s.ownerId)?.name ?? 'Alguém'
-            const soSom = s.kind === 'audio'
-            const rotulo = soSom ? `Ouvir ${nome} de novo` : `Reabrir ${kindLabel(s.kind).toLowerCase()} de ${nome}`
-            return (
-              <button key={s.trackId} type="button" className="zp-ghost" onClick={() => p.onMover(s.trackId, 'faixa')} aria-label={rotulo} title={`${rotulo} (fechada: sem receber)`} style={BOTAO_FECHADA}>
-                <IconeReabrir />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{`${nome} · ${soSom ? 'só o som' : kindLabel(s.kind)}`}</span>
-              </button>
-            )
-          })}
-          {mostrarVoce && p.voceOculto && (
-            <button type="button" className="zp-ghost" onClick={() => p.onVoceOculto?.(false)} aria-label="Mostrar meu cartão" title="Mostrar meu cartão" style={BOTAO_FECHADA}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>
-              Você
-            </button>
-          )}
-        </div>
-      )}
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 // Tarefa ui-22
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { Snapshot } from '../../bridge/types'
 
 const estado = vi.hoisted(() => ({ snap: null as unknown as Snapshot }))
@@ -116,14 +116,68 @@ describe('SalaScreen', () => {
     expect(unwatch).not.toHaveBeenCalled()
   })
 
-  it('volume geral vai para o núcleo; sem transmitir não há cartão Você', () => {
+  it('o som é por transmissão: volume geral fica em 100% e não há controle dele; sem transmitir não há cartão Você', () => {
     estado.snap = mockSnapshot()
     const master = vi.spyOn(api, 'setMasterVolume').mockResolvedValue(undefined)
+    const vol = vi.spyOn(api, 'setVolume').mockResolvedValue(undefined)
     render(<SalaScreen onLeft={() => {}} />)
+    expect(master).toHaveBeenCalledTimes(1)
     expect(master).toHaveBeenLastCalledWith(1, false)
-    fireEvent.click(screen.getByRole('button', { name: 'Silenciar a sala toda' }))
-    expect(master).toHaveBeenLastCalledWith(1, true)
+    expect(screen.queryByRole('button', { name: 'Silenciar a sala toda' })).toBeNull()
+    // O som do Marcão fica na transmissão dele.
+    fireEvent.click(screen.getByRole('button', { name: 'Silenciar Marcão' }))
+    expect(vol).toHaveBeenCalledWith('p-marcao', expect.any(Number), true)
     expect(screen.queryByText('Você')).toBeNull()
+  })
+
+  it('a barra da sala fica no pé, fora da coluna que rola e fora do vídeo', () => {
+    estado.snap = mockSnapshot()
+    render(<SalaScreen onLeft={() => {}} />)
+    const barra = screen.getByRole('toolbar', { name: 'Controles da sala' })
+    expect(screen.getByTestId('sala-coluna').contains(barra)).toBe(false)
+    expect(screen.getByTestId('palco').contains(barra)).toBe(false)
+    expect(within(barra).getByRole('button', { name: 'Sair' })).toBeTruthy()
+    expect(within(barra).getByRole('button', { name: 'Tela cheia do app (F11)' })).toBeTruthy()
+  })
+
+  it('tela cheia de uma transmissão: a janela entra em tela cheia e sai ao fechar', async () => {
+    estado.snap = mockSnapshot()
+    const pedir = vi.fn().mockResolvedValue(undefined)
+    const sair = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(document.documentElement, 'requestFullscreen', { value: pedir, configurable: true })
+    Object.defineProperty(document, 'exitFullscreen', { value: sair, configurable: true })
+    let elemento: Element | null = null
+    Object.defineProperty(document, 'fullscreenElement', { get: () => elemento, configurable: true })
+    try {
+      render(<SalaScreen onLeft={() => {}} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Pôr tela de Marcão em tela cheia' }))
+      expect(pedir).toHaveBeenCalledTimes(1)
+      elemento = document.documentElement
+      const cheia = screen.getByRole('dialog', { name: 'Transmissão em tela cheia' })
+      expect(within(cheia).getByRole('img', { name: 'Tela de Marcão' })).toBeTruthy()
+      fireEvent.click(within(cheia).getByRole('button', { name: 'Sair da tela cheia' }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      await waitFor(() => expect(sair).toHaveBeenCalledTimes(1))
+    } finally {
+      delete (document.documentElement as { requestFullscreen?: unknown }).requestFullscreen
+      delete (document as { exitFullscreen?: unknown }).exitFullscreen
+      delete (document as { fullscreenElement?: unknown }).fullscreenElement
+    }
+  })
+
+  it('tela cheia: o Esc do navegador (fullscreenchange) também sai', () => {
+    estado.snap = mockSnapshot()
+    Object.defineProperty(document.documentElement, 'requestFullscreen', { value: vi.fn().mockResolvedValue(undefined), configurable: true })
+    try {
+      render(<SalaScreen onLeft={() => {}} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Pôr tela de Marcão em tela cheia' }))
+      expect(screen.getByRole('dialog', { name: 'Transmissão em tela cheia' })).toBeTruthy()
+      // jsdom: fullscreenElement é null, como depois do Esc do navegador.
+      act(() => { document.dispatchEvent(new Event('fullscreenchange')) })
+      expect(screen.queryByRole('dialog')).toBeNull()
+    } finally {
+      delete (document.documentElement as { requestFullscreen?: unknown }).requestFullscreen
+    }
   })
 
   it('só a minha transmissão: vai sozinha para a principal e dá para mandar para baixo', () => {

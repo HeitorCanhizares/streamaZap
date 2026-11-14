@@ -19,8 +19,7 @@ function montar(over: Partial<SalaControlesProps> = {}) {
   const fns = { onToggleCam: vi.fn(), onToggleShare: vi.fn() }
   render(
     <SalaControles
-      muted={false} volume={80} camOn={false} sharing={false} smoothingMs={200}
-      onFullscreen={vi.fn()} onToggleMute={vi.fn()} onVolume={vi.fn()} onLeave={vi.fn()}
+      camOn={false} sharing={false} onFullscreen={vi.fn()} onLeave={vi.fn()}
       {...fns} {...over}
     />,
   )
@@ -63,9 +62,9 @@ describe('tecla C na SalaPrincipal', () => {
     render(
       <SalaPrincipal
         room={room} celulas={[]} tiles={[]} canvasDe={() => document.createElement('canvas')} temOutras={false}
-        share={null} smoothingAuto volumeDe={() => ({ vol: 80, muted: false })} onVolumePessoa={vi.fn()}
-        onMover={vi.fn()} onSmoothingAuto={vi.fn()} onToggleCamera={onToggleCamera} onToggleShare={vi.fn()}
-        onLeave={vi.fn()} onFullscreen={vi.fn()}
+        share={null} volumeDe={() => ({ vol: 80, muted: false })} onVolumePessoa={vi.fn()}
+        onMover={vi.fn()} onToggleCamera={onToggleCamera} onToggleShare={vi.fn()}
+        onFullscreen={vi.fn()}
       />,
     )
     return onToggleCamera
