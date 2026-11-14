@@ -1,8 +1,8 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-14 (**v3.5.0 lançada**: tela da sala nova, com a barra da sala no pé, o som
-e a tela cheia em cada transmissão e a faixa de baixo na horizontal; ver "Tela da sala nova"
-abaixo). Antes, em 2026-11-13, a **v3.4.0** (pausar e mudar o tempo da música da sala, para
+Atualizado em 2026-11-14 (**v3.5.1 lançada**: a música na tela principal volta a ter volume. No
+mesmo dia, a **v3.5.0**: tela da sala nova, com a barra da sala no pé, o som e a tela cheia em
+cada transmissão e a faixa de baixo na horizontal; ver "Tela da sala nova" abaixo). Antes, em 2026-11-13, a **v3.4.0** (pausar e mudar o tempo da música da sala, para
 todos; o servidor de produção trata pausar e buscar desde o mesmo dia) e, em 2026-11-12, a
 **v3.3.1** (o portátil passa a abrir pelos links `streamazap://`) e a **v3.3.0**, com as fases 1, 2 e 3 do plano de contas, planos e
 câmera e o convite que entra na sala; o servidor com todo o plano em produção e o Supabase com as
@@ -42,7 +42,7 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
     janela) e a transmissão fica sozinha por cima de tudo. O botão e o F11 da tela cheia do app
     também passaram a usar a janela do Tauri. Testado no app em dev com uma sala local e, pelo
     dono, numa sala Online com a v3.5.0.
-- **Depois da v3.5.0, no `master` sem lançar:** a música na tela principal tinha só o botão de mudo
+- **v3.5.1 (commit `9757e77`):** na v3.5.0, a música na tela principal tinha só o botão de mudo
   (antes, o volume dela vinha do volume geral da sala, que saiu). A barra dela ganhou a mesma linha
   de volume do cartão da faixa (`LinhaVolume` em `musica/BlocoMusica.tsx`).
 
