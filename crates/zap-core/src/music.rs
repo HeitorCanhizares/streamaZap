@@ -76,18 +76,27 @@ impl MusicMirror {
         }
     }
 
-    /// Visão para a interface: a posição andada até `agora`, com o relógio de parede do mesmo
-    /// instante (`at_ms`) para a interface continuar contando.
+    /// Visão para a interface: a posição andada até `agora` (pausada, parada), com o relógio de
+    /// parede do mesmo instante (`at_ms`) para a interface continuar contando.
     pub fn view(&self, agora: Instant) -> MusicView {
         let andou = agora.saturating_duration_since(self.received).as_millis() as i64;
         MusicView {
             queue: self.queue.iter().map(item_view).collect(),
-            current: self.current.as_ref().map(|n| MusicNowView {
-                item: item_view(&n.item),
-                position_ms: n.position_ms.saturating_add(andou),
-                at_ms: now_ms(),
-                votes: n.votes.clone(),
-                needed: n.needed,
+            current: self.current.as_ref().map(|n| {
+                let pausada = n.paused == Some(true);
+                MusicNowView {
+                    item: item_view(&n.item),
+                    position_ms: if pausada {
+                        n.position_ms
+                    } else {
+                        n.position_ms.saturating_add(andou)
+                    },
+                    at_ms: now_ms(),
+                    votes: n.votes.clone(),
+                    needed: n.needed,
+                    paused: pausada,
+                    controls: n.paused.is_some(),
+                }
             }),
         }
     }
@@ -182,6 +191,7 @@ mod tests {
         assert_eq!(atual.item.title, "Música");
         assert_eq!(atual.item.channel.as_deref(), Some("Canal"));
         assert!(atual.at_ms > 0);
+        assert!(!atual.paused && atual.controls, "fonte nova: dá para pausar e buscar");
         // Outra mensagem vira estado vazio.
         let vazio = MusicMirror::from_msg(&ControlMsg::Ping { ts_ms: 1 }, t0).view(t0);
         assert!(vazio.queue.is_empty() && vazio.current.is_none());
@@ -195,5 +205,25 @@ mod tests {
         }
         let filtrado = MusicMirror::from_msg(&ruim, t0).view(t0);
         assert!(filtrado.queue.is_empty() && filtrado.current.is_none());
+    }
+
+    #[test]
+    fn espelho_pausado_nao_anda_e_fonte_antiga_nao_tem_controles() {
+        let t0 = Instant::now();
+        let mut q = MusicQueue::default();
+        q.add(novo(A), t0).unwrap();
+        q.pause("mu_1", true, t0 + Duration::from_secs(10));
+        let msg = q.msg(2, t0 + Duration::from_secs(20));
+        let espelho = MusicMirror::from_msg(&msg, t0 + Duration::from_secs(20));
+        let atual = espelho.view(t0 + Duration::from_secs(50)).current.expect("tocando");
+        assert_eq!(atual.position_ms, 8_000, "parada onde pausou");
+        assert!(atual.paused && atual.controls);
+        // Fonte antiga: sem `pausada` no estado.
+        let mut antigo = msg;
+        if let ControlMsg::MusicState { current, .. } = &mut antigo {
+            current.as_mut().unwrap().paused = None;
+        }
+        let atual = MusicMirror::from_msg(&antigo, t0).view(t0).current.expect("tocando");
+        assert!(!atual.paused && !atual.controls);
     }
 }

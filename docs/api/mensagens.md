@@ -233,11 +233,28 @@ type ItemMusica = {
 | `musica.remover` | C→S | `item_id` | Só quem pôs o item ou o dono da sala; o item atual = pular direto |
 | `musica.pular` | C→S | `item_id`, `voto: bool` | Voto no item atual (`false` desfaz). Pula com `max(1, ⌈presentes/2⌉)` votos |
 | `musica.info` | C→S | `item_id`, `duracao_ms?`, `ao_vivo?`, `titulo?`, `terminou?`, `erro?` | O que o player descobriu. A maior duração vence; `titulo` só substitui o título padrão |
-| `musica.estado` | S→C | `fila: ItemMusica[]`, `atual?: { item, posicao_ms, votos: string[], precisa }` | Para todos a cada mudança, para quem entra (depois do histórico do chat) e de novo a cada 10 s com música tocando |
+| `musica.pausar` | C→S | `item_id`, `pausada: bool` | Pausa (`true`) ou retoma (`false`) o item atual para todos. Qualquer um da sala |
+| `musica.buscar` | C→S | `item_id`, `posicao_ms` (≥ 0) | Leva o item atual para essa posição, para todos. Qualquer um da sala. Live: `erro` |
+| `musica.estado` | S→C | `fila: ItemMusica[]`, `atual?: { item, posicao_ms, votos: string[], precisa, pausada? }` | Para todos a cada mudança, para quem entra (depois do histórico do chat) e de novo a cada 10 s com música tocando (ou pausada) |
 
 Regras:
 - `posicao_ms` vale no instante do envio (negativa = o item começa daqui a pouco; o item novo começa
-  2 s no futuro para os players carregarem juntos). Quem recebe soma o tempo desde que recebeu.
+  2 s no futuro para os players carregarem juntos). Quem recebe soma o tempo desde que recebeu,
+  menos com `pausada: true`: aí a posição fica parada onde está.
+- **Pausar e buscar** (`musica.pausar`, `musica.buscar`): valem para qualquer um da sala e só para o
+  item atual; `item_id` de outro item (a fila andou no meio do caminho) é ignorado, sem erro.
+  Pausada, a posição da sala não anda, o fim do vídeo não avança a fila e todos os players ficam
+  parados nela; retomar continua da mesma posição. Buscar com o item pausado muda a posição e
+  continua pausado. `posicao_ms` além da duração conhecida vira a duração (a fila avança 2 s
+  depois). Buscar numa live é recusado (`erro` `musica_invalida`); pausar uma live vale. O item
+  seguinte sempre começa tocando, e votar, pular ou tirar continuam iguais com o item pausado.
+- `pausada` em `musica.estado.atual`: quem é a fonte e já tem pausa e busca manda sempre (`true` ou
+  `false`). **Ausente** = fonte antiga (app do dono ou servidor sem pausa e busca): a interface
+  esconde os controles de pausar e de tempo e não manda `musica.pausar` nem `musica.buscar`. O
+  `PROTOCOL_VERSION` não muda: são mensagens e um campo opcional novos.
+- Compatibilidade: o dono com app antigo ignora `musica.pausar` e `musica.buscar` (mensagem
+  desconhecida é pulada); quem assiste com app antigo ignora o `pausada` e continua tocando (o
+  estado reenviado a cada 10 s o puxa de volta para a posição parada).
 - Fim: quem é a fonte avança quando a posição passa da duração (+2 s). `terminou` avança se a
   posição estiver a 5 s do fim (sem duração: depois de 10 s tocando); em live, sempre. `erro`
   pula o item atual na hora.

@@ -195,6 +195,16 @@ export const api = {
     if (!isTauri()) return
     await call('music_vote', { itemId, vote })
   },
+  /** Pausa (`true`) ou retoma (`false`) a música atual para todos da sala. */
+  musicPause: async (itemId: string, paused: boolean): Promise<void> => {
+    if (!isTauri()) return
+    await call('music_pause', { itemId, paused })
+  },
+  /** Leva a música atual para `positionMs`, para todos da sala. */
+  musicSeek: async (itemId: string, positionMs: number): Promise<void> => {
+    if (!isTauri()) return
+    await call('music_seek', { itemId, positionMs: Math.max(0, Math.round(positionMs)) })
+  },
   musicReport: async (report: MusicReport): Promise<void> => {
     if (!isTauri()) return
     await call('music_report', { report })

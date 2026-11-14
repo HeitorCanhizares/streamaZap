@@ -34,6 +34,13 @@ describe('PainelMusica', () => {
     expect(screen.getByText('PRÓXIMAS · 2')).toBeTruthy()
   })
 
+  it('a música pausada aparece como pausada', () => {
+    const m = mockMusic()
+    if (!m.current) throw new Error('mock sem música')
+    render(<PainelMusica room={sala({ music: { ...m, current: { ...m.current, paused: true } } })} meId="p-dudu" />)
+    expect(screen.getByText(/^pausada · jawed · pôs: Ju$/)).toBeTruthy()
+  })
+
   it('votar chama musicVote e quem já votou desfaz', () => {
     const vote = vi.spyOn(api, 'musicVote').mockResolvedValue(undefined)
     const { rerender } = render(<PainelMusica room={sala()} meId="p-dudu" />)

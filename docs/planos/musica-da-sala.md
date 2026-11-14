@@ -28,7 +28,8 @@ continua junto.
   música: a aba avisa que ele precisa ser atualizado.
 - Fila de vídeos únicos (link de vídeo, live, shorts, `music.youtube.com`). Importar playlist fica
   para depois.
-- Sem pausa da sala: cada um tem volume e mudo próprios no player.
+- Cada um tem volume e mudo próprios no player. **Pausar e mudar o tempo** valem para a sala toda
+  (`musica.pausar`, `musica.buscar`, desde 2026-11-12; qualquer um da sala; ver `docs/api/mensagens.md`).
 
 ## Regras
 
@@ -62,7 +63,9 @@ type ItemMusica = {
 | `musica.remover` | C→S | `item_id` (item da fila; o atual = pular direto) |
 | `musica.pular` | C→S | `item_id` (o atual), `voto: bool` |
 | `musica.info` | C→S | `item_id`, `duracao_ms?`, `ao_vivo?`, `titulo?`, `terminou?`, `erro?` |
-| `musica.estado` | S→C | `fila: ItemMusica[]`, `atual?: { item, posicao_ms, votos: string[], precisa }` |
+| `musica.pausar` | C→S | `item_id` (o atual), `pausada: bool` |
+| `musica.buscar` | C→S | `item_id` (o atual), `posicao_ms` |
+| `musica.estado` | S→C | `fila: ItemMusica[]`, `atual?: { item, posicao_ms, votos: string[], precisa, pausada? }` |
 
 `musica.estado` vai a todos a cada mudança e para quem entra (depois do histórico do chat).
 `posicao_ms` vale no instante do envio; quem recebe soma o tempo desde que recebeu. Apps antigos

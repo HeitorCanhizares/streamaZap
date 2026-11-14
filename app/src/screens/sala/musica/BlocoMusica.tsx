@@ -11,6 +11,7 @@ import type { MusicNowView, MusicReport } from '../../../bridge/types'
 import type { Lugar, VolumePessoa } from '../salaModel'
 import { MUSICA } from '../salaModel'
 import { PlayerYoutube } from './PlayerYoutube'
+import { duracaoTexto, posicaoDaSala } from './youtube'
 
 /** O que a célula, o cartão e a camada da música precisam (vem da SalaScreen). */
 export interface MusicaCtx {
@@ -22,6 +23,10 @@ export interface MusicaCtx {
   volumeGeral: number
   mudoGeral: boolean
   onReport: (r: MusicReport) => void
+  /** Pausa (`true`) ou retoma a música atual para todos da sala. */
+  onPausar: (pausada: boolean) => void
+  /** Leva a música atual para essa posição (ms), para todos da sala. */
+  onBuscar: (posicaoMs: number) => void
   travado: boolean
   onTravado: (v: boolean) => void
   /** A célula ou o cartão avisa onde está a vaga do player (ref de callback). */
@@ -48,39 +53,142 @@ const MUDO = 'M4 9v6h4l5 4V5L8 9z m13 0 5 6M22 9l-5 6'
 const CIMA = 'M12 15V5M8 9l4-4 4 4M4 19h16'
 const BAIXO = 'M12 4v10M8 10l4 4 4-4M4 18h16'
 const X = 'M6 6l12 12M18 6 6 18'
+const PAUSA = 'M9 5v14M15 5v14'
+const TOCAR = 'M8 5v14l11-7z'
+/** Quanto os botões de voltar e avançar mudam o tempo. */
+export const PASSO_MS = 10_000
 
-/** Barra da música: título, AO VIVO, aviso de anúncio e os botões. */
+/** Relógio da barra: anda a cada 500 ms com a música tocando e fica parado com ela pausada. */
+function useAgora(atual: MusicNowView): number {
+  const [agora, setAgora] = useState(() => Date.now())
+  useEffect(() => {
+    setAgora(Date.now())
+    if (atual.paused) return
+    const id = window.setInterval(() => setAgora(Date.now()), 500)
+    return () => window.clearInterval(id)
+  }, [atual.paused, atual.position_ms, atual.at_ms])
+  return agora
+}
+
+interface ControlesProps {
+  ctx: MusicaCtx
+  /** Duração conhecida (nunca em live). */
+  duracao: number | undefined
+  /** Posição da sala agora e a mostrada (a da barra enquanto a pessoa arrasta), em ms. */
+  pos: number
+  mostrada: number
+  onBuscar: (ms: number) => void
+  onArrastar: (ms: number) => void
+  onSoltar: () => void
+}
+
+/** Pausar para todos, voltar e avançar 10 s e a barra de tempo. Só com a fonte da sala aceitando
+ *  (`controls`); em live, só pausar. A barra manda a busca quando a pessoa solta. */
+function ControlesTempo({ ctx, duracao, pos, mostrada, onBuscar, onArrastar, onSoltar }: ControlesProps): ReactNode {
+  const { atual, onPausar } = ctx
+  if (!atual.controls) return null
+  const pausaLabel = atual.paused ? 'Continuar a música para todos' : 'Pausar a música para todos'
+  return (
+    <div role="group" aria-label="Tempo da música" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+      <button type="button" className="zp-x" onClick={() => onPausar(!atual.paused)} aria-label={pausaLabel} title={pausaLabel}
+        style={{ ...BTN, color: atual.paused ? '#3BF08A' : '#E6F4EC' }}>
+        <Icone d={atual.paused ? TOCAR : PAUSA} />
+      </button>
+      {atual.item.live ? (
+        <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: '#8BA498', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {atual.paused ? 'Pausada para todos' : 'Ao vivo: sem mudar o tempo'}
+        </span>
+      ) : (
+        <>
+          <button type="button" className="zp-x" onClick={() => onBuscar(pos - PASSO_MS)} aria-label="Voltar 10 segundos para todos" title="Voltar 10 s (para todos)"
+            style={{ ...BTN, fontFamily: MONO, fontSize: 11 }}>
+            −10
+          </button>
+          {duracao !== undefined ? (
+            <input
+              className="zp-range"
+              type="range"
+              min={0}
+              max={duracao}
+              step={1000}
+              value={mostrada}
+              aria-label="Tempo da música"
+              aria-valuetext={`${duracaoTexto(mostrada, false)} de ${duracaoTexto(duracao, false)}`}
+              style={{ flex: 1, minWidth: 0 }}
+              onChange={(e) => onArrastar(Number(e.target.value))}
+              onPointerUp={onSoltar}
+              onKeyUp={onSoltar}
+              onBlur={onSoltar}
+            />
+          ) : (
+            <span style={{ flex: 1 }} />
+          )}
+          <button type="button" className="zp-x" onClick={() => onBuscar(pos + PASSO_MS)} aria-label="Avançar 10 segundos para todos" title="Avançar 10 s (para todos)"
+            style={{ ...BTN, fontFamily: MONO, fontSize: 11 }}>
+            +10
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Barra da música: título, AO VIVO, tempo, aviso de anúncio, os botões e os controles de tempo. */
 function Barra({ ctx, lugar, onMover }: { ctx: MusicaCtx; lugar: 'principal' | 'faixa'; onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
-  const { item } = ctx.atual
+  const { atual } = ctx
+  const { item } = atual
   const mudo = ctx.volume.muted
   const somLabel = mudo ? 'Ativar o som da música' : 'Silenciar a música'
+  const agora = useAgora(atual)
+  const [arrasto, setArrasto] = useState<number | null>(null)
+  const duracao = item.live ? undefined : item.duration_ms
+  const limita = (ms: number): number => Math.max(0, Math.round(duracao !== undefined ? Math.min(ms, duracao) : ms))
+  const pos = limita(posicaoDaSala(atual, agora))
+  const mostrada = arrasto ?? pos
+  const buscar = (ms: number) => ctx.onBuscar(limita(ms))
+  const soltar = () => {
+    if (arrasto === null) return
+    buscar(arrasto)
+    setArrasto(null)
+  }
+  const tempo = item.live ? '' : duracao !== undefined ? `${duracaoTexto(mostrada, false)} / ${duracaoTexto(duracao, false)}` : duracaoTexto(mostrada, false)
   return (
-    <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', minWidth: 0, background: '#0F1916' }}>
-      <span aria-hidden="true" style={{ flex: '0 0 auto', fontSize: 15 }}>♪</span>
-      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {item.live && <b style={{ color: '#FF5D6E', fontFamily: MONO, fontSize: 10.5, marginRight: 6 }}>AO VIVO</b>}
-          {item.title}
+    <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', gap: 6, padding: '6px 8px', minWidth: 0, background: '#0F1916' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <span aria-hidden="true" style={{ flex: '0 0 auto', fontSize: 15 }}>♪</span>
+        <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {item.live && <b style={{ color: '#FF5D6E', fontFamily: MONO, fontSize: 10.5, marginRight: 6 }}>AO VIVO</b>}
+            {item.title}
+          </span>
+          <span role={ctx.travado ? 'status' : undefined} style={{ fontSize: 11.5, color: ctx.travado ? '#FFB547' : '#8BA498', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {ctx.travado ? (
+              'Anúncio ou carregando · você volta junto da sala'
+            ) : (
+              <>
+                {tempo && <span data-testid="tempo-musica" style={{ fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{tempo}</span>}
+                {`${tempo ? ' · ' : ''}${atual.paused ? 'pausada · ' : ''}pôs: ${item.added_by_name}`}
+              </>
+            )}
+          </span>
         </span>
-        <span role={ctx.travado ? 'status' : undefined} style={{ fontSize: 11.5, color: ctx.travado ? '#FFB547' : '#8BA498', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {ctx.travado ? 'Anúncio ou carregando · você volta junto da sala' : `pôs: ${item.added_by_name}`}
-        </span>
-      </span>
-      <button type="button" className="zp-x" onClick={() => ctx.onVolume({ ...ctx.volume, muted: !mudo })} aria-label={somLabel} title={somLabel} style={{ ...BTN, color: mudo ? '#FF8592' : '#E6F4EC' }}>
-        <Icone d={mudo ? MUDO : SOM} />
-      </button>
-      {lugar === 'principal' ? (
-        <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'faixa')} aria-label="Mandar a música para baixo" title="Mandar para a faixa de baixo" style={BTN}>
-          <Icone d={BAIXO} />
+        <button type="button" className="zp-x" onClick={() => ctx.onVolume({ ...ctx.volume, muted: !mudo })} aria-label={somLabel} title={somLabel} style={{ ...BTN, color: mudo ? '#FF8592' : '#E6F4EC' }}>
+          <Icone d={mudo ? MUDO : SOM} />
         </button>
-      ) : (
-        <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'principal')} aria-label="Pôr a música na tela principal" title="Pôr na tela principal" style={BTN}>
-          <Icone d={CIMA} />
+        {lugar === 'principal' ? (
+          <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'faixa')} aria-label="Mandar a música para baixo" title="Mandar para a faixa de baixo" style={BTN}>
+            <Icone d={BAIXO} />
+          </button>
+        ) : (
+          <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'principal')} aria-label="Pôr a música na tela principal" title="Pôr na tela principal" style={BTN}>
+            <Icone d={CIMA} />
+          </button>
+        )}
+        <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'fechada')} aria-label="Fechar a música (parar de tocar para mim)" title="Fechar a música: para de tocar só para você" style={BTN}>
+          <Icone d={X} />
         </button>
-      )}
-      <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'fechada')} aria-label="Fechar a música (parar de tocar para mim)" title="Fechar a música: para de tocar só para você" style={BTN}>
-        <Icone d={X} />
-      </button>
+      </div>
+      <ControlesTempo ctx={ctx} duracao={duracao} pos={pos} mostrada={mostrada} onBuscar={buscar} onArrastar={setArrasto} onSoltar={soltar} />
     </div>
   )
 }

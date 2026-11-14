@@ -68,6 +68,16 @@ impl Core {
         self.music_send(ControlMsg::MusicSkip { item_id, vote }).await
     }
 
+    /// Pausa (`true`) ou retoma (`false`) o item atual para todos da sala.
+    pub async fn music_pause(&self, item_id: String, paused: bool) -> Result<(), CoreError> {
+        self.music_send(ControlMsg::MusicPause { item_id, paused }).await
+    }
+
+    /// Leva o item atual para `position_ms`, para todos da sala (live não).
+    pub async fn music_seek(&self, item_id: String, position_ms: u64) -> Result<(), CoreError> {
+        self.music_send(ControlMsg::MusicSeek { item_id, position_ms }).await
+    }
+
     /// O que o player descobriu (duração, live, título, fim, erro).
     pub async fn music_report(&self, r: MusicReport) -> Result<(), CoreError> {
         self.music_send(ControlMsg::MusicInfo {
@@ -211,6 +221,23 @@ mod tests {
         );
         let atual = musica(&bia).and_then(|m| m.current).expect("Bia também vê");
         assert_eq!(atual.needed, 1, "2 pessoas: 1 voto");
+        assert!(atual.controls && !atual.paused, "o servidor de teste pausa e busca");
+
+        // Ana (não pôs a música) pausa e leva para 42 s: vale para as duas, parado.
+        ana.music_pause(atual.item.id.clone(), true).await.unwrap();
+        ana.music_seek(atual.item.id.clone(), 42_000).await.unwrap();
+        assert!(
+            ate(5, || musica(&bia)
+                .and_then(|m| m.current)
+                .is_some_and(|c| c.paused && c.position_ms == 42_000))
+            .await,
+            "Bia vê a música pausada em 42 s"
+        );
+        ana.music_pause(atual.item.id.clone(), false).await.unwrap();
+        assert!(
+            ate(5, || musica(&bia).and_then(|m| m.current).is_some_and(|c| !c.paused)).await,
+            "e tocando de novo"
+        );
 
         // O voto de Ana pula (e a fila acaba para as duas).
         ana.music_vote(atual.item.id.clone(), true).await.unwrap();

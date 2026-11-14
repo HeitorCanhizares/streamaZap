@@ -233,6 +233,8 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
         volumeGeral: volume,
         mudoGeral: muted,
         onReport: (r) => void Promise.resolve(api.musicReport(r)).catch(() => {}),
+        onPausar: (p) => void Promise.resolve(api.musicPause(atualMusica.item.id, p)).catch(() => {}),
+        onBuscar: (ms) => void Promise.resolve(api.musicSeek(atualMusica.item.id, ms)).catch(() => {}),
         // Sem player tocando não há anúncio a avisar.
         travado: musicaTravada && musicaAberta,
         onTravado: setMusicaTravada,

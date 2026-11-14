@@ -84,7 +84,8 @@ impl Hub {
     ///   `ref = cliente_id`); guarda (limite 200) e manda `chat.mensagem` a todos da sala via WS,
     ///   com `cliente_id` só no remetente; atualiza `ultima_mensagem` e dispara `salas.lista`;
     /// - `chat.digitando`: repassa `chat.digitando {participante_id}` aos outros;
-    /// - `musica.*`: fila de música da sala (`crate::music::tratar`): mudou → `musica.estado` a todos;
+    /// - `musica.*`: fila de música da sala (`crate::music::tratar`): mudou → `musica.estado` a todos
+    ///   (pausar e buscar: qualquer um da sala);
     /// - `estatisticas`: ignorada (a latência do participante vem do `pong` do QUIC no servidor de
     ///   produção; o de teste não a acompanha);
     /// - `p2p.*`, `conexao.reversa`, `midia.direta_*`: ignoradas (rota direta fora do escopo);
@@ -108,7 +109,9 @@ impl Hub {
             msg @ (ControlMsg::MusicAdd { .. }
             | ControlMsg::MusicRemove { .. }
             | ControlMsg::MusicSkip { .. }
-            | ControlMsg::MusicInfo { .. }) => crate::music::tratar(&mut inner, who, msg),
+            | ControlMsg::MusicInfo { .. }
+            | ControlMsg::MusicPause { .. }
+            | ControlMsg::MusicSeek { .. }) => crate::music::tratar(&mut inner, who, msg),
             ControlMsg::ChatTyping { .. } => {
                 if let Some(sala) = inner.participants.get(who).and_then(|p| p.ws_room.clone()) {
                     inner.broadcast_room(
@@ -586,6 +589,86 @@ mod tests {
         );
         let (fila, atual) = estado_musica(&drenar(&mut rb)).expect("estado depois do voto");
         assert!(fila.is_empty() && atual.is_none());
+    }
+
+    #[test]
+    fn musica_pausar_e_buscar_por_qualquer_um() {
+        let (hub, _sala, ana, bia, mut ra, mut rb) = sala_com_dois();
+        // A dona põe; Bia (não pôs e não é dona) pausa e busca para as duas.
+        hub.handle_ws_message(
+            &ana,
+            ControlMsg::MusicAdd {
+                video_id: "aaaaaaaaaaa".into(),
+                title: None,
+                channel: None,
+            },
+        );
+        let (_, atual) = estado_musica(&drenar(&mut ra)).expect("Ana recebeu");
+        let atual = atual.expect("tocando");
+        assert_eq!(atual.paused, Some(false));
+        drenar(&mut rb);
+        let id = atual.item.id.clone();
+
+        hub.handle_ws_message(
+            &bia,
+            ControlMsg::MusicPause {
+                item_id: id.clone(),
+                paused: true,
+            },
+        );
+        let (_, a) = estado_musica(&drenar(&mut ra)).expect("Ana vê a pausa");
+        assert_eq!(a.expect("tocando").paused, Some(true));
+        drenar(&mut rb);
+
+        hub.handle_ws_message(
+            &bia,
+            ControlMsg::MusicSeek {
+                item_id: id.clone(),
+                position_ms: 42_000,
+            },
+        );
+        let (_, a) = estado_musica(&drenar(&mut ra)).expect("Ana vê a busca");
+        let a = a.expect("tocando");
+        assert_eq!(
+            (a.position_ms, a.paused),
+            (42_000, Some(true)),
+            "pausada: a posição não anda"
+        );
+        drenar(&mut rb);
+
+        // Item velho: ignorado, sem erro e sem estado.
+        hub.handle_ws_message(
+            &bia,
+            ControlMsg::MusicPause {
+                item_id: "mu_velho".into(),
+                paused: false,
+            },
+        );
+        assert!(drenar(&mut rb).is_empty() && drenar(&mut ra).is_empty());
+
+        // Live: buscar é recusado só para quem pediu.
+        hub.handle_ws_message(
+            &ana,
+            ControlMsg::MusicInfo {
+                item_id: id.clone(),
+                duration_ms: None,
+                live: Some(true),
+                title: None,
+                ended: false,
+                failed: false,
+            },
+        );
+        drenar(&mut ra);
+        drenar(&mut rb);
+        hub.handle_ws_message(
+            &bia,
+            ControlMsg::MusicSeek {
+                item_id: id,
+                position_ms: 1_000,
+            },
+        );
+        assert_eq!(codigos(&drenar(&mut rb)), vec!["musica_invalida".to_string()]);
+        assert!(drenar(&mut ra).is_empty());
     }
 
     #[test]

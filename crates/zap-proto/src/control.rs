@@ -460,6 +460,20 @@ pub enum ControlMsg {
         #[serde(rename = "erro", default, skip_serializing_if = "std::ops::Not::not")]
         failed: bool,
     },
+    /// Pausa (`pausada: true`) ou retoma o item atual, para todos (qualquer um da sala).
+    #[serde(rename = "musica.pausar")]
+    MusicPause {
+        item_id: String,
+        #[serde(rename = "pausada")]
+        paused: bool,
+    },
+    /// Leva o item atual para `posicao_ms`, para todos (qualquer um da sala; live não).
+    #[serde(rename = "musica.buscar")]
+    MusicSeek {
+        item_id: String,
+        #[serde(rename = "posicao_ms")]
+        position_ms: u64,
+    },
     /// Estado completo da música, para todos a cada mudança e para quem entra.
     #[serde(rename = "musica.estado")]
     MusicState {
@@ -520,6 +534,10 @@ pub struct MusicNow {
     /// Votos que fazem pular (metade da sala, arredondando para cima).
     #[serde(rename = "precisa")]
     pub needed: u32,
+    /// Pausado para todos: a posição fica parada. A fonte com pausa e busca manda sempre;
+    /// `None` = fonte antiga, sem `musica.pausar` nem `musica.buscar`.
+    #[serde(rename = "pausada", default, skip_serializing_if = "Option::is_none")]
+    pub paused: Option<bool>,
 }
 
 #[cfg(test)]

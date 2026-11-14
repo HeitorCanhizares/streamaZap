@@ -128,6 +128,91 @@ describe('música na SalaScreen', () => {
   })
 })
 
+describe('pausar e mudar o tempo (para todos)', () => {
+  /** Relógio parado em `T0`: a música do mock está em 5 s, com 19 s de duração. */
+  const T0 = 1_700_000_000_000
+
+  function comMusica(atual: Partial<NonNullable<ReturnType<typeof mockMusic>['current']>> = {}): Snapshot {
+    const m = mockMusic(T0)
+    if (!m.current) throw new Error('mock sem música')
+    return snapCom({ tracks: [], music: { ...m, current: { ...m.current, ...atual } } })
+  }
+
+  it('pausar e os botões de 10 s mandam para a sala o item atual', () => {
+    vi.useFakeTimers({ now: T0 })
+    estado.snap = comMusica()
+    const pausar = vi.spyOn(api, 'musicPause').mockResolvedValue(undefined)
+    const buscar = vi.spyOn(api, 'musicSeek').mockResolvedValue(undefined)
+    render(<SalaScreen onLeft={() => {}} />)
+    expect(screen.getByTestId('tempo-musica').textContent).toBe('0:05 / 0:19')
+    fireEvent.click(screen.getByRole('button', { name: 'Pausar a música para todos' }))
+    expect(pausar).toHaveBeenLastCalledWith('mu_1', true)
+    fireEvent.click(screen.getByRole('button', { name: 'Avançar 10 segundos para todos' }))
+    expect(buscar).toHaveBeenLastCalledWith('mu_1', 15_000)
+    // Voltar não passa do começo; avançar não passa do fim.
+    fireEvent.click(screen.getByRole('button', { name: 'Voltar 10 segundos para todos' }))
+    expect(buscar).toHaveBeenLastCalledWith('mu_1', 0)
+    act(() => vi.advanceTimersByTime(10_000))
+    expect(screen.getByTestId('tempo-musica').textContent).toBe('0:15 / 0:19')
+    fireEvent.click(screen.getByRole('button', { name: 'Avançar 10 segundos para todos' }))
+    expect(buscar).toHaveBeenLastCalledWith('mu_1', 19_000)
+  })
+
+  it('a barra de tempo busca quando a pessoa solta', () => {
+    vi.useFakeTimers({ now: T0 })
+    estado.snap = comMusica()
+    const buscar = vi.spyOn(api, 'musicSeek').mockResolvedValue(undefined)
+    render(<SalaScreen onLeft={() => {}} />)
+    const barra = screen.getByRole('slider', { name: 'Tempo da música' })
+    fireEvent.change(barra, { target: { value: '12000' } })
+    expect(buscar).not.toHaveBeenCalled()
+    expect(screen.getByTestId('tempo-musica').textContent).toBe('0:12 / 0:19')
+    fireEvent.pointerUp(barra)
+    expect(buscar).toHaveBeenCalledTimes(1)
+    expect(buscar).toHaveBeenLastCalledWith('mu_1', 12_000)
+    // Teclado: cada tecla solta busca.
+    fireEvent.change(barra, { target: { value: '8000' } })
+    fireEvent.keyUp(barra, { key: 'ArrowLeft' })
+    expect(buscar).toHaveBeenLastCalledWith('mu_1', 8_000)
+  })
+
+  it('pausada: o tempo para, o botão continua e o player para na hora', () => {
+    vi.useFakeTimers({ now: T0 })
+    estado.snap = comMusica()
+    const { rerender } = render(<SalaScreen onLeft={() => {}} />)
+    const f = iframe() as HTMLIFrameElement
+    manda(f, { event: 'infoDelivery', info: { playerState: 1, currentTime: 5 } })
+    const enviar = vi.spyOn(f.contentWindow as Window, 'postMessage')
+    estado.snap = comMusica({ paused: true })
+    rerender(<SalaScreen onLeft={() => {}} />)
+    const comandos = enviar.mock.calls.map((c) => JSON.parse(String(c[0])) as { func?: string }).map((c) => c.func)
+    expect(comandos).toContain('pauseVideo')
+    act(() => vi.advanceTimersByTime(10_000))
+    expect(screen.getByTestId('tempo-musica').textContent).toBe('0:05 / 0:19')
+    expect(screen.getByRole('button', { name: 'Continuar a música para todos' })).toBeTruthy()
+    expect(screen.getByText(/pausada · pôs: Ju/)).toBeTruthy()
+  })
+
+  it('quem entra numa sala pausada carrega o player sem tocar', () => {
+    estado.snap = comMusica({ paused: true })
+    render(<SalaScreen onLeft={() => {}} />)
+    expect(new URL(iframe()?.getAttribute('src') ?? '').searchParams.get('autoplay')).toBe('0')
+  })
+
+  it('live: só pausar; fonte antiga: sem controles de tempo', () => {
+    const live = mockMusic(T0).queue[0]
+    estado.snap = comMusica({ item: live })
+    const { rerender } = render(<SalaScreen onLeft={() => {}} />)
+    expect(screen.getByRole('button', { name: 'Pausar a música para todos' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Avançar 10 segundos para todos' })).toBeNull()
+    expect(screen.queryByRole('slider', { name: 'Tempo da música' })).toBeNull()
+    estado.snap = comMusica({ controls: false })
+    rerender(<SalaScreen onLeft={() => {}} />)
+    expect(screen.queryByRole('group', { name: 'Tempo da música' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pausar a música para todos' })).toBeNull()
+  })
+})
+
 describe('PlayerYoutube: aviso de anúncio', () => {
   it('liga com o tempo parado, desliga quando volta a andar e ao sair do ar', () => {
     vi.useFakeTimers()

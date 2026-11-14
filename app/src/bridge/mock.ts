@@ -13,6 +13,8 @@ export function mockMusic(agoraMs = Date.now()): MusicView {
       at_ms: agoraMs,
       votes: ['p-rafa'],
       needed: 2,
+      paused: false,
+      controls: true,
     },
     queue: [
       { id: 'mu_2', video_id: 'jfKfPfyJRdk', title: 'lofi hip hop radio', channel: 'Lofi Girl', live: true, added_by: 'p-marcao', added_by_name: 'Marcão' },

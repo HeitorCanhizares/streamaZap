@@ -11,6 +11,10 @@ describe('srcDoPlayer', () => {
     expect(u.searchParams.get('start')).toBe('65')
   })
 
+  it('com a sala pausada, carrega sem tocar', () => {
+    expect(new URL(srcDoPlayer('dQw4w9WgXcQ', 65_400, 'x', false)).searchParams.get('autoplay')).toBe('0')
+  })
+
   it('live e posição negativa não levam start', () => {
     expect(new URL(srcDoPlayer('dQw4w9WgXcQ', null, 'x')).searchParams.has('start')).toBe(false)
     expect(new URL(srcDoPlayer('dQw4w9WgXcQ', -1500, 'x')).searchParams.has('start')).toBe(false)
@@ -23,6 +27,10 @@ describe('posicaoDaSala', () => {
     expect(posicaoDaSala({ position_ms: -2_000, at_ms: 1_000_000 }, 1_000_500)).toBe(-1_500)
     // Relógio "voltou" (snapshot do futuro): não anda para trás.
     expect(posicaoDaSala({ position_ms: 5_000, at_ms: 1_000_000 }, 999_000)).toBe(5_000)
+  })
+
+  it('pausada, fica parada', () => {
+    expect(posicaoDaSala({ position_ms: 10_000, at_ms: 1_000_000, paused: true }, 1_060_000)).toBe(10_000)
   })
 })
 
@@ -74,6 +82,28 @@ describe('decidir', () => {
   it('terminou e carregando: nada', () => {
     expect(decidir({ live: false, posSalaMs: 90_000, info: { estado: ESTADO.terminou, tempo: 80 }, tempoAndou: false }).comandos).toEqual([])
     expect(decidir({ live: false, posSalaMs: 90_000, info: { estado: ESTADO.carregando, tempo: 10 }, tempoAndou: false }).comandos).toEqual([])
+  })
+
+  it('sala pausada: para o player na posição da sala', () => {
+    const pausada = (posSalaMs: number, info: { estado?: number; tempo?: number }, live = false) =>
+      decidir({ live, pausada: true, posSalaMs, info, tempoAndou: true })
+    // Tocando perto: só pausa. Longe: busca e pausa.
+    expect(pausada(30_000, tocando(30))).toEqual({ comandos: [{ func: 'pauseVideo' }], travado: false })
+    expect(pausada(30_000, tocando(10)).comandos).toEqual([{ func: 'seekTo', args: [30, true] }, { func: 'pauseVideo' }])
+    // Já pausado: nada; longe, só busca (a busca não tira do pausado).
+    expect(pausada(30_000, { estado: ESTADO.pausado, tempo: 30 }).comandos).toEqual([])
+    expect(pausada(45_000, { estado: ESTADO.pausado, tempo: 30 }).comandos).toEqual([{ func: 'seekTo', args: [45, true] }])
+    // Pronto (sem tocar ainda) e longe: a busca faz tocar, então pausa em seguida.
+    expect(pausada(45_000, { estado: ESTADO.pronto }).comandos).toEqual([{ func: 'seekTo', args: [45, true] }, { func: 'pauseVideo' }])
+    expect(pausada(500, { estado: ESTADO.pronto }).comandos).toEqual([])
+    // Carregando: pausa. Terminou: nada.
+    expect(pausada(30_000, { estado: ESTADO.carregando, tempo: 30 }).comandos).toEqual([{ func: 'pauseVideo' }])
+    expect(pausada(30_000, { estado: ESTADO.terminou, tempo: 30 }).comandos).toEqual([])
+    // Live: só para, sem buscar.
+    expect(pausada(999_000, tocando(5), true).comandos).toEqual([{ func: 'pauseVideo' }])
+    expect(pausada(999_000, { estado: ESTADO.pausado, tempo: 5 }, true).comandos).toEqual([])
+    // Nunca é anúncio com a sala pausada.
+    expect(decidir({ live: false, pausada: true, posSalaMs: 30_000, info: tocando(30), tempoAndou: false }).travado).toBe(false)
   })
 
   it('live nunca busca posição: só garante que está tocando', () => {

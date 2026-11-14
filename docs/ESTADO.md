@@ -21,6 +21,14 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 
 ## Pendente no servidor de produção (`stremaZapi`)
 
+**Pausar e mudar o tempo da música** (no `master` desde 2026-11-12, ainda sem versão lançada):
+`musica.pausar {item_id, pausada}`, `musica.buscar {item_id, posicao_ms}` e o campo `pausada` em
+`musica.estado.atual` (`docs/api/mensagens.md`, "Música da sala"). Valem para qualquer um da sala
+(decisão do dono). O servidor sobe o `rev` dos crates e trata as duas mensagens como o
+`zap-test-server/src/music.rs` (`MusicQueue::pause` e `seek`; buscar numa live dá `erro`
+`musica_invalida`). Enquanto o servidor não mandar `pausada`, a interface esconde os controles nas
+salas Online; nas Locais funciona quando o dono tem o app novo.
+
 **Música da sala no modo Online** (decisão do dono em 2026-11-06: fica documentado aqui e ele faz
 depois). O app já está pronto desde a **v3.2.1**: no Online o servidor é a fonte da fila, e
 enquanto o de produção não tiver a música, a aba **Música** de uma sala Online avisa que o

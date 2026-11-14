@@ -2,7 +2,7 @@
 //! (quem criou a sala no modo Local, o servidor no Online). Pura: o tempo entra como parâmetro
 //! (`Instant`) e o id dos itens vem de quem chama. A posição da sala anda sozinha a partir do início
 //! do item; ninguém espera ninguém (quem pegou anúncio pula para a posição da sala quando o player
-//! volta).
+//! volta). Qualquer um da sala pausa (a posição para) e muda o tempo (a posição pula).
 
 use std::collections::{BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -41,6 +41,8 @@ pub enum MusicError {
     InvalidVideo,
     NotFound,
     NotAllowed,
+    /// Buscar uma posição numa live.
+    LiveSeek,
 }
 
 impl MusicError {
@@ -50,15 +52,28 @@ impl MusicError {
             MusicError::InvalidVideo => "Link do YouTube inválido".into(),
             MusicError::NotFound => "Essa música não está mais na fila".into(),
             MusicError::NotAllowed => "Só quem pôs a música ou o dono da sala pode tirar".into(),
+            MusicError::LiveSeek => "Não dá para mudar o tempo de uma transmissão ao vivo".into(),
         }
     }
 }
 
 struct Atual {
     item: MusicItem,
-    /// Instante da posição 0 (pode estar no futuro: `ANTECEDENCIA`).
-    inicio: Instant,
+    /// Posição (ms) no instante `base`; negativa = ainda vai começar (`ANTECEDENCIA`).
+    pos_base: i64,
+    base: Instant,
+    /// Pausado para todos: a posição fica em `pos_base`.
+    pausada: bool,
     votos: BTreeSet<String>,
+}
+
+/// `agora - antes` em ms, negativo se `agora` vier antes.
+fn ms_entre(antes: Instant, agora: Instant) -> i64 {
+    if agora >= antes {
+        agora.duration_since(antes).as_millis() as i64
+    } else {
+        -(antes.duration_since(agora).as_millis() as i64)
+    }
 }
 
 /// A fila do dono da sala: a fonte da verdade da música.
@@ -216,12 +231,52 @@ impl MusicQueue {
         mudou
     }
 
-    /// Avança quando a posição da sala passa do fim do vídeo. Live só sai por voto, por quem pôs,
-    /// pelo dono ou quando acaba. Devolve se avançou.
+    /// Pausa (`true`) ou retoma (`false`) o item atual, para todos; retomar continua da posição em
+    /// que parou. Item que não é o atual (a fila andou no meio do caminho) é ignorado. Devolve se
+    /// o estado mudou.
+    pub fn pause(&mut self, item_id: &str, pausada: bool, agora: Instant) -> bool {
+        let posicao = self.position_ms(agora);
+        let Some(a) = self.atual.as_mut().filter(|a| a.item.id == item_id) else {
+            return false;
+        };
+        if a.pausada == pausada {
+            return false;
+        }
+        a.pos_base = posicao;
+        a.base = agora;
+        a.pausada = pausada;
+        true
+    }
+
+    /// Leva o item atual para `posicao_ms` (até a duração, se conhecida); pausado, continua
+    /// pausado. Live é recusada. Item que não é o atual é ignorado (`Ok(false)`).
+    pub fn seek(&mut self, item_id: &str, posicao_ms: u64, agora: Instant) -> Result<bool, MusicError> {
+        let Some(a) = self.atual.as_mut().filter(|a| a.item.id == item_id) else {
+            return Ok(false);
+        };
+        if a.item.live {
+            return Err(MusicError::LiveSeek);
+        }
+        let alvo = a.item.duration_ms.map_or(posicao_ms, |d| posicao_ms.min(d));
+        a.pos_base = i64::try_from(alvo).unwrap_or(i64::MAX);
+        a.base = agora;
+        Ok(true)
+    }
+
+    /// O item atual está pausado para todos.
+    pub fn is_paused(&self) -> bool {
+        self.atual.as_ref().is_some_and(|a| a.pausada)
+    }
+
+    /// Avança quando a posição da sala passa do fim do vídeo (pausado, não anda). Live só sai por
+    /// voto, por quem pôs, pelo dono ou quando acaba. Devolve se avançou.
     pub fn tick(&mut self, agora: Instant) -> bool {
         let Some(a) = &self.atual else {
             return false;
         };
+        if a.pausada {
+            return false;
+        }
         let Some(d) = a.item.duration_ms.filter(|_| !a.item.live) else {
             return false;
         };
@@ -245,11 +300,12 @@ impl MusicQueue {
         tirou
     }
 
-    /// Posição da sala no item atual, em ms (negativa = ainda vai começar; 0 sem item).
+    /// Posição da sala no item atual, em ms (negativa = ainda vai começar; 0 sem item). Pausado,
+    /// fica parada.
     pub fn position_ms(&self, agora: Instant) -> i64 {
         match &self.atual {
-            Some(a) if agora >= a.inicio => agora.duration_since(a.inicio).as_millis() as i64,
-            Some(a) => -(a.inicio.duration_since(agora).as_millis() as i64),
+            Some(a) if a.pausada => a.pos_base,
+            Some(a) => a.pos_base.saturating_add(ms_entre(a.base, agora)),
             None => 0,
         }
     }
@@ -263,6 +319,7 @@ impl MusicQueue {
                 position_ms: self.position_ms(agora),
                 votes: a.votos.iter().cloned().collect(),
                 needed: needed(presentes),
+                paused: Some(a.pausada),
             }),
         }
     }
@@ -270,7 +327,9 @@ impl MusicQueue {
     fn avancar(&mut self, agora: Instant) {
         self.atual = self.fila.pop_front().map(|item| Atual {
             item,
-            inicio: agora + ANTECEDENCIA,
+            pos_base: -(ANTECEDENCIA.as_millis() as i64),
+            base: agora,
+            pausada: false,
             votos: BTreeSet::new(),
         });
     }
@@ -535,6 +594,114 @@ mod tests {
         // Sem votos, ninguém saindo pula nada.
         assert!(!q.left("p_9", 1, t0));
         assert_eq!(atual_video(&q, t0).as_deref(), Some(B));
+    }
+
+    #[test]
+    fn pausar_para_a_posicao_e_o_fim_e_retomar_continua() {
+        let t0 = Instant::now();
+        let mut q = MusicQueue::default();
+        q.add(item("p_1", A, None, None), t0).unwrap();
+        q.add(item("p_1", B, None, None), t0).unwrap();
+        let id = atual_id(&q, t0);
+        q.info(&id, Some(60_000), None, None, false, false, t0);
+        assert_eq!(
+            estado(&q, 1, t0).1.unwrap().paused,
+            Some(false),
+            "a fonte nova sempre diz"
+        );
+        assert!(!q.is_paused());
+
+        // Pausa com a sala em 10 s (começou em t0+2s): a posição para.
+        let t_pausa = t0 + Duration::from_secs(12);
+        assert!(q.pause(&id, true, t_pausa));
+        assert!(!q.pause(&id, true, t_pausa), "já estava pausada");
+        assert!(q.is_paused());
+        let muito_depois = t0 + Duration::from_secs(600);
+        assert_eq!(q.position_ms(muito_depois), 10_000);
+        let atual = estado(&q, 1, muito_depois).1.unwrap();
+        assert_eq!((atual.position_ms, atual.paused), (10_000, Some(true)));
+        assert!(!q.tick(muito_depois), "pausada, o fim não chega");
+
+        // Retoma de onde parou; o fim conta a partir daí (faltam 50 s + 2 s de folga).
+        assert!(q.pause(&id, false, muito_depois));
+        assert!(!q.pause(&id, false, muito_depois), "já estava tocando");
+        assert_eq!(q.position_ms(muito_depois + Duration::from_secs(5)), 15_000);
+        assert!(!q.tick(muito_depois + Duration::from_millis(51_900)));
+        assert!(q.tick(muito_depois + Duration::from_secs(52)));
+        assert_eq!(atual_video(&q, muito_depois).as_deref(), Some(B));
+    }
+
+    #[test]
+    fn pausar_item_que_nao_e_o_atual_e_ignorado() {
+        let t0 = Instant::now();
+        let mut q = MusicQueue::default();
+        assert!(!q.pause("mu_1", true, t0), "nada tocando");
+        q.add(item("p_1", A, None, None), t0).unwrap();
+        q.add(item("p_1", B, None, None), t0).unwrap();
+        let fila = estado(&q, 1, t0).0;
+        assert!(!q.pause(&fila[0].id, true, t0), "item da fila");
+        assert!(!q.pause("mu_velho", true, t0));
+        assert!(!q.is_paused());
+    }
+
+    #[test]
+    fn o_proximo_item_comeca_tocando() {
+        let t0 = Instant::now();
+        let mut q = MusicQueue::default();
+        q.add(item("p_1", A, None, None), t0).unwrap();
+        q.add(item("p_1", B, None, None), t0).unwrap();
+        let id = atual_id(&q, t0);
+        let t1 = t0 + Duration::from_secs(30);
+        assert!(q.pause(&id, true, t1));
+        // Pausada, o voto pula do mesmo jeito.
+        assert!(q.vote("p_1", &id, true, 1, t1));
+        let atual = estado(&q, 1, t1).1.unwrap();
+        assert_eq!(atual.item.video_id, B);
+        assert_eq!((atual.position_ms, atual.paused), (-2_000, Some(false)));
+        assert_eq!(q.position_ms(t1 + Duration::from_secs(3)), 1_000);
+    }
+
+    #[test]
+    fn buscar_muda_a_posicao_para_todos() {
+        let t0 = Instant::now();
+        let mut q = MusicQueue::default();
+        q.add(item("p_1", A, None, None), t0).unwrap();
+        q.add(item("p_1", B, None, None), t0).unwrap();
+        let id = atual_id(&q, t0);
+        // Sem duração conhecida: vale qualquer posição.
+        let t1 = t0 + Duration::from_secs(5);
+        assert_eq!(q.seek(&id, 400_000, t1), Ok(true));
+        assert_eq!(q.position_ms(t1), 400_000);
+        q.info(&id, Some(60_000), None, None, false, false, t1);
+        // Voltar: a posição anda a partir do ponto novo.
+        assert_eq!(q.seek(&id, 30_000, t1), Ok(true));
+        assert_eq!(q.position_ms(t1 + Duration::from_secs(5)), 35_000);
+        // Pausada, busca e continua pausada.
+        assert!(q.pause(&id, true, t1));
+        assert_eq!(q.seek(&id, 45_000, t1), Ok(true));
+        assert!(q.is_paused());
+        assert_eq!(q.position_ms(t1 + Duration::from_secs(60)), 45_000);
+        assert!(q.pause(&id, false, t1));
+        // Além do fim vira a duração; a fila avança 2 s depois.
+        assert_eq!(q.seek(&id, 90_000, t1), Ok(true));
+        assert_eq!(q.position_ms(t1), 60_000);
+        assert!(!q.tick(t1 + Duration::from_millis(1_900)));
+        assert!(q.tick(t1 + Duration::from_secs(2)));
+        assert_eq!(atual_video(&q, t1).as_deref(), Some(B));
+        // O item que saiu não muda mais nada.
+        assert_eq!(q.seek(&id, 1_000, t1), Ok(false));
+    }
+
+    #[test]
+    fn live_pausa_mas_nao_busca() {
+        let t0 = Instant::now();
+        let mut q = MusicQueue::default();
+        q.add(item("p_1", A, None, None), t0).unwrap();
+        let id = atual_id(&q, t0);
+        q.info(&id, None, Some(true), None, false, false, t0);
+        assert_eq!(q.seek(&id, 10_000, t0), Err(MusicError::LiveSeek));
+        assert!(q.pause(&id, true, t0));
+        assert!(q.is_paused());
     }
 
     #[test]

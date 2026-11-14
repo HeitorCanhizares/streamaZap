@@ -118,7 +118,7 @@ export function PainelMusica({ room, meId }: PainelMusicaProps): ReactNode {
               <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <span style={{ fontSize: 13.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{atual.item.title}</span>
                 <span style={TEXTO_2}>
-                  {[atual.item.live ? 'AO VIVO' : '', atual.item.channel ?? '', `pôs: ${atual.item.added_by_name}`].filter(Boolean).join(' · ')}
+                  {[atual.paused ? 'pausada' : '', atual.item.live ? 'AO VIVO' : '', atual.item.channel ?? '', `pôs: ${atual.item.added_by_name}`].filter(Boolean).join(' · ')}
                 </span>
               </span>
             </div>

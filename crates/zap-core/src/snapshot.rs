@@ -220,7 +220,7 @@ pub struct MusicItemView {
 }
 
 /// O que está tocando: a posição da sala em `position_ms` vale no instante `at_ms` (relógio de
-/// parede, ms desde 1970); a interface soma o tempo que passou desde então.
+/// parede, ms desde 1970); a interface soma o tempo que passou desde então, menos com `paused`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct MusicNowView {
     pub item: MusicItemView,
@@ -228,6 +228,12 @@ pub struct MusicNowView {
     pub at_ms: u64,
     pub votes: Vec<String>,
     pub needed: u32,
+    /// Pausado para todos: a posição fica parada.
+    #[serde(default)]
+    pub paused: bool,
+    /// A fonte da sala aceita pausar e buscar (`false` = dono ou servidor antigo).
+    #[serde(default)]
+    pub controls: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

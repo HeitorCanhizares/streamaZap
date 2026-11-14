@@ -27,9 +27,11 @@ export interface ChatLine { id: string; author_id: string; author: string; color
 // owner_id: id do dono da sala (pode tirar qualquer música). music: fila de música (ausente = a sala
 // não tem: Online, ou o dono tem um app antigo).
 export interface RoomView { id: string; name: string; mode: RoomMode; code?: string; participants: Participant[]; tracks: TrackView[]; chat: ChatLine[]; unread: number; me_id?: string; owner_id?: string; music?: MusicView | null }
-// Música da sala (docs/planos/musica-da-sala.md). position_ms vale no instante at_ms (ms desde 1970).
+// Música da sala (docs/planos/musica-da-sala.md). position_ms vale no instante at_ms (ms desde 1970);
+// paused: pausada para todos (a posição não anda). controls: a fonte da sala aceita pausar e buscar
+// (false = dono ou servidor antigo: a interface esconde os controles de tempo).
 export interface MusicItemView { id: string; video_id: string; title: string; channel?: string; duration_ms?: number; live: boolean; added_by: string; added_by_name: string }
-export interface MusicNowView { item: MusicItemView; position_ms: number; at_ms: number; votes: string[]; needed: number }
+export interface MusicNowView { item: MusicItemView; position_ms: number; at_ms: number; votes: string[]; needed: number; paused: boolean; controls: boolean }
 export interface MusicView { queue: MusicItemView[]; current?: MusicNowView | null }
 // O que o player descobriu sobre um item (musica.info).
 export interface MusicReport { item_id: string; duration_ms?: number; live?: boolean; title?: string; ended?: boolean; failed?: boolean }

@@ -201,6 +201,23 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
                 Vec::new()
             }
         }
+        // Pausar e buscar: qualquer um da sala, só no item atual (item velho é ignorado).
+        ControlMsg::MusicPause { item_id, paused } => {
+            let agora = Instant::now();
+            if model.music.pause(&item_id, paused, agora) {
+                vec![estado_musica(model, agora)]
+            } else {
+                Vec::new()
+            }
+        }
+        ControlMsg::MusicSeek { item_id, position_ms } => {
+            let agora = Instant::now();
+            match model.music.seek(&item_id, position_ms, agora) {
+                Ok(true) => vec![estado_musica(model, agora)],
+                Ok(false) => Vec::new(),
+                Err(e) => vec![erro(from, "musica_invalida", &e.message())],
+            }
+        }
         ControlMsg::Stats { ping_ms, .. } => {
             // `watching` fica como está: só a latência muda aqui.
             autor.latency_ms = Some(ping_ms);
@@ -687,6 +704,62 @@ mod tests {
         // De alguém da sala, o erro do player pula na hora (e a fila acaba).
         let (_, atual) = musica_de(&handle_member_msg(&mut m, "p_3", info));
         assert!(atual.is_none());
+    }
+
+    #[test]
+    fn musica_pausar_e_buscar_por_qualquer_um() {
+        let mut m = modelo();
+        let (_, atual) = musica_de(&handle_member_msg(&mut m, "p_2", adicionar("aaaaaaaaaaa")));
+        let id = atual.unwrap().item.id;
+        // p_3 não pôs a música nem é dono: pausa e busca para todos.
+        let pausar = |pausada| ControlMsg::MusicPause {
+            item_id: id.clone(),
+            paused: pausada,
+        };
+        let (_, atual) = musica_de(&handle_member_msg(&mut m, "p_3", pausar(true)));
+        assert_eq!(atual.unwrap().paused, Some(true));
+        assert!(handle_member_msg(&mut m, "p_3", pausar(true)).is_empty(), "já pausada");
+        let (_, atual) = musica_de(&handle_member_msg(
+            &mut m,
+            "p_3",
+            ControlMsg::MusicSeek {
+                item_id: id.clone(),
+                position_ms: 30_000,
+            },
+        ));
+        let atual = atual.unwrap();
+        assert_eq!((atual.position_ms, atual.paused), (30_000, Some(true)));
+        let (_, atual) = musica_de(&handle_member_msg(&mut m, "p_1", pausar(false)));
+        assert_eq!(atual.unwrap().paused, Some(false));
+        // Item velho: nada a enviar. Live: buscar é recusado só para quem pediu.
+        let velho = ControlMsg::MusicSeek {
+            item_id: "mu_velho".into(),
+            position_ms: 1,
+        };
+        assert!(handle_member_msg(&mut m, "p_3", velho).is_empty());
+        handle_member_msg(
+            &mut m,
+            "p_2",
+            ControlMsg::MusicInfo {
+                item_id: id.clone(),
+                duration_ms: None,
+                live: Some(true),
+                title: None,
+                ended: false,
+                failed: false,
+            },
+        );
+        let out = handle_member_msg(
+            &mut m,
+            "p_3",
+            ControlMsg::MusicSeek {
+                item_id: id,
+                position_ms: 1_000,
+            },
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].target, Target::Only("p_3".into()));
+        assert!(matches!(&out[0].msg, ControlMsg::Error { code, .. } if code == "musica_invalida"));
     }
 
     #[test]

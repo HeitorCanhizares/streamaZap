@@ -73,6 +73,8 @@ pub fn run() {
             commands::room::music_add,
             commands::room::music_remove,
             commands::room::music_vote,
+            commands::room::music_pause,
+            commands::room::music_seek,
             commands::room::music_report,
             commands::share::share_start,
             commands::share::share_update,

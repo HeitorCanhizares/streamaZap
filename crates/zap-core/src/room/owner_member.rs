@@ -371,6 +371,27 @@ mod tests {
             .ok_or("o dono não tem música")?;
         assert_eq!(visao.current.map(|c| c.item.id), Some(atual.item.id.clone()));
 
+        // O dono pausa e Ana muda o tempo: as duas mudanças chegam a Ana pelo estado.
+        sala.music(ControlMsg::MusicPause {
+            item_id: atual.item.id.clone(),
+            paused: true,
+        })
+        .await?;
+        espera(
+            &mut a,
+            |m| matches!(m, ControlMsg::MusicState { current: Some(c), .. } if c.paused == Some(true)),
+        )
+        .await?;
+        a.tx.send(&ControlMsg::MusicSeek {
+            item_id: atual.item.id.clone(),
+            position_ms: 42_000,
+        })
+        .await?;
+        espera(&mut a, |m| {
+            matches!(m, ControlMsg::MusicState { current: Some(c), .. } if c.position_ms == 42_000 && c.paused == Some(true))
+        })
+        .await?;
+
         // Com 2 pessoas, o voto de Ana pula (e a fila acaba).
         a.tx.send(&ControlMsg::MusicSkip {
             item_id: atual.item.id.clone(),

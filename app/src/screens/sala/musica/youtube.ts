@@ -24,15 +24,17 @@ export interface InfoPlayer {
   erro?: number
 }
 
-/** Endereço do embed: começa tocando; em vídeo (não live) já começa na posição da sala. */
-export function srcDoPlayer(videoId: string, inicioMs: number | null, origem: string): string {
-  const p = new URLSearchParams({ enablejsapi: '1', autoplay: '1', playsinline: '1', rel: '0', origin: origem })
+/** Endereço do embed: começa tocando (menos com a sala pausada); em vídeo (não live) já começa na
+ *  posição da sala. */
+export function srcDoPlayer(videoId: string, inicioMs: number | null, origem: string, tocar = true): string {
+  const p = new URLSearchParams({ enablejsapi: '1', autoplay: tocar ? '1' : '0', playsinline: '1', rel: '0', origin: origem })
   if (inicioMs !== null && inicioMs > 0) p.set('start', String(Math.floor(inicioMs / 1000)))
   return `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${p.toString()}`
 }
 
-/** Posição da sala agora (ms): a do núcleo mais o tempo desde que ele a calculou. */
-export function posicaoDaSala(atual: Pick<MusicNowView, 'position_ms' | 'at_ms'>, agoraMs: number): number {
+/** Posição da sala agora (ms): a do núcleo mais o tempo desde que ele a calculou (pausada, parada). */
+export function posicaoDaSala(atual: Pick<MusicNowView, 'position_ms' | 'at_ms'> & { paused?: boolean }, agoraMs: number): number {
+  if (atual.paused) return atual.position_ms
   return atual.position_ms + Math.max(0, agoraMs - atual.at_ms)
 }
 
@@ -80,6 +82,7 @@ export interface Decisao {
 
 /**
  * O que fazer a cada segundo para ficar junto da sala. A sala nunca espera ninguém:
+ * - sala pausada: fica parado na posição da sala (busca se estiver longe; live só para);
  * - live: só garante que está tocando (no ponto ao vivo, sem buscar posição);
  * - antes de começar (posição negativa): espera parado;
  * - parado ou pausado (sem ter terminado): toca e, se estiver longe, busca a posição da sala;
@@ -87,13 +90,21 @@ export interface Decisao {
  * - tocando sem o tempo andar (anúncio ou carregando): espera; quando voltar, a regra de cima
  *   alcança a sala.
  */
-export function decidir(args: { live: boolean; posSalaMs: number; info: InfoPlayer; tempoAndou: boolean }): Decisao {
-  const { live, posSalaMs, info, tempoAndou } = args
+export function decidir(args: { live: boolean; pausada?: boolean; posSalaMs: number; info: InfoPlayer; tempoAndou: boolean }): Decisao {
+  const { live, pausada, posSalaMs, info, tempoAndou } = args
   const estado = info.estado ?? ESTADO.naoIniciado
   const tempoMs = (info.tempo ?? 0) * 1000
   const longe = Math.abs(tempoMs - posSalaMs) > LIMITE_DESVIO_MS
   const busca: Comando = { func: 'seekTo', args: [Math.max(0, posSalaMs) / 1000, true] }
   if (estado === ESTADO.terminou) return { comandos: [], travado: false }
+  if (pausada) {
+    const andando = estado === ESTADO.tocando || estado === ESTADO.carregando
+    if (live) return { comandos: andando ? [{ func: 'pauseVideo' }] : [], travado: false }
+    // Buscar fora do pausado (não iniciado, pronto) faz o player tocar: pausa logo em seguida.
+    const comandos: Comando[] = longe ? [busca] : []
+    if (andando || (longe && estado !== ESTADO.pausado)) comandos.push({ func: 'pauseVideo' })
+    return { comandos, travado: false }
+  }
   if (live) {
     const parado = estado === ESTADO.pausado || estado === ESTADO.pronto || estado === ESTADO.naoIniciado
     return { comandos: parado ? [{ func: 'playVideo' }] : [], travado: estado === ESTADO.tocando && !tempoAndou }

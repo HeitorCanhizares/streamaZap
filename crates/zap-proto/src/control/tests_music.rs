@@ -85,7 +85,41 @@ fn musica_estado_vazio_e_com_atual() {
             assert_eq!(atual.position_ms, -2000);
             assert_eq!(atual.votes, vec!["p_2".to_string()]);
             assert_eq!(atual.needed, 2);
+            assert_eq!(atual.paused, None, "fonte antiga: sem pausa nem busca");
         }
         outro => panic!("esperava musica.estado, veio {outro:?}"),
+    }
+}
+
+#[test]
+fn musica_pausar_e_buscar() {
+    assert_eq!(
+        roundtrip(r#"{"t":"musica.pausar","item_id":"mu_1","pausada":true}"#),
+        ControlMsg::MusicPause {
+            item_id: "mu_1".into(),
+            paused: true
+        }
+    );
+    assert_eq!(
+        roundtrip(r#"{"t":"musica.buscar","item_id":"mu_1","posicao_ms":95000}"#),
+        ControlMsg::MusicSeek {
+            item_id: "mu_1".into(),
+            position_ms: 95_000
+        }
+    );
+    // Posição negativa não é pedido válido.
+    assert!(serde_json::from_str::<ControlMsg>(r#"{"t":"musica.buscar","item_id":"mu_1","posicao_ms":-1}"#).is_err());
+}
+
+#[test]
+fn musica_estado_pausada() {
+    let msg = roundtrip(
+        r#"{"t":"musica.estado","fila":[],"atual":{"item":{"id":"mu_1","video_id":"bbbbbbbbbbb","titulo":"Música","ao_vivo":false,"por":"p_1","por_nome":"Rafa"},"posicao_ms":42000,"votos":[],"precisa":1,"pausada":true}}"#,
+    );
+    match msg {
+        ControlMsg::MusicState {
+            current: Some(atual), ..
+        } => assert_eq!((atual.position_ms, atual.paused), (42_000, Some(true))),
+        outro => panic!("esperava musica.estado com atual, veio {outro:?}"),
     }
 }

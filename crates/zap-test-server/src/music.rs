@@ -75,6 +75,11 @@ pub(crate) fn tratar(inner: &mut Inner, who: &str, msg: ControlMsg) {
         } => Ok(sala
             .music
             .info(&item_id, duration_ms, live, title, ended, failed, agora)),
+        // Pausar e buscar: qualquer um da sala.
+        ControlMsg::MusicPause { item_id, paused } => Ok(sala.music.pause(&item_id, paused, agora)),
+        ControlMsg::MusicSeek { item_id, position_ms } => {
+            sala.music.seek(&item_id, position_ms, agora).map_err(|e| e.message())
+        }
         _ => Ok(false),
     };
     match resultado {

@@ -60,6 +60,26 @@ pub async fn music_vote(state: State<'_, Arc<AppState>>, item_id: String, vote: 
     state.core.music_vote(item_id, vote).await.map_err(convert::err_string)
 }
 
+/// Pausa (`paused: true`) ou retoma o item atual da música para todos da sala.
+#[tauri::command]
+pub async fn music_pause(state: State<'_, Arc<AppState>>, item_id: String, paused: bool) -> Result<(), String> {
+    state
+        .core
+        .music_pause(item_id, paused)
+        .await
+        .map_err(convert::err_string)
+}
+
+/// Leva o item atual da música para `position_ms`, para todos da sala.
+#[tauri::command]
+pub async fn music_seek(state: State<'_, Arc<AppState>>, item_id: String, position_ms: u64) -> Result<(), String> {
+    state
+        .core
+        .music_seek(item_id, position_ms)
+        .await
+        .map_err(convert::err_string)
+}
+
 /// O que o player do YouTube descobriu (duração, live, título, fim, erro).
 #[tauri::command]
 pub async fn music_report(state: State<'_, Arc<AppState>>, report: zap_core::MusicReport) -> Result<(), String> {

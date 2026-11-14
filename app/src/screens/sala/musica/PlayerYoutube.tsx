@@ -1,7 +1,7 @@
 // O player do YouTube da música da sala: um iframe do embed oficial, controlado por postMessage
 // (sem o script do YouTube na página do app). A cada segundo confere a posição da sala e alcança
-// ela (quem pegou anúncio pula para onde a sala está). Conta ao núcleo a duração, se é live, o
-// título, o fim e os erros.
+// ela (quem pegou anúncio pula para onde a sala está); com a sala pausada, fica parado nela. Conta
+// ao núcleo a duração, se é live, o título, o fim e os erros.
 //
 // Termos do YouTube: nada do app por cima do player (nem botões, nem avisos). Quem usa o player
 // põe os controles e o aviso de anúncio (onTravado) fora da área dele.
@@ -34,9 +34,16 @@ export function PlayerYoutube({ atual, volume, mudo, onReport, onTravado }: Play
   const props = useRef({ atual, volume, mudo, onReport, onTravado })
   props.current = { atual, volume, mudo, onReport, onTravado }
 
-  // O endereço muda só com o item: já começa na posição da sala (em vídeo; live vai ao vivo).
+  // O endereço muda só com o item: já começa na posição da sala (em vídeo; live vai ao vivo) e,
+  // com a sala pausada, sem tocar.
   const src = useMemo(
-    () => srcDoPlayer(item.video_id, item.live ? null : posicaoDaSala(props.current.atual, Date.now()), window.location.origin),
+    () =>
+      srcDoPlayer(
+        item.video_id,
+        item.live ? null : posicaoDaSala(props.current.atual, Date.now()),
+        window.location.origin,
+        !props.current.atual.paused,
+      ),
     [item.id, item.video_id, item.live],
   )
 
@@ -108,24 +115,44 @@ export function PlayerYoutube({ atual, volume, mudo, onReport, onTravado }: Play
     return () => window.removeEventListener('message', onMsg)
   }, [aplicarVolume])
 
-  // A cada segundo: alcança a sala.
-  useEffect(() => {
-    const id = window.setInterval(() => {
+  // Alcança a sala. `amostra`: a volta de 1 s, que mede se o tempo andou (anúncio); fora dela
+  // (a sala pausou ou voltou) só manda os comandos.
+  const sincronizar = useCallback(
+    (amostra: boolean) => {
       const a = props.current.atual
       const i = info.current
       const t = i.tempo
-      // Sem posição anterior (primeira amostra) não dá para dizer que travou: conta como andando.
-      const andou = t !== undefined && (ultimoTempo.current === null || t - ultimoTempo.current >= ANDOU_S)
-      if (t !== undefined) ultimoTempo.current = t
-      const d = decidir({ live: a.item.live || i.aoVivo === true, posSalaMs: posicaoDaSala(a, Date.now()), info: i, tempoAndou: andou })
+      let andou = true
+      if (amostra) {
+        // Sem posição anterior (primeira amostra) não dá para dizer que travou: conta como andando.
+        andou = t !== undefined && (ultimoTempo.current === null || t - ultimoTempo.current >= ANDOU_S)
+        if (t !== undefined) ultimoTempo.current = t
+      }
+      const d = decidir({
+        live: a.item.live || i.aoVivo === true,
+        pausada: a.paused,
+        posSalaMs: posicaoDaSala(a, Date.now()),
+        info: i,
+        tempoAndou: andou,
+      })
       for (const c of d.comandos) comando(c.func, c.args)
-      if (d.travado !== travado.current) {
+      if (amostra && d.travado !== travado.current) {
         travado.current = d.travado
         props.current.onTravado?.(d.travado)
       }
-    }, 1000)
+    },
+    [comando],
+  )
+
+  useEffect(() => {
+    const id = window.setInterval(() => sincronizar(true), 1000)
     return () => window.clearInterval(id)
-  }, [comando])
+  }, [sincronizar])
+
+  // A sala pausou ou voltou: segue na hora, sem esperar a volta de 1 s.
+  useEffect(() => {
+    sincronizar(false)
+  }, [atual.paused, sincronizar])
 
   const onLoad = () => {
     // Pede ao player para mandar o estado dele (infoDelivery) daqui para a frente.
