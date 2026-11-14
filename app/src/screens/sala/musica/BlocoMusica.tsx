@@ -1,6 +1,6 @@
 // A música da sala como transmissão: na tela principal (célula com a barra em cima) ou na faixa de
-// baixo (cartão largo com a barra embaixo). Os controles ficam sempre fora da área do player
-// (termos do YouTube: nada por cima dele).
+// baixo (cartão deitado, com os controles ao lado do player). Os controles ficam sempre fora da área
+// do player (termos do YouTube: nada por cima dele).
 //
 // O player é um só e nunca muda de lugar no DOM: mudar recarregaria o vídeo (e podia trazer outro
 // anúncio), e a música troca de lugar sozinha quando alguém começa ou para de transmitir. A célula
@@ -37,6 +37,7 @@ const BTN: CSSProperties = {
   color: '#E6F4EC', display: 'flex', alignItems: 'center', justifyContent: 'center',
 }
 const MONO = "'JetBrains Mono', monospace"
+const SR_ONLY: CSSProperties = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }
 
 function Icone({ d, size = 16 }: { d: string; size?: number }): ReactNode {
   return (
@@ -130,12 +131,11 @@ function ControlesTempo({ ctx, duracao, pos, mostrada, onBuscar, onArrastar, onS
   )
 }
 
-/** Barra da música: título, AO VIVO, tempo, aviso de anúncio, os botões e os controles de tempo. */
-function Barra({ ctx, lugar, onMover }: { ctx: MusicaCtx; lugar: 'principal' | 'faixa'; onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
+/** Tempo da música: a posição da sala agora, a mostrada (a da barra enquanto a pessoa arrasta) e a
+ *  busca, que só sai quando a pessoa solta a barra. */
+function useTempoMusica(ctx: MusicaCtx) {
   const { atual } = ctx
   const { item } = atual
-  const mudo = ctx.volume.muted
-  const somLabel = mudo ? 'Ativar o som da música' : 'Silenciar a música'
   const agora = useAgora(atual)
   const [arrasto, setArrasto] = useState<number | null>(null)
   const duracao = item.live ? undefined : item.duration_ms
@@ -148,44 +148,76 @@ function Barra({ ctx, lugar, onMover }: { ctx: MusicaCtx; lugar: 'principal' | '
     buscar(arrasto)
     setArrasto(null)
   }
-  const tempo = item.live ? '' : duracao !== undefined ? `${duracaoTexto(mostrada, false)} / ${duracaoTexto(duracao, false)}` : duracaoTexto(mostrada, false)
+  const texto = item.live ? '' : duracao !== undefined ? `${duracaoTexto(mostrada, false)} / ${duracaoTexto(duracao, false)}` : duracaoTexto(mostrada, false)
+  const controles = <ControlesTempo ctx={ctx} duracao={duracao} pos={pos} mostrada={mostrada} onBuscar={buscar} onArrastar={setArrasto} onSoltar={soltar} />
+  return { texto, controles }
+}
+
+/** Título (com AO VIVO em live). */
+function TituloMusica({ ctx }: { ctx: MusicaCtx }): ReactNode {
+  const { item } = ctx.atual
+  return (
+    <span title={item.title} style={{ display: 'block', fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {item.live && <b style={{ color: '#FF5D6E', fontFamily: MONO, fontSize: 10.5, marginRight: 6 }}>AO VIVO</b>}
+      {item.title}
+    </span>
+  )
+}
+
+/** Linha de baixo do título: o tempo, pausada e quem pôs (ou o aviso de anúncio). */
+function InfoMusica({ ctx, tempo }: { ctx: MusicaCtx; tempo: string }): ReactNode {
+  const { atual } = ctx
+  return (
+    <span role={ctx.travado ? 'status' : undefined} style={{ display: 'block', fontSize: 11.5, color: ctx.travado ? '#FFB547' : '#8BA498', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+      {ctx.travado ? (
+        'Anúncio ou carregando · você volta junto da sala'
+      ) : (
+        <>
+          {tempo && <span data-testid="tempo-musica" style={{ fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{tempo}</span>}
+          {`${tempo ? ' · ' : ''}${atual.paused ? 'pausada · ' : ''}pôs: ${atual.item.added_by_name}`}
+        </>
+      )}
+    </span>
+  )
+}
+
+function BotaoSomMusica({ ctx }: { ctx: MusicaCtx }): ReactNode {
+  const mudo = ctx.volume.muted
+  const somLabel = mudo ? 'Ativar o som da música' : 'Silenciar a música'
+  return (
+    <button type="button" className="zp-x" onClick={() => ctx.onVolume({ ...ctx.volume, muted: !mudo })} aria-label={somLabel} title={somLabel} style={{ ...BTN, color: mudo ? '#FF8592' : '#E6F4EC' }}>
+      <Icone d={mudo ? MUDO : SOM} />
+    </button>
+  )
+}
+
+function BotaoFecharMusica({ onMover }: { onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
+  return (
+    <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'fechada')} aria-label="Fechar a música (parar de tocar para mim)" title="Fechar a música: para de tocar só para você" style={BTN}>
+      <Icone d={X} />
+    </button>
+  )
+}
+
+/** Barra da música na tela principal (em cima do player): título, tempo, aviso de anúncio, os botões
+ *  e os controles de tempo. */
+function Barra({ ctx, onMover }: { ctx: MusicaCtx; onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
+  const tempo = useTempoMusica(ctx)
   return (
     <div style={{ flex: '0 0 auto', display: 'flex', flexDirection: 'column', gap: 6, padding: '6px 8px', minWidth: 0, background: '#0F1916' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         <span aria-hidden="true" style={{ flex: '0 0 auto', fontSize: 15 }}>♪</span>
         <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {item.live && <b style={{ color: '#FF5D6E', fontFamily: MONO, fontSize: 10.5, marginRight: 6 }}>AO VIVO</b>}
-            {item.title}
-          </span>
-          <span role={ctx.travado ? 'status' : undefined} style={{ fontSize: 11.5, color: ctx.travado ? '#FFB547' : '#8BA498', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {ctx.travado ? (
-              'Anúncio ou carregando · você volta junto da sala'
-            ) : (
-              <>
-                {tempo && <span data-testid="tempo-musica" style={{ fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{tempo}</span>}
-                {`${tempo ? ' · ' : ''}${atual.paused ? 'pausada · ' : ''}pôs: ${item.added_by_name}`}
-              </>
-            )}
-          </span>
+          <TituloMusica ctx={ctx} />
+          <InfoMusica ctx={ctx} tempo={tempo.texto} />
         </span>
-        <button type="button" className="zp-x" onClick={() => ctx.onVolume({ ...ctx.volume, muted: !mudo })} aria-label={somLabel} title={somLabel} style={{ ...BTN, color: mudo ? '#FF8592' : '#E6F4EC' }}>
-          <Icone d={mudo ? MUDO : SOM} />
+        <BotaoSomMusica ctx={ctx} />
+        <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'faixa')} aria-label="Mandar a música para baixo" title="Mandar para a faixa de baixo" style={BTN}>
+          <Icone d={BAIXO} />
         </button>
-        {lugar === 'principal' ? (
-          <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'faixa')} aria-label="Mandar a música para baixo" title="Mandar para a faixa de baixo" style={BTN}>
-            <Icone d={BAIXO} />
-          </button>
-        ) : (
-          <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'principal')} aria-label="Pôr a música na tela principal" title="Pôr na tela principal" style={BTN}>
-            <Icone d={CIMA} />
-          </button>
-        )}
-        <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'fechada')} aria-label="Fechar a música (parar de tocar para mim)" title="Fechar a música: para de tocar só para você" style={BTN}>
-          <Icone d={X} />
-        </button>
+        <BotaoFecharMusica onMover={onMover} />
       </div>
-      <ControlesTempo ctx={ctx} duracao={duracao} pos={pos} mostrada={mostrada} onBuscar={buscar} onArrastar={setArrasto} onSoltar={soltar} />
+      {tempo.controles}
     </div>
   )
 }
@@ -201,7 +233,7 @@ export function CelulaMusica({ onMover, varias }: { onMover: (trackId: string, l
   if (!ctx) return null
   return (
     <div data-testid="celula-musica" style={{ position: 'relative', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#0A100E', borderRadius: varias ? 12 : 0, overflow: 'hidden' }}>
-      <Barra ctx={ctx} lugar="principal" onMover={onMover} />
+      <Barra ctx={ctx} onMover={onMover} />
       <div style={{ position: 'relative', flex: 1, minHeight: 200, background: '#000' }}>
         <VagaMusica ctx={ctx} />
       </div>
@@ -209,22 +241,48 @@ export function CelulaMusica({ onMover, varias }: { onMover: (trackId: string, l
   )
 }
 
-/** Cartão da faixa de baixo com a música: largo (356 px) para o player ter 200 px de altura. */
+/** Largura do player no cartão: o mínimo do YouTube (200 px de altura) em 16:9. */
+const PLAYER_CARTAO = 356
+/** Largura da coluna de controles ao lado do player. */
+const CONTROLES_CARTAO = 190
+
+/** Cartão da faixa de baixo com a música, deitado: o player (356×200, o mínimo do YouTube) à
+ *  esquerda e os controles numa coluna à direita. Fica com a altura do player, igual à do cartão
+ *  Você, para a sala caber na janela sem rolar. */
 export function CartaoMusica({ onMover }: { onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
   const ctx = useContext(MusicaContexto)
   if (!ctx) return null
+  return <CartaoComMusica ctx={ctx} onMover={onMover} />
+}
+
+function CartaoComMusica({ ctx, onMover }: { ctx: MusicaCtx; onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
+  const tempo = useTempoMusica(ctx)
   const volId = 'vol-musica'
+  const largura = PLAYER_CARTAO + CONTROLES_CARTAO + 4
   return (
-    <div data-testid="cartao-musica" style={{ flex: '0 0 356px', width: 356, display: 'flex', flexDirection: 'column', borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D' }}>
-      <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', minHeight: 200, background: '#000' }}>
+    <div data-testid="cartao-musica" style={{ flex: `0 0 ${largura}px`, width: largura, display: 'flex', borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D' }}>
+      <div style={{ position: 'relative', flex: `0 0 ${PLAYER_CARTAO}px`, width: PLAYER_CARTAO, height: 200, background: '#000' }}>
         <VagaMusica ctx={ctx} />
       </div>
-      <Barra ctx={ctx} lugar="faixa" onMover={onMover} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px 8px' }}>
-        <label htmlFor={volId} style={{ fontSize: 11.5, color: '#8BA498' }}>Volume</label>
-        <input id={volId} className="zp-range" type="range" min={0} max={100} value={ctx.volume.vol} style={{ flex: 1, minWidth: 0 }}
-          onChange={(e) => ctx.onVolume({ vol: Number(e.target.value), muted: false })} />
-        <span style={{ flex: '0 0 38px', textAlign: 'right', fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{ctx.volume.muted ? 'mudo' : `${ctx.volume.vol}%`}</span>
+      <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 6, padding: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, minWidth: 0 }}>
+          <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TituloMusica ctx={ctx} />
+            <InfoMusica ctx={ctx} tempo={tempo.texto} />
+          </span>
+          <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'principal')} aria-label="Pôr a música na tela principal" title="Pôr na tela principal" style={BTN}>
+            <Icone d={CIMA} />
+          </button>
+          <BotaoFecharMusica onMover={onMover} />
+        </div>
+        {tempo.controles}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <BotaoSomMusica ctx={ctx} />
+          <label htmlFor={volId} style={SR_ONLY}>Volume</label>
+          <input id={volId} className="zp-range" type="range" min={0} max={100} value={ctx.volume.vol} style={{ flex: 1, minWidth: 0 }}
+            onChange={(e) => ctx.onVolume({ vol: Number(e.target.value), muted: false })} />
+          <span style={{ flex: '0 0 34px', textAlign: 'right', fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{ctx.volume.muted ? 'mudo' : `${ctx.volume.vol}%`}</span>
+        </div>
       </div>
     </div>
   )

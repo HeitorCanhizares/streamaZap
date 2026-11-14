@@ -130,6 +130,39 @@ describe('SalaScreen', () => {
     expect(screen.queryByText('Você')).toBeNull()
   })
 
+  it('o vídeo encolhe a altura medida da faixa de baixo (e acompanha quando ela muda)', () => {
+    estado.snap = mockSnapshot()
+    let altura = 300
+    let avisar: (() => void) | null = null
+    class RO {
+      constructor(cb: () => void) { avisar = cb }
+      observe() {}
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', RO)
+    const real = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return this.dataset.testid === 'faixa-sala' ? ({ height: altura, width: 900, top: 0, left: 0, right: 900, bottom: altura, x: 0, y: 0, toJSON: () => ({}) } as DOMRect) : real.call(this)
+    })
+    try {
+      render(<SalaScreen onLeft={() => {}} />)
+      const reserva = () => /100vh - (\d+)px/.exec(screen.getByTestId('palco').getAttribute('style') ?? '')?.[1]
+      expect(reserva()).toBe('536')
+      altura = 160
+      act(() => { avisar?.() })
+      expect(reserva()).toBe('396')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a coluna da sala fica com o que sobra do painel (o chat não é espremido)', () => {
+    estado.snap = mockSnapshot()
+    render(<SalaScreen onLeft={() => {}} />)
+    const pai = screen.getByTestId('sala-coluna').parentElement as HTMLElement
+    expect(pai.style.flex).toBe('1 1 0px')
+  })
+
   it('a barra da sala fica no pé, fora da coluna que rola e fora do vídeo', () => {
     estado.snap = mockSnapshot()
     render(<SalaScreen onLeft={() => {}} />)

@@ -77,19 +77,16 @@ describe('SalaPrincipal', () => {
     expect(screen.queryByLabelText('Silenciar a sala toda')).toBeNull()
   })
 
-  it('a altura que fica fora do vídeo depende do que há embaixo (o cartão Você é mais alto)', () => {
+  it('a altura que fica fora do vídeo soma a da faixa de baixo', () => {
     const reserva = () => /100vh - (\d+)px/.exec(screen.getByTestId('palco').getAttribute('style') ?? '')?.[1]
     montar()
-    expect(reserva()).toBe('260')
+    expect(reserva()).toBe('236')
     cleanup()
-    montar({ temFaixa: true })
-    expect(reserva()).toBe('425')
+    montar({ alturaFaixa: 180 })
+    expect(reserva()).toBe('416')
     cleanup()
-    montar({ temFaixa: 'voce' })
-    expect(reserva()).toBe('465')
-    cleanup()
-    montar({ temFaixa: 'botao' })
-    expect(reserva()).toBe('320')
+    montar({ alturaFaixa: 216.4 })
+    expect(reserva()).toBe('452')
   })
 
   it('sem os cantos verdes por cima da imagem', () => {

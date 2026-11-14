@@ -95,7 +95,10 @@ describe('SalaTiles', () => {
   it('faixa na horizontal: cartões e fechadas numa linha só, que rola para o lado', () => {
     montar({ lugares: { t1: 'fechada', t2: 'faixa' } })
     const faixa = screen.getByTestId('faixa-rolagem')
-    expect(screen.getByRole('group', { name: 'Transmissões na sala' }).contains(faixa)).toBe(true)
+    const grupo = screen.getByRole('group', { name: 'Transmissões na sala' })
+    expect(grupo.contains(faixa)).toBe(true)
+    // Sem espaço ao lado da música, as miniaturas descem para outra linha em vez de sumirem.
+    expect(grupo.style.flexWrap).toBe('wrap')
     expect(faixa.style.display).toBe('flex')
     expect(faixa.style.flexDirection).toBe('')
     expect(faixa.style.flexWrap).toBe('')

@@ -1,6 +1,6 @@
 // A música como transmissão da sala: onde ela aparece, o player e o que ele conta ao núcleo.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { RoomView, Snapshot } from '../../../bridge/types'
 
 const estado = vi.hoisted(() => ({ snap: null as unknown as Snapshot }))
@@ -106,6 +106,26 @@ describe('música na SalaScreen', () => {
     expect(faixa.firstElementChild).toBe(cartao)
     expect(screen.getByTestId('faixa-rolagem').contains(cartao)).toBe(false)
     expect(screen.getByTestId('faixa-rolagem').style.overflowX).toBe('auto')
+  })
+
+  it('na faixa, o cartão fica deitado: controles ao lado do player, com a altura dele', () => {
+    estado.snap = snapCom({})
+    render(<SalaScreen onLeft={() => {}} />)
+    const cartao = screen.getByTestId('cartao-musica')
+    // Em linha: o player e a coluna de controles lado a lado, com a altura do player.
+    expect(cartao.style.flexDirection).toBe('')
+    const vaga = within(cartao).getByTestId('vaga-musica').parentElement as HTMLElement
+    expect(vaga.style.height).toBe('200px')
+    expect(vaga.style.width).toBe('356px')
+    // Todos os controles da música no cartão, sem rolar.
+    const c = within(cartao)
+    expect(c.getByRole('button', { name: 'Pôr a música na tela principal' })).toBeTruthy()
+    expect(c.getByRole('button', { name: 'Fechar a música (parar de tocar para mim)' })).toBeTruthy()
+    expect(c.getByRole('button', { name: 'Silenciar a música' })).toBeTruthy()
+    expect(c.getByRole('button', { name: 'Pausar a música para todos' })).toBeTruthy()
+    expect(c.getByRole('slider', { name: 'Tempo da música' })).toBeTruthy()
+    expect(c.getByLabelText('Volume')).toBeTruthy()
+    expect(c.getByTestId('tempo-musica')).toBeTruthy()
   })
 
   it('o player conta duração, fim e erro ao núcleo (uma vez cada)', () => {

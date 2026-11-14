@@ -31,6 +31,10 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
     tela cheia só dela, mandar para baixo e fechar;
   - sem os cantos verdes, e a faixa de baixo numa linha só, que rola para o lado, com as fechadas
     no fim (a música fica parada no começo, fora da rolagem);
+  - a sala cabe na janela sem rolar: o vídeo encolhe a altura medida da faixa (ResizeObserver) e o
+    cartão da música fica deitado (player 356×200 com os controles ao lado). Cabe com música em
+    1440×900, 1366×768 e 1280×720 com o chat aberto. Em 1100×700 com o chat aberto, só a música
+    cabe ao lado do vídeo: as miniaturas descem para outra linha e a coluna rola;
   - tela cheia de uma transmissão (botão, tecla F, Esc para sair): a janela do Tauri entra em
     tela cheia (`setFullscreen`; o WebView2 do wry não leva a tela cheia de um elemento até a
     janela) e a transmissão fica sozinha por cima de tudo. O botão e o F11 da tela cheia do app

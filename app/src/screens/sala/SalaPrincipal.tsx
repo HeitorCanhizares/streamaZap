@@ -22,10 +22,9 @@ export interface SalaPrincipalProps {
   canvasDe: (trackId: string) => HTMLCanvasElement
   /** Há transmissões fora da principal? Muda o texto da tela vazia. */
   temOutras: boolean
-  /** Há a faixa de baixo? O vídeo encolhe para ela caber na janela sem rolar. 'botao' = só os
-   *  botões das transmissões fechadas embaixo (ocupam pouco); 'voce' = com o cartão Você, que é
-   *  mais alto que as miniaturas. */
-  temFaixa?: boolean | 'botao' | 'voce'
+  /** Altura (px) da faixa de baixo, medida na SalaScreen: o vídeo encolhe para ela caber na janela
+   *  sem rolar (0 = sem faixa). */
+  alturaFaixa?: number
   share: ShareView | null
   volumeDe: (ownerId: string) => VolumePessoa
   onVolumePessoa: (ownerId: string, v: VolumePessoa) => void
@@ -60,18 +59,9 @@ const CENTRO: CSSProperties = {
 }
 const SR_ONLY: CSSProperties = { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }
 const MONO = "'JetBrains Mono', monospace"
-// Altura que fica fora do vídeo (px): barra de título, cabeçalho da sala, margens e a barra da sala
-// no pé da coluna; com a faixa de baixo, também a altura de um cartão (ou a linha dos botões).
-const RESERVA_SEM_FAIXA = 260
-const RESERVA_COM_FAIXA = 425
-const RESERVA_COM_VOCE = 465
-const RESERVA_COM_BOTAO = 320
-
-function reserva(temFaixa: SalaPrincipalProps['temFaixa']): number {
-  if (temFaixa === 'voce') return RESERVA_COM_VOCE
-  if (temFaixa === 'botao') return RESERVA_COM_BOTAO
-  return temFaixa ? RESERVA_COM_FAIXA : RESERVA_SEM_FAIXA
-}
+// Altura que fica fora do vídeo (px), além da faixa de baixo: barra de título (44), a barra da sala
+// no pé da coluna (86), o cabeçalho com as margens dele (100) e uma folga.
+const RESERVA_BASE = 236
 
 function IconeX({ size }: { size: number }): ReactNode {
   return (
@@ -378,8 +368,9 @@ export function SalaPrincipal(p: SalaPrincipalProps): ReactNode {
           cursor: ocioso.visivel ? 'auto' : 'none',
           width: '100%',
           // 16:9 que cabe na altura da janela: barra de título, cabeçalho, margens e a barra da sala
-          // (e a faixa de baixo, quando há) ficam de fora. Nunca menor que 480 px de largura.
-          maxWidth: `max(480px, calc((100vh - ${reserva(p.temFaixa)}px) * 16 / 9))`,
+          // (e a faixa de baixo, quando há) ficam de fora. Nunca menor que 400 px de largura (perto
+          // disso só na janela mínima, 1100×700, com o cartão da música ou o Você embaixo).
+          maxWidth: `max(400px, calc((100vh - ${RESERVA_BASE + Math.round(p.alturaFaixa ?? 0)}px) * 16 / 9))`,
           alignSelf: 'center',
         }}
       >

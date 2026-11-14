@@ -2,7 +2,7 @@
 // (SalaControles, no pé da coluna) e o SalaPainel. Dona do estado compartilhado (lugar de cada
 // transmissão, volumes, tela cheia, painel) e das assinaturas: toda transmissão de outra pessoa é
 // assinada sozinha ao aparecer (useAssinaturas).
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { api, isTauri } from '../../bridge/api'
 import { useSnapshot } from '../../bridge/store'
 import { useTravas } from '../../bridge/usePlano'
@@ -29,6 +29,26 @@ import { useAssinaturas, type PedidoStream } from './useAssinaturas'
 import { CamadaMusica, MusicaContexto, type MusicaCtx } from './musica/BlocoMusica'
 
 export interface SalaScreenProps { onLeft: () => void }
+
+/** Altura (px) de um elemento, medida antes de pintar e acompanhada pelo ResizeObserver (sem ele,
+ *  como no jsdom, só a medida inicial). Devolve a ref de callback e a altura (0 sem elemento). */
+function useAltura(): [(el: HTMLElement | null) => void, number] {
+  const [el, setEl] = useState<HTMLElement | null>(null)
+  const [altura, setAltura] = useState(0)
+  useLayoutEffect(() => {
+    if (!el) {
+      setAltura(0)
+      return
+    }
+    const medir = () => setAltura(Math.ceil(el.getBoundingClientRect().height))
+    medir()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(medir)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [el])
+  return [setEl, altura]
+}
 
 const CHAVE_VOCE_OCULTO = 'streamazap.voceOculto'
 function lerVoceOculto(): boolean {
@@ -111,9 +131,9 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
   const minhasForaDaPrincipal = streams.some((s) => s.mine && lugares[s.trackId] !== 'principal')
   // O cartão "Você" só aparece quando transmito (o botão de compartilhar já está nos controles).
   const mostrarVoce = !!snap.share || temCamera || cameraOn
-  // Embaixo há cartões (ocupam altura) ou só os botões das miniaturas fechadas (ocupam pouco)?
-  const temCartoes = naFaixa.some((s) => lugares[s.trackId] !== 'fechada') || (mostrarVoce && !voceOculto)
-  const temBotoes = naFaixa.some((s) => lugares[s.trackId] === 'fechada') || (mostrarVoce && voceOculto)
+  // Altura da faixa de baixo (cartões, botões das fechadas, música em uma ou duas linhas): o vídeo
+  // encolhe o que ela ocupa para a sala caber na janela sem rolar.
+  const [refFaixa, alturaFaixa] = useAltura()
 
   // O som é de cada transmissão (volume de cada pessoa e o da música): o volume geral do núcleo fica
   // em 100% ao entrar na sala, mesmo que uma versão antiga o tenha deixado mais baixo ou mudo.
@@ -280,7 +300,9 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
     // dele, sem a página inteira crescer com as mensagens. A música da sala vai pelo contexto.
     <MusicaContexto.Provider value={musica}>
       <div style={{ display: 'flex', alignItems: 'stretch', height: '100%', minHeight: 0 }}>
-        <div style={{ flex: '1 1 auto', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {/* Base 0: a coluna fica com o que sobra do painel (até 400 px), seja qual for a largura do
+            que está dentro dela (a faixa com a música é larga e espremia o chat). */}
+        <div style={{ flex: '1 1 0', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div ref={colunaRef} data-testid="sala-coluna" style={{ position: 'relative', flex: '1 1 auto', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
             <SalaPrincipal
               room={room}
@@ -288,7 +310,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
               tiles={snap.tiles}
               canvasDe={canvasDe}
               temOutras={naFaixa.length > 0 || minhasForaDaPrincipal}
-              temFaixa={temCartoes ? (mostrarVoce && !voceOculto ? 'voce' : true) : temBotoes ? 'botao' : false}
+              alturaFaixa={alturaFaixa}
               volumeDe={volumeDe}
               onVolumePessoa={onVolumePessoa}
               onMover={onMover}
@@ -306,7 +328,7 @@ export function SalaScreen({ onLeft }: SalaScreenProps): ReactNode {
               invite={invite}
             />
             {(aviso || naFaixa.length > 0 || mostrarVoce) && (
-              <div style={{ padding: '0 28px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div ref={refFaixa} data-testid="faixa-sala" style={{ padding: '0 28px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {aviso && <span role="status" style={{ fontSize: 13, color: 'var(--texto-2, #A3BDB1)' }}>{aviso}</span>}
                 <SalaTiles
                   room={room}
