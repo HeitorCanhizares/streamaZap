@@ -1,7 +1,8 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-12 (**v3.3.1 lançada**: o portátil passa a abrir pelos links
-`streamazap://`; antes, no mesmo dia, a **v3.3.0**, com as fases 1, 2 e 3 do plano de contas, planos e
+Atualizado em 2026-11-13 (**v3.4.0 lançada**: pausar e mudar o tempo da música da sala, para
+todos; no Online só depois de o servidor tratar as mensagens novas). Antes, em 2026-11-12, a
+**v3.3.1** (o portátil passa a abrir pelos links `streamazap://`) e a **v3.3.0**, com as fases 1, 2 e 3 do plano de contas, planos e
 câmera e o convite que entra na sala; o servidor com todo o plano em produção e o Supabase com as
 migrations; ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
 depois da rodada 4 (M2b: conversão NV12 pela CPU), do conversor no
@@ -21,7 +22,7 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 
 ## Pendente no servidor de produção (`stremaZapi`)
 
-**Pausar e mudar o tempo da música** (no `master` desde 2026-11-12, ainda sem versão lançada):
+**Pausar e mudar o tempo da música** (commit `890e922`, lançado na **v3.4.0** em 2026-11-13):
 `musica.pausar {item_id, pausada}`, `musica.buscar {item_id, posicao_ms}` e o campo `pausada` em
 `musica.estado.atual` (`docs/api/mensagens.md`, "Música da sala"). Valem para qualquer um da sala
 (decisão do dono). O servidor sobe o `rev` dos crates e trata as duas mensagens como o
