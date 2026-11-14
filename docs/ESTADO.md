@@ -1,7 +1,9 @@
 # Estado da v3 (Rust + Tauri)
 
-Atualizado em 2026-11-13 (**v3.4.0 lançada**: pausar e mudar o tempo da música da sala, para
-todos; o servidor de produção trata pausar e buscar desde o mesmo dia). Antes, em 2026-11-12, a
+Atualizado em 2026-11-14 (**v3.5.0 lançada**: tela da sala nova, com a barra da sala no pé, o som
+e a tela cheia em cada transmissão e a faixa de baixo na horizontal; ver "Tela da sala nova"
+abaixo). Antes, em 2026-11-13, a **v3.4.0** (pausar e mudar o tempo da música da sala, para
+todos; o servidor de produção trata pausar e buscar desde o mesmo dia) e, em 2026-11-12, a
 **v3.3.1** (o portátil passa a abrir pelos links `streamazap://`) e a **v3.3.0**, com as fases 1, 2 e 3 do plano de contas, planos e
 câmera e o convite que entra na sala; o servidor com todo o plano em produção e o Supabase com as
 migrations; ver "Contas, planos e câmera" abaixo). Antes: v3.2.1 (correções de áudio e música da sala); em 2026-11-05,
@@ -20,10 +22,10 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
 - **O CI da v3 (`rust.yml`) passa com o M4 pronto** (Linux, Windows e front-end; ver "CI da v3"
   abaixo). Rode-o antes de mexer no `master` se a mudança for grande: aba Actions, "Run workflow".
 
-## No `master`, ainda sem lançar (depois da v3.4.0)
+## Tela da sala nova (v3.5.0, 2026-11-14)
 
 - **Tela da sala nova** (escolhida pelo dono no Claude Design, "Sala StreamaZap — controles",
-  quadro "Escolhida"):
+  quadro "Escolhida"; commits `2ab5478` e `1db2e4f`):
   - a barra da sala (câmera, Compartilhar/Transmissão, tela cheia do app e Sair) saiu de cima do
     vídeo: é um dock no pé da coluna, sempre visível;
   - o volume geral saiu (o núcleo fica em 100% ao entrar): o som é de cada transmissão;
