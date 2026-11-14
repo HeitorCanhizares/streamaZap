@@ -69,6 +69,18 @@ describe('música na SalaScreen', () => {
     expect(screen.getByRole('button', { name: 'Mandar a música para baixo' })).toBeTruthy()
   })
 
+  it('na principal, a barra da música tem o volume dela (o volume geral da sala saiu)', () => {
+    estado.snap = snapCom({ tracks: [] })
+    render(<SalaScreen onLeft={() => {}} />)
+    const celula = within(screen.getByTestId('celula-musica'))
+    const volume = celula.getByLabelText('Volume da música')
+    fireEvent.change(volume, { target: { value: '35' } })
+    expect(celula.getByText('35%')).toBeTruthy()
+    fireEvent.click(celula.getByRole('button', { name: 'Silenciar a música' }))
+    expect(celula.getByText('mudo')).toBeTruthy()
+    expect(celula.getByRole('button', { name: 'Ativar o som da música' })).toBeTruthy()
+  })
+
   it('o mesmo player segue a música entre a principal e a faixa (sem recarregar); fechar o tira', () => {
     estado.snap = snapCom({ tracks: [] })
     render(<SalaScreen onLeft={() => {}} />)
@@ -124,7 +136,7 @@ describe('música na SalaScreen', () => {
     expect(c.getByRole('button', { name: 'Silenciar a música' })).toBeTruthy()
     expect(c.getByRole('button', { name: 'Pausar a música para todos' })).toBeTruthy()
     expect(c.getByRole('slider', { name: 'Tempo da música' })).toBeTruthy()
-    expect(c.getByLabelText('Volume')).toBeTruthy()
+    expect(c.getByLabelText('Volume da música')).toBeTruthy()
     expect(c.getByTestId('tempo-musica')).toBeTruthy()
   })
 

@@ -40,7 +40,11 @@ branch: a `m4-online` e as `claude/*` antigas entraram nele e foram apagadas.
   - tela cheia de uma transmissão (botão, tecla F, Esc para sair): a janela do Tauri entra em
     tela cheia (`setFullscreen`; o WebView2 do wry não leva a tela cheia de um elemento até a
     janela) e a transmissão fica sozinha por cima de tudo. O botão e o F11 da tela cheia do app
-    também passaram a usar a janela do Tauri. Testado no app em dev com uma sala local.
+    também passaram a usar a janela do Tauri. Testado no app em dev com uma sala local e, pelo
+    dono, numa sala Online com a v3.5.0.
+- **Depois da v3.5.0, no `master` sem lançar:** a música na tela principal tinha só o botão de mudo
+  (antes, o volume dela vinha do volume geral da sala, que saiu). A barra dela ganhou a mesma linha
+  de volume do cartão da faixa (`LinhaVolume` em `musica/BlocoMusica.tsx`).
 
 ## Música da sala no servidor de produção (`stremaZapi`)
 

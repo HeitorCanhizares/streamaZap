@@ -6,7 +6,7 @@
 // anúncio), e a música troca de lugar sozinha quando alguém começa ou para de transmitir. A célula
 // e o cartão só deixam uma vaga vazia (VagaMusica); a CamadaMusica, filha da coluna da sala, põe o
 // player por cima do retângulo dessa vaga.
-import { createContext, useContext, useEffect, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
+import { createContext, useContext, useEffect, useId, useState, type CSSProperties, type ReactNode, type RefObject } from 'react'
 import type { MusicNowView, MusicReport } from '../../../bridge/types'
 import type { Lugar, VolumePessoa } from '../salaModel'
 import { MUSICA } from '../salaModel'
@@ -191,6 +191,21 @@ function BotaoSomMusica({ ctx }: { ctx: MusicaCtx }): ReactNode {
   )
 }
 
+/** Som da música só para mim: mudo, volume (0..100) e o valor. Na barra da tela principal e no cartão
+ *  da faixa (o volume geral da sala saiu na v3.5.0: este é o único controle de volume da música). */
+function LinhaVolume({ ctx }: { ctx: MusicaCtx }): ReactNode {
+  const volId = useId()
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+      <BotaoSomMusica ctx={ctx} />
+      <label htmlFor={volId} style={SR_ONLY}>Volume da música</label>
+      <input id={volId} className="zp-range" type="range" min={0} max={100} value={ctx.volume.vol} style={{ flex: 1, minWidth: 0 }}
+        onChange={(e) => ctx.onVolume({ vol: Number(e.target.value), muted: false })} />
+      <span style={{ flex: '0 0 34px', textAlign: 'right', fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{ctx.volume.muted ? 'mudo' : `${ctx.volume.vol}%`}</span>
+    </div>
+  )
+}
+
 function BotaoFecharMusica({ onMover }: { onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
   return (
     <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'fechada')} aria-label="Fechar a música (parar de tocar para mim)" title="Fechar a música: para de tocar só para você" style={BTN}>
@@ -199,8 +214,8 @@ function BotaoFecharMusica({ onMover }: { onMover: (trackId: string, lugar: Luga
   )
 }
 
-/** Barra da música na tela principal (em cima do player): título, tempo, aviso de anúncio, os botões
- *  e os controles de tempo. */
+/** Barra da música na tela principal (em cima do player): título, tempo, aviso de anúncio, os botões,
+ *  os controles de tempo e o volume. */
 function Barra({ ctx, onMover }: { ctx: MusicaCtx; onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
   const tempo = useTempoMusica(ctx)
   return (
@@ -211,13 +226,13 @@ function Barra({ ctx, onMover }: { ctx: MusicaCtx; onMover: (trackId: string, lu
           <TituloMusica ctx={ctx} />
           <InfoMusica ctx={ctx} tempo={tempo.texto} />
         </span>
-        <BotaoSomMusica ctx={ctx} />
         <button type="button" className="zp-x" onClick={() => onMover(MUSICA, 'faixa')} aria-label="Mandar a música para baixo" title="Mandar para a faixa de baixo" style={BTN}>
           <Icone d={BAIXO} />
         </button>
         <BotaoFecharMusica onMover={onMover} />
       </div>
       {tempo.controles}
+      <LinhaVolume ctx={ctx} />
     </div>
   )
 }
@@ -257,7 +272,6 @@ export function CartaoMusica({ onMover }: { onMover: (trackId: string, lugar: Lu
 
 function CartaoComMusica({ ctx, onMover }: { ctx: MusicaCtx; onMover: (trackId: string, lugar: Lugar) => void }): ReactNode {
   const tempo = useTempoMusica(ctx)
-  const volId = 'vol-musica'
   const largura = PLAYER_CARTAO + CONTROLES_CARTAO + 4
   return (
     <div data-testid="cartao-musica" style={{ flex: `0 0 ${largura}px`, width: largura, display: 'flex', borderRadius: 16, overflow: 'hidden', background: '#0F1916', border: '2px solid #1F332D' }}>
@@ -276,13 +290,7 @@ function CartaoComMusica({ ctx, onMover }: { ctx: MusicaCtx; onMover: (trackId: 
           <BotaoFecharMusica onMover={onMover} />
         </div>
         {tempo.controles}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          <BotaoSomMusica ctx={ctx} />
-          <label htmlFor={volId} style={SR_ONLY}>Volume</label>
-          <input id={volId} className="zp-range" type="range" min={0} max={100} value={ctx.volume.vol} style={{ flex: 1, minWidth: 0 }}
-            onChange={(e) => ctx.onVolume({ vol: Number(e.target.value), muted: false })} />
-          <span style={{ flex: '0 0 34px', textAlign: 'right', fontFamily: MONO, fontSize: 11, color: '#A3BDB1' }}>{ctx.volume.muted ? 'mudo' : `${ctx.volume.vol}%`}</span>
-        </div>
+        <LinhaVolume ctx={ctx} />
       </div>
     </div>
   )
