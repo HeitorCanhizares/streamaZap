@@ -21,6 +21,7 @@ Usado pelo botão **Testar conexão** e antes de toda sessão.
   "requer_conta": true,
   "conta": { "provedor": "supabase", "url": "https://abcd1234.supabase.co", "chave": "sb_publishable_…" },
   "ponte": true,
+  "recursos": ["palco"],
   "quic": { "porta": 7443, "alpn": "zap/4" },
   "limites": { "participantes_por_sala": 16, "trilhas_video_por_sala": 8, "bitrate_max_kbps": 12000 },
   "agora": "2026-11-04T21:30:00Z"
@@ -28,6 +29,9 @@ Usado pelo botão **Testar conexão** e antes de toda sessão.
 ```
 
 `ponte: false` = o servidor só faz sinalização (a mídia precisa ir direta).
+
+`recursos` (ausente = nenhum): lista de recursos opcionais que o servidor tem. Hoje só `"palco"`.
+O app só oferece o modo palco em sala Online se `recursos` tiver `"palco"`.
 
 - `requer_conta` (ausente = `false`): sem `acesso_conta` válido, `POST /sessoes` responde
   `conta_necessaria`.
@@ -50,11 +54,14 @@ Pedido:
   "instalacao_id": "9f1c…",
   "protocolo": 4,
   "versao_app": "3.0.0",
+  "recursos": ["palco"],
   "senha_servidor": "…",
   "acesso_conta": "eyJhbGciOiJFUzI1NiIs…"
 }
 ```
 - `instalacao_id`: UUID fixo da instalação (o mesmo participante reconectando é reconhecido).
+- `recursos`: o que o app sabe fazer (`"palco"` no app 3.6.0 ou mais novo). Até 16 itens de até 32
+  caracteres. O servidor repassa em `Participante.recursos`.
 - `senha_servidor`: só se `requer_senha`.
 - `acesso_conta`: o JWT de acesso do Supabase (o `access_token` da sessão do usuário), só quando o
   servidor tem `conta`. O servidor confere a assinatura pela JWKS de `<conta.url>/auth/v1/.well-known/jwks.json`
@@ -120,6 +127,7 @@ Lista as salas visíveis (o mesmo conteúdo do evento `salas.lista` do WebSocket
       "criada_em": "2026-11-04T21:30:00Z",
       "participantes": 4,
       "ao_vivo": true,
+      "palco": true,
       "destaque": { "altura": 1080, "fps": 60 },
       "ultima_mensagem": { "nome": "Rafa", "texto": "bora, entra logo", "em": "2026-11-04T22:14:00Z" },
       "nao_lidas": 3
@@ -127,6 +135,8 @@ Lista as salas visíveis (o mesmo conteúdo do evento `salas.lista` do WebSocket
   ]
 }
 ```
+- `palco`: `true` na sala em palco (ausente = desligado). `POST /v1/salas` e `GET /v1/salas/{codigo}`
+  usam o mesmo formato.
 - `destaque`: qualidade (camada 0) da trilha de vídeo principal, para o selo `1080p60` da lista.
 - `ultima_mensagem` e `nao_lidas` só para quem já esteve na sala.
 
@@ -135,11 +145,13 @@ Lista as salas visíveis (o mesmo conteúdo do evento `salas.lista` do WebSocket
 Cria uma sala. Quem cria vira dono.
 
 ```json
-{ "nome": "Sala do Heitor", "acesso": "senha", "senha": "…" }
+{ "nome": "Sala do Heitor", "acesso": "senha", "senha": "…", "palco": true }
 ```
 Resposta `201`: `{ "sala": { …mesmo formato da lista… } }` (inclui o `codigo`).
 
 - `nome`: 1 a 48 caracteres; `senha`: 1 a 128.
+- `palco`: opcional, padrão `false`. A sala nasce com o palco ligado. Sessão sem `"palco"` em
+  `recursos` pedindo `palco: true` → `400 {"erro": "invalido", "campo": "palco"}`.
 - Quem cria já fica autorizado na sala: pode mandar `sala.entrar` sem chamar `POST …/entrar`.
 - Sessão com conta de plano sem `pode_entrar` (`nenhum`): `403 plano_insuficiente`.
 - A sala some 2 min depois que o último participante sai.
@@ -177,6 +189,10 @@ Sessão com conta de plano sem `pode_entrar` (`nenhum`): `403 plano_insuficiente
 `previa` continuam liberadas. Sessão que já está autorizada na sala (é a dona, ou entrou e não
 saiu) não é conferida de novo: renovar o ingresso ou reconectar não derruba quem já está, mesmo com
 o plano vencido no meio.
+
+Sala com o palco ligado e sessão sem `"palco"` em `recursos`: `426 {"erro": "atualizar_app"}`, com a
+`mensagem` "Esta sala está no modo palco. Atualize o streamaZap (versão 3.6.0 ou mais nova) para
+entrar.". Quem já está autorizado também é conferido: a regra vale para todo `entrar`.
 
 Servidor sem ponte (`ponte: false` em `/info`): `midia.ponte` vem `null`. O cliente deve aceitar
 `null` ou o campo ausente.

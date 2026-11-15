@@ -30,6 +30,16 @@ pub enum TrackKind {
     Audio,
 }
 
+/// Origem do som de uma trilha `audio` (`fonte`). Ausente = `Apps`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AudioSource {
+    #[default]
+    #[serde(rename = "apps")]
+    Apps,
+    #[serde(rename = "microfone")]
+    Mic,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TileSize {
     #[serde(rename = "miniatura")]
@@ -84,6 +94,9 @@ pub struct Participant {
     pub latency_ms: Option<u32>,
     #[serde(rename = "assistindo", default, skip_serializing_if = "Option::is_none")]
     pub watching: Option<String>,
+    /// O que o app sabe além do protocolo 4 base (`version::FEATURES`). Ausente = vazio.
+    #[serde(rename = "recursos", default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -143,6 +156,29 @@ pub struct Track {
         skip_serializing_if = "Option::is_none"
     )]
     pub camera_layout: Option<CameraLayout>,
+    /// Só `audio`: `Some(Mic)` = microfone; `None` = som de apps. Desconhecido = `None`.
+    #[serde(
+        rename = "fonte",
+        default,
+        deserialize_with = "tolerant",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source: Option<AudioSource>,
+    /// Só microfone: mudo.
+    #[serde(rename = "mudo", default, skip_serializing_if = "std::ops::Not::not")]
+    pub muted: bool,
+}
+
+impl Track {
+    /// Fonte do som; `None` em trilha de vídeo.
+    pub fn audio_source(&self) -> Option<AudioSource> {
+        (self.kind == TrackKind::Audio).then(|| self.source.unwrap_or_default())
+    }
+
+    /// É a trilha de microfone (modo palco).
+    pub fn is_mic(&self) -> bool {
+        self.audio_source() == Some(AudioSource::Mic)
+    }
 }
 
 /// Lê um campo opcional sem derrubar a mensagem: ausente, `null`, tipo errado ou valor que esta
@@ -494,5 +530,88 @@ mod tests {
         let mut ruim = sala_json();
         ruim["acesso"] = json!("x");
         assert!(serde_json::from_value::<Room>(ruim).is_err());
+    }
+
+    /// JSON base de uma trilha com só os campos obrigatórios, mais os `extras`.
+    fn trilha_base(tipo: &str, extras: Value) -> Value {
+        let mut v = json!({
+            "id": "t_9",
+            "participante_id": "p_1",
+            "numero": 9,
+            "tipo": tipo,
+            "titulo": "Trilha",
+            "camadas": []
+        });
+        if let Some(mapa) = extras.as_object() {
+            for (k, valor) in mapa {
+                v[k] = valor.clone();
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn participante_recursos_ida_e_volta() {
+        let mut com = participante_json();
+        com["recursos"] = json!(["palco"]);
+        let p: Participant = ida_e_volta(com);
+        assert_eq!(p.features, vec!["palco".to_string()]);
+
+        let sem: Participant = ida_e_volta(participante_json());
+        assert!(sem.features.is_empty());
+        let v = serde_json::to_value(&sem).expect("serializa");
+        assert!(v.get("recursos").is_none());
+    }
+
+    #[test]
+    fn trilha_microfone_ida_e_volta() {
+        let t: Track = ida_e_volta(trilha_base("audio", json!({"fonte": "microfone", "mudo": true})));
+        assert_eq!(t.source, Some(AudioSource::Mic));
+        assert!(t.muted);
+        assert!(t.is_mic());
+        assert_eq!(t.audio_source(), Some(AudioSource::Mic));
+    }
+
+    #[test]
+    fn trilha_sem_fonte_e_apps() {
+        let t: Track = ida_e_volta(trilha_base("audio", json!({})));
+        assert_eq!(t.source, None);
+        assert_eq!(t.audio_source(), Some(AudioSource::Apps));
+        assert!(!t.is_mic());
+        let v = serde_json::to_value(&t).expect("serializa");
+        assert!(v.get("fonte").is_none());
+        assert!(v.get("mudo").is_none());
+    }
+
+    #[test]
+    fn trilha_video_sem_fonte() {
+        let t: Track = ida_e_volta(trilha_base("tela", json!({})));
+        assert_eq!(t.audio_source(), None);
+        assert!(!t.is_mic());
+    }
+
+    #[test]
+    fn fonte_desconhecida_vira_none() {
+        for desconhecida in [json!("x"), json!(3), json!(null), json!([]), json!({})] {
+            let t: Track = serde_json::from_value(trilha_base("audio", json!({"fonte": desconhecida})))
+                .expect("trilha continua válida");
+            assert_eq!(t.source, None);
+            assert_eq!(t.id, "t_9");
+            assert_eq!(t.title, "Trilha");
+            assert_eq!(t.kind, TrackKind::Audio);
+            assert!(!t.muted);
+        }
+    }
+
+    #[test]
+    fn fonte_apps_explicita() {
+        let t: Track = ida_e_volta(trilha_base("audio", json!({"fonte": "apps"})));
+        assert_eq!(t.source, Some(AudioSource::Apps));
+        assert_eq!(t.audio_source(), Some(AudioSource::Apps));
+    }
+
+    #[test]
+    fn audio_source_default_e_apps() {
+        assert_eq!(AudioSource::default(), AudioSource::Apps);
     }
 }

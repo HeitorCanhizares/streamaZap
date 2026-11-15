@@ -10,6 +10,8 @@ Reescrever o StreamaZap para ter o desempenho e a qualidade de um app de streami
 
 - compartilhar **tela, janela e agora câmera**, com **som por aplicativo**;
 - várias pessoas compartilhando ao mesmo tempo na mesma sala;
+- **modo palco** (v3.6.0): só os anfitriões transmitem, e só eles têm microfone
+  (`docs/planos/modo-palco.md`);
 - modo **Local** (Radmin VPN / rede de casa, P2P) e o novo modo **Online** (servidor streamaZap,
   sala com código `ZAP-XXXX`, servidor como ponte quando a conexão direta falha);
 - **qualidade individual por espectador**, limitada pela qualidade escolhida por quem transmite;
@@ -40,6 +42,7 @@ Metas mensuráveis (PC médio com GPU dedicada, 1080p60, rede local):
 | Transporte | **QUIC (`quinn`)**, ALPN `zap/4` | Sem bloqueio em fila do TCP; criptografia nativa; streams independentes por quadro com prioridade e descarte; datagramas para áudio; um só porto UDP | TCP (hoje), WebRTC completo (ICE/DTLS/SDP pesados para P2P sobre VPN) |
 | Áudio | WASAPI *process loopback* (por app) + **Opus** 48 kHz 20 ms (FEC ligado) + saída WASAPI via `cpal` | Mesmo recurso de hoje, sem GIL na thread de áudio | — |
 | Câmera | **Media Foundation Source Reader** → NV12 na GPU → mesmo codificador | Mesmo pipeline da tela; a câmera vira só mais uma trilha | `getUserMedia` no WebView (no Windows 10 a câmera é exclusiva de um processo) |
+| Microfone (só no modo palco, v3.6.0) | **Trilha própria** (`tipo: "audio"`, `fonte: "microfone"`), Opus mono 48 kbps; captura pelo **Voice Capture DSP** do Windows (eco, ruído e ganho, voz em 16 kHz reamostrada para 48 kHz), com reserva na captura WASAPI direta | Quem assiste ajusta a voz separada do som do jogo; o servidor enxerga o microfone e o barra fora do palco; nenhum valor novo em enum existente, então o protocolo continua 4; o DSP existe no Windows 10 e 11, sem dependência nova (`docs/planos/modo-palco.md` §4) | Misturar o microfone no som de apps (sem volume separado); WebRTC APM (dependência nativa pesada); `IAcousticEchoCancellationControl` (só Windows 11 22621+) |
 | Atualização | **tauri-plugin-updater** com assinatura ed25519 + `latest.json` nas Releases | Confere assinatura (hoje só SHA-256 do mesmo lugar), instalação por usuário sem UAC, nunca reinicia no meio de uma sala | Updater próprio |
 | Timers no Windows | **Resolução de 1 ms (`timeBeginPeriod(1)`) enquanto houver sala ativa** (`zap-sys::platform`) | Sem isso as esperas do tokio/quinn, `Condvar`/`recv_timeout` andam em passos de 15,6 ms: um `interval` de 16,7 ms vira 31 ms (fonte a 32 fps), ACK atrasado infla o RTT e o emissor descarta quadros que a rede carregaria (medido no M4b) | Deixar o padrão do sistema; laços com espera ativa |
 | Prazo do keyframe | **Keyframe com prazo de `max(600 ms, 2 × RTT)`; quadros comuns atrás dele contam o prazo a partir do fim dele** (`docs/api/midia.md`) | O keyframe tem ~8 × um quadro comum; com o prazo único de 150 ms ele era sempre resetado em enlaces com pouca folga (camada 1 num enlace de 4 Mbps) e quem assiste nunca decodificava a camada nova (medido no M4c) | Prazo único maior (piora a latência de todos os quadros); ritmo próprio de envio do vídeo (fica como reserva) |
@@ -101,10 +104,13 @@ zap-proto  ←  zap-rate  ←  zap-net  ←  zap-core  ←  app/src-tauri
 
 - **Sala** (`Room`): id, nome, dono, modo (`local` | `online`), acesso (`aberta` | `senha`),
   código `ZAP-XXXX` (online), participantes, trilhas publicadas.
-- **Participante**: id, nome, cor, papel (`host` | `membro`), estado (assistindo quem, latência).
+- **Participante**: id, nome, cor, papel (`host` | `membro`), estado (assistindo quem, latência),
+  recursos do app (`recursos`, ex.: `palco`). No modo palco, quem é anfitrião vem em
+  `palco.estado`, não no papel (um valor novo no enum quebraria o `sala.estado` dos apps antigos).
 - **Trilha** (`Track`): mídia publicada por um participante. Tipos: `screen`, `window`, `camera`,
   `audio`. Cada participante pode publicar ao mesmo tempo uma trilha de tela ou janela, uma de
-  câmera e uma de áudio.
+  câmera e uma de áudio de apps; no modo palco, o anfitrião publica também uma de microfone
+  (`audio` com `fonte: "microfone"`).
 - **Camada** (`Layer`): versão codificada de uma trilha de vídeo (simulcast). Até 3 por trilha.
 - **Assinatura** (`Subscription`): espectador × trilha, com a camada máxima desejada pelo espectador
   (`auto` ou fixa) e o tamanho em que ele exibe (miniatura, principal, tela cheia).

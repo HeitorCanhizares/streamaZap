@@ -229,6 +229,7 @@ mod tests {
                 id: sala_id.into(),
                 name: "Corrida".into(),
                 access: Access::Open,
+                stage: false,
             },
             owner: OwnerSummary {
                 id: dono_id.into(),

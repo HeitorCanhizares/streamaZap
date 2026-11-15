@@ -135,6 +135,7 @@ impl Hub {
                 title,
                 layers,
                 camera_layout,
+                ..
             } => {
                 let mut inner = self.inner.lock();
                 let Some(sala_id) = inner.participants.get(who).and_then(|p| p.ws_room.clone()) else {
@@ -322,6 +323,7 @@ mod tests {
             audio: None,
             address: None,
             camera_layout: None,
+            source: None,
         }
     }
 
@@ -420,6 +422,7 @@ mod tests {
             title: Some(t.into()),
             layers: None,
             camera_layout: None,
+            muted: None,
         };
         hub.handle_track_message(&beto, &upd("x"));
         assert_eq!(codigo(&drenar(&mut rb)[0]), Some("proibido"));

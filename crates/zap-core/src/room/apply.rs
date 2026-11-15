@@ -99,6 +99,7 @@ mod tests {
 
     fn participante(id: &str) -> Participant {
         Participant {
+            features: Vec::new(),
             id: id.into(),
             name: format!("Pessoa {id}"),
             color: "#ff0000".into(),
@@ -113,6 +114,8 @@ mod tests {
 
     fn trilha(id: &str, dono: &str, numero: u16, kind: TrackKind) -> Track {
         Track {
+            source: None,
+            muted: false,
             id: id.into(),
             participant_id: dono.into(),
             number: numero,

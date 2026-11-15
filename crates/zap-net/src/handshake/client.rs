@@ -38,6 +38,7 @@ async fn executa(
         room_id: hello.room_id,
         preview: hello.preview,
         token: None,
+        features: Vec::new(),
     })
     .await?;
 

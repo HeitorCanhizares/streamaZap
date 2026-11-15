@@ -494,6 +494,7 @@ mod tests {
         membro.pending_tracks.lock().insert("l_1".into(), espera);
         membro
             .send(ControlMsg::TrackPublish {
+                source: None,
                 local_id: "l_1".into(),
                 kind: TrackKind::Camera,
                 title: "Câmera".into(),

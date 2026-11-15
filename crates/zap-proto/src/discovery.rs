@@ -11,6 +11,9 @@ pub struct RoomSummary {
     pub name: String,
     #[serde(rename = "acesso")]
     pub access: crate::types::Access,
+    /// Sala em modo palco (ausente = desligado).
+    #[serde(rename = "palco", default, skip_serializing_if = "std::ops::Not::not")]
+    pub stage: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -125,6 +128,7 @@ mod tests {
                 id: "s_1".into(),
                 name: nome.into(),
                 access: Access::Open,
+                stage: false,
             },
             owner: OwnerSummary {
                 id: "u_1".into(),
@@ -260,5 +264,33 @@ mod tests {
             encode_announcement(&a),
             Err(ProtoError::TooLarge(n)) if n > MAX_DISCOVERY_DATAGRAM
         ));
+    }
+
+    #[test]
+    fn anuncio_sala_sem_palco_omite_chave() {
+        let texto = serde_json::to_string(&sala("X", None)).expect("json");
+        assert!(!texto.contains("palco"), "chave palco não deveria existir: {texto}");
+    }
+
+    #[test]
+    fn anuncio_sala_com_palco_roundtrip() {
+        let mut a = sala("X", None);
+        if let Announcement::Room(r) = &mut a {
+            r.room.stage = true;
+        }
+        let texto = serde_json::to_string(&a).expect("json");
+        assert!(texto.contains("\"palco\":true"), "faltou palco:true: {texto}");
+        let de_volta: Announcement = serde_json::from_str(&texto).expect("desserializa");
+        assert_eq!(de_volta, a);
+    }
+
+    #[test]
+    fn anuncio_sala_palco_ausente_vale_false() {
+        let texto = serde_json::to_string(&sala("X", None)).expect("json");
+        let lido: Announcement = serde_json::from_str(&texto).expect("desserializa");
+        match lido {
+            Announcement::Room(r) => assert!(!r.room.stage),
+            outro => panic!("esperava sala, veio {outro:?}"),
+        }
     }
 }

@@ -195,6 +195,7 @@ mod tests {
             room_id: None,
             preview: None,
             token: None,
+            features: Vec::new(),
         }
     }
 

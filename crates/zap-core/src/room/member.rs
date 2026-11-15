@@ -133,6 +133,7 @@ impl MemberRoom {
                 audio: spec.audio,
                 address: spec.address,
                 camera_layout: spec.camera_layout,
+                source: None,
             })
             .await;
         if let Err(e) = enviado {
@@ -159,6 +160,7 @@ impl MemberRoom {
             title,
             layers,
             camera_layout,
+            muted: None,
         })
         .await
     }

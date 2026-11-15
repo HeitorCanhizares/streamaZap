@@ -436,6 +436,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
         };
         let owner = Participant {
+            features: Vec::new(),
             id: "p_1".into(),
             name: "Ana".into(),
             color: "#ff0000".into(),

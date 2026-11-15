@@ -143,6 +143,8 @@ impl RoomModel {
             } else {
                 None
             },
+            source: None,
+            muted: false,
         };
         self.tracks.push(track.clone());
         Ok(track)
@@ -364,6 +366,7 @@ mod tests {
 
     fn participante(id: &str) -> Participant {
         Participant {
+            features: Vec::new(),
             id: id.into(),
             name: format!("Pessoa {id}"),
             color: "#ff0000".into(),
@@ -415,6 +418,8 @@ mod tests {
 
     fn track_de(id: &str, owner: &str, number: u16, kind: TrackKind) -> Track {
         Track {
+            source: None,
+            muted: false,
             id: id.into(),
             participant_id: owner.into(),
             number,

@@ -300,6 +300,8 @@ mod tests {
     fn spec_teste(numero: u16) -> WatchSpec {
         WatchSpec {
             track: Track {
+                source: None,
+                muted: false,
                 id: "t-sub".into(),
                 participant_id: "dono".into(),
                 number: numero,

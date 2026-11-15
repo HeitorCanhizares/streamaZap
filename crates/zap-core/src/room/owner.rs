@@ -63,6 +63,7 @@ impl OwnerRoom {
             name: ctx.name.clone(),
             color: ctx.color.clone(),
             role: Role::Owner,
+            features: Vec::new(),
             joined_at: iso8601_now(),
             app_version: ctx.app_version.clone(),
             protocol: zap_proto::PROTOCOL_VERSION,

@@ -330,6 +330,8 @@ mod tests {
     }
     fn trilha(id: &str, dono: &str, numero: u16, kind: TrackKind) -> Track {
         Track {
+            source: None,
+            muted: false,
             id: id.into(),
             participant_id: dono.into(),
             number: numero,
@@ -568,6 +570,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
         };
         let owner = Participant {
+            features: Vec::new(),
             id: "p_1".into(),
             name: "Ana".into(),
             color: "#ff0000".into(),

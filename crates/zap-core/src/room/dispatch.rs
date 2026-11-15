@@ -74,6 +74,7 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
             audio,
             address,
             camera_layout,
+            ..
         } => {
             let spec = TrackSpec {
                 local_id: local_id.clone(),
@@ -107,6 +108,7 @@ pub fn handle_member_msg(model: &mut RoomModel, from: &str, msg: ControlMsg) -> 
             title,
             layers,
             camera_layout,
+            ..
         } => {
             if !dona_da_trilha(model, from, &track_id) {
                 return vec![erro(
@@ -305,6 +307,7 @@ mod tests {
 
     fn participante(id: &str) -> Participant {
         Participant {
+            features: Vec::new(),
             id: id.into(),
             name: format!("Pessoa {id}"),
             color: "#ff0000".into(),
@@ -327,6 +330,7 @@ mod tests {
 
     fn publicar_msg(local: &str, kind: TrackKind) -> ControlMsg {
         ControlMsg::TrackPublish {
+            source: None,
             local_id: local.into(),
             kind,
             title: "Trilha".into(),
@@ -478,6 +482,7 @@ mod tests {
         let mut m = modelo();
         let id = publicar(&mut m, "p_2", TrackKind::Camera);
         let alheia = ControlMsg::TrackUpdate {
+            muted: None,
             track_id: id.clone(),
             title: Some("Invadida".into()),
             layers: None,
@@ -488,6 +493,7 @@ mod tests {
         assert_eq!(m.track_by_id(&id).unwrap().title, "Trilha");
 
         let propria = ControlMsg::TrackUpdate {
+            muted: None,
             track_id: id.clone(),
             title: Some("Nova".into()),
             layers: None,

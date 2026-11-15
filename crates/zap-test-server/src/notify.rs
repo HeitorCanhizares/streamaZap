@@ -98,6 +98,7 @@ impl Inner {
             protocol: p.protocol,
             latency_ms: None,
             watching: p.watching.clone(),
+            features: Vec::new(),
         }
     }
 
@@ -113,6 +114,8 @@ impl Inner {
             audio: t.audio.clone(),
             address: None,
             camera_layout: t.camera_layout,
+            source: None,
+            muted: false,
         }
     }
 

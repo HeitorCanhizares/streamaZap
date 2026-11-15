@@ -12,4 +12,9 @@ pub enum AudioError {
     Invalid(String),
     #[error("não suportado nesta plataforma")]
     Unsupported,
+    #[error(
+        "O Windows bloqueou o microfone. Libere em Configurações → Privacidade → Microfone → \
+         Permitir que aplicativos da área de trabalho acessem o microfone."
+    )]
+    MicBlocked,
 }

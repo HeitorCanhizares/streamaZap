@@ -16,7 +16,7 @@ Direção: **C→S** = app para servidor (ou para quem criou a sala, no modo Loc
 No modo Online o app tem dois canais com o servidor: o WebSocket e o stream de controle da conexão
 QUIC de mídia.
 - **C→S**: o app pode mandar qualquer mensagem por qualquer um dos dois.
-- **S→C, eventos de sala e chat**: pelo WebSocket quando ele está conectado; senão, pelo QUIC.
+- **S→C, eventos de sala, chat e palco**: pelo WebSocket quando ele está conectado; senão, pelo QUIC.
 - **S→C, mensagens da mídia** (`camadas.pedidas`, `keyframe.pedir`, `camada.atual`, `relatorio`):
   **sempre** pelo QUIC.
 - **Resposta direta a um pedido** (`pong`, `erro`, `trilha.publicada` com `local_id`,
@@ -34,6 +34,7 @@ type Participante = {
   entrou_em: string; versao_app: string; protocolo: number;
   latencia_ms?: number;          // RTT até o servidor/dono
   assistindo?: string | null;    // trilha_id principal que está vendo
+  recursos?: string[];           // o que o app sabe além do protocolo 4 base (hoje só "palco"); ausente = []
 }
 type Camada = { camada: 0 | 1 | 2; largura: number; altura: number; fps: number; kbps: number }
 type Trilha = {
@@ -45,6 +46,8 @@ type Trilha = {
   audio?: { taxa: 48000; canais: 1 | 2; kbps: number };
   endereco?: Endereco;           // só modo Local: onde conectar para receber esta trilha
   camera?: CameraJeito;          // só tipo "camera"; ausente = canto inferior direito
+  fonte?: "apps" | "microfone";  // só tipo "audio". Ausente = "apps" (som de apps). "microfone" só no modo palco
+  mudo?: boolean;                // só microfone; ausente = false
 }
 // Como quem transmite quer a câmera para quem assiste: num canto da tela dele ou solta (célula própria).
 type CameraJeito =
@@ -52,6 +55,11 @@ type CameraJeito =
   | { modo: "solta" }
 type Endereco = { enderecos: string[] /* "26.12.34.56" */; porta: number; fingerprint: string /* SHA-256 hex do certificado */ }
 ```
+
+- `fonte` desconhecido (de uma versão futura) vale como ausente (`zap_proto::types::tolerant`); a
+  mensagem continua válida. Quem decide guarda `fonte` só quando é `microfone` (`apps` vira
+  ausente).
+- `recursos`: até 16 itens de até 32 caracteres; o excesso é ignorado.
 
 ## Conexão e sessão
 
@@ -69,7 +77,7 @@ quando não há conexão QUIC.
 
 | t | Direção | Campos |
 |---|---|---|
-| `ola` | C→S | `protocolo`, `versao_app`, `instalacao_id`, `nome`, `cor`, `ingresso?` (Online), `sala_id?` (Local), `previa?: bool` |
+| `ola` | C→S | `protocolo`, `versao_app`, `instalacao_id`, `nome`, `cor`, `ingresso?` (Online), `sala_id?` (Local), `previa?: bool`, `recursos?: string[]` |
 | `desafio` | S→C | `nonce` (base64, 32 bytes), `acesso` | Só no modo Local com senha |
 | `autenticar` | C→S | `hmac` = base64(HMAC-SHA256(chave = senha UTF-8, msg = nonce)) |
 | `bem_vindo` | S→C | `participante_id`, `sala: Sala`, `relogio_us` (relógio do servidor, só diagnóstico), `segredo_midia?` (só modo Local, ver abaixo) |
@@ -92,6 +100,17 @@ Tempo máximo do aperto de mão: 10 s.
 | `proibido` | ingresso válido, mas o participante não está mais autorizado na sala: chamar `POST …/entrar` de novo |
 | `sala_nao_encontrada` | a sala do ingresso não existe mais |
 
+**Modo Local, `recusado.codigo`:**
+
+| Código | Quando |
+|---|---|
+| `versao` | `protocolo` diferente do do dono |
+| `senha_sala` | senha errada |
+| `ingresso` | ingresso de mídia inválido |
+| `atualizar_app` | a sala está no modo palco e o `ola` não traz `"palco"` em `recursos` |
+
+No Online o servidor usa os `recursos` da sessão (`POST /v1/sessoes`); os do `ola` são ignorados.
+
 **Modo Local, mídia de outro participante.** Quem criou a sala gera um `segredo_midia` (32 bytes
 aleatórios, base64) e o entrega em `bem_vindo` a cada membro. Para assistir a trilha de outro
 membro, o app conecta direto no `endereco` da trilha e manda `ola` com
@@ -107,11 +126,13 @@ publicador confere com o mesmo segredo e responde `bem_vindo` (sem `segredo_midi
 | `sala.sair` | C→S | — | |
 | `sala.estado` | S→C | `sala`, `participantes: Participante[]`, `trilhas: Trilha[]` | Estado completo; depois só eventos |
 | `sala.saiu` | S→C | `sala_id` | Só para quem saiu (`POST …/sair` ou `sala.sair`). Clientes antigos ignoram |
-| `sala.encerrada` | S→C | `motivo`: `"dono"` \| `"vazia"` (2 min sem ninguém) \| `"servidor"` (servidor desligando) | |
+| `sala.encerrada` | S→C | `motivo`: `"dono"` \| `"vazia"` (2 min sem ninguém) \| `"servidor"` (servidor desligando) \| `"atualizar_app"` | |
 | `participante.entrou` | S→C | `participante` | |
 | `participante.saiu` | S→C | `participante_id`, `motivo`: `"saiu"` \| `"caiu"` \| `"removido"` | `"caiu"` = 15 s presente na sala sem WebSocket nem QUIC |
 | `participante.atualizou` | S→C | `participante` | Mudou nome, cor ou quem está assistindo; ou a latência variou ≥ 10 ms (no máx. 1 a cada 2 s por participante) |
 | `perfil.atualizar` | C→S | `nome?`, `cor?` | |
+
+`sala.encerrada {motivo: "atualizar_app"}` vai só para quem tem app sem o recurso `palco`, quando o palco liga; os outros veem `participante.saiu {motivo: "removido"}`.
 
 As mensagens de sistema do chat ("Ju ligou a webcam", "Marcão criou a sala") são geradas pelo
 app a partir desses eventos, não pelo servidor.
@@ -130,9 +151,9 @@ O servidor guarda as últimas 200 mensagens e as manda logo depois de `sala.esta
 
 | t | Direção | Campos | Notas |
 |---|---|---|---|
-| `trilha.publicar` | C→S | `local_id`, `tipo`, `titulo`, `camadas`, `audio?`, `endereco?` (Local), `camera?` (só `camera`) | `camadas` = escada completa que o app sabe produzir |
+| `trilha.publicar` | C→S | `local_id`, `tipo`, `titulo`, `camadas`, `audio?`, `endereco?` (Local), `camera?` (só `camera`), `fonte?` (só `audio`) | `camadas` = escada completa que o app sabe produzir. `fonte: "microfone"` só no modo palco, só anfitrião |
 | `trilha.publicada` | S→C | `trilha`, `local_id?` (só para quem publicou) | Para todos da sala |
-| `trilha.atualizar` | C→S | `trilha_id`, `titulo?`, `camadas?`, `camera?` | Troca de qualidade ao vivo, janela redimensionada, câmera trocada de canto ou solta |
+| `trilha.atualizar` | C→S | `trilha_id`, `titulo?`, `camadas?`, `camera?`, `mudo?` (só microfone) | Troca de qualidade ao vivo, janela redimensionada, câmera trocada de canto ou solta. `mudo` ausente = não muda; em outra trilha, descartado. `mudo` sozinho passa com qualquer plano |
 | `trilha.atualizada` | S→C | `trilha` | |
 | `trilha.remover` | C→S | `trilha_id` | |
 | `trilha.removida` | S→C | `trilha_id` | |
@@ -140,7 +161,10 @@ O servidor guarda as últimas 200 mensagens e as manda logo depois de `sala.esta
 | `keyframe.pedir` | S→C | `trilha_id`, `camada` | Quem publica manda um keyframe dessa camada (máx. 1 por segundo por camada) |
 
 Regras:
-- Um participante tem no máximo uma trilha `tela` **ou** `janela`, uma `camera` e uma `audio`.
+- Um participante tem no máximo uma trilha `tela` **ou** `janela`, uma `camera`, uma `audio` de apps e uma `audio` com `fonte: "microfone"`.
+- Microfone: `audio: { taxa: 48000, canais: 1, kbps: 48 }`, título `"Microfone"`. Com `mudo: true` não chega pacote (a trilha continua).
+- **`audio: true` num `assinar` de vídeo traz só o som de apps** do mesmo publicador. O microfone só chega a quem assina a trilha dele.
+- Modo palco: ver "Modo palco" abaixo (quem pode publicar).
 - `camadas[0]` é a qualidade escolhida por quem transmite; o servidor **nunca** pede bitrate acima
   do `kbps` anunciado em cada camada.
 - `titulo` até 64 caracteres; `local_id` (e o `cliente_id` do chat) até 64.
@@ -270,6 +294,57 @@ Regras:
   Servidor sem música: o app não recebe `musica.estado` e a aba avisa que o servidor precisa ser
   atualizado.
 - Apps antigos ignoram `musica.*`.
+- Modo palco: ver a seção "Modo palco" (quem pode mexer, quem modera e quem vota).
+
+## Modo palco
+
+> Só os anfitriões transmitem; a plateia assiste e conversa no chat. O dono é sempre anfitrião e é
+> o único que liga o palco, promove, tira e recusa pedidos. Plano:
+> [`../planos/modo-palco.md`](../planos/modo-palco.md).
+
+```ts
+type PalcoEstado = {
+  ligado: boolean;
+  anfitrioes: string[];      // participante_id; o dono primeiro, depois na ordem em que subiram
+  maos: string[];            // pedidos para subir, na ordem de chegada
+  plateia_musica: boolean;   // a plateia pode mexer na música (adicionar, votar, pausar, buscar, remover os seus)
+}
+```
+
+| t | Direção | Campos | Notas |
+|---|---|---|---|
+| `palco.ligar` | C→S | `ligado: bool` | Só o dono. Ligar: app sem o recurso `palco` sai da sala; as trilhas de quem não é anfitrião saem. Desligar: os microfones saem e as mãos baixam |
+| `palco.anfitriao` | C→S | `participante_id`, `anfitriao: bool` | Só o dono. `true` promove (aceita o pedido, se houver: a mão baixa). `false` tira; com o palco ligado, todas as trilhas da pessoa saem. Tirar o dono ou alvo fora da sala: `invalido` |
+| `palco.mao` | C→S | `levantada: bool`, `participante_id?` | Sem `participante_id` (ou com o próprio): a própria mão, só plateia e com o palco ligado. Com o de outra pessoa e `levantada: false`: o dono recusa o pedido. Levantar de novo: 5 s depois da última vez, 30 s depois de recusado (`limite` com `tentar_em_ms`) |
+| `palco.musica` | C→S | `plateia: bool` | Qualquer anfitrião, com o palco ligado. Desligar tira os votos da plateia |
+| `palco.estado` | S→C | `ligado`, `anfitrioes`, `maos`, `plateia_musica` | Para todos a cada mudança e para quem entra (logo depois de `sala.estado`). Quem tem palco manda sempre, até com o palco desligado |
+
+Regras:
+- **Transmitir**: com o palco ligado, `trilha.publicar` de quem não é anfitrião é recusado com
+  `erro` `proibido` (`campo: "palco"`). Microfone (`fonte: "microfone"`) só com o palco ligado e
+  só anfitrião, também `proibido`.
+- **Música**: com o palco ligado e `plateia_musica: false`, a plateia recebe `proibido` em
+  `musica.adicionar`, `musica.remover`, `musica.pular`, `musica.pausar` e `musica.buscar`;
+  `musica.info` continua para todos. Com o palco ligado, todo anfitrião tira qualquer item e pula
+  direto. O limite de votos conta só quem pode votar (`plateia_musica: false` → só os anfitriões
+  presentes).
+- **Ordem** de uma mudança: saídas de apps antigos, `trilha.removida` de quem virou plateia e dos
+  microfones, `musica.estado` (se os votantes mudaram), `palco.estado`.
+- **Erros** (só para quem pediu, com o `ref`):
+
+| Código | `campo` | Quando |
+|---|---|---|
+| `proibido` | `palco` | não é o dono (`palco.ligar`, `palco.anfitriao`, recusar); não é anfitrião (`palco.musica`); plateia transmitindo; microfone fora do palco; plateia mexendo na música trancada |
+| `invalido` | `palco` | palco desligado (`palco.mao`, `palco.musica`); anfitrião levantando a mão; levantar a mão de outra pessoa |
+| `invalido` | `participante_id` | tirar o dono; alvo fora da sala |
+| `limite` | `palco` | levantar a mão cedo demais (`tentar_em_ms`) |
+
+- **Saída e volta**: quem sai perde o papel e a mão. Anfitrião que volta em até 60 s (Online: o
+  mesmo participante; Local: a mesma instalação) continua anfitrião.
+- **App antigo** (sem `"palco"` em `recursos`): não entra em sala em palco (Online:
+  `426 atualizar_app` no `POST …/entrar`; Local: `recusado {codigo: "atualizar_app"}`) e sai quando
+  o palco liga. Mensagens `palco.*` são desconhecidas para ele e puladas.
+- O `PROTOCOL_VERSION` não muda.
 
 ## Estatísticas para a interface
 
@@ -291,6 +366,12 @@ depois de 5 s sem anúncio.
   "dono": { "id": "…", "nome": "Rafa", "cor": "#5CD6FF" },
   "endereco": { "enderecos": ["26.9.77.140"], "porta": 47800, "fingerprint": "ab12…" },
   "participantes": 3, "destaque": { "altura": 1080, "fps": 60 }, "versao_app": "3.0.0" }
+```
+
+O anúncio `sala` ganha `"palco": true` quando o palco está ligado (ausente = desligado):
+
+```json
+"sala": { "id": "s_…", "nome": "Corrida em Interlagos", "acesso": "aberta", "palco": true }
 ```
 
 ```json

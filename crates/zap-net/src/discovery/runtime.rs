@@ -121,6 +121,7 @@ mod tests {
                 id: "s_1".into(),
                 name: "Corrida".into(),
                 access: Access::Open,
+                stage: false,
             },
             owner: OwnerSummary {
                 id: dono.into(),

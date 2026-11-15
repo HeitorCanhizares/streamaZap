@@ -22,6 +22,7 @@ pub fn room_announcement(
             id: room.id.clone(),
             name: room.name.clone(),
             access: room.access,
+            stage: false,
         },
         owner: OwnerSummary {
             id: owner.id.clone(),
@@ -126,6 +127,7 @@ mod tests {
 
     fn dono() -> Participant {
         Participant {
+            features: Vec::new(),
             id: "u_1".into(),
             name: "Rafa".into(),
             color: "#5CD6FF".into(),
@@ -149,6 +151,7 @@ mod tests {
     fn anuncio(ips: Vec<String>, destaque: Option<Highlight>, versao: &str) -> RoomAnnouncement {
         RoomAnnouncement {
             room: RoomSummary {
+                stage: false,
                 id: "s_1".into(),
                 name: "Corrida em Interlagos".into(),
                 access: Access::Open,

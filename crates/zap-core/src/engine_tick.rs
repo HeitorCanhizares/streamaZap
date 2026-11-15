@@ -146,6 +146,8 @@ mod tests {
 
     fn trilha(number: u16, kind: TrackKind, height: u16, fps: u8) -> Track {
         Track {
+            source: None,
+            muted: false,
             id: format!("t{number}"),
             participant_id: "p".into(),
             number,

@@ -13,6 +13,7 @@ pub mod ids;
 pub mod media;
 pub mod music;
 pub mod plan;
+pub mod stage;
 pub mod types;
 pub mod version;
 

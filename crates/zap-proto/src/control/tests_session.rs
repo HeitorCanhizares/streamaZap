@@ -82,6 +82,7 @@ fn ola_online() {
             room_id,
             preview,
             token,
+            ..
         } => {
             assert_eq!(*protocol, 4);
             assert_eq!(app_version, "3.0.0");

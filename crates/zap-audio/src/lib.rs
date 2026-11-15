@@ -13,10 +13,14 @@ pub const FRAME_SAMPLES: usize = FRAME * CHANNELS;
 pub mod app_tree;
 pub mod clock;
 mod error;
+pub mod level;
+pub mod mic;
+pub mod mic_devices;
 pub mod mix;
 pub mod opus;
 pub mod out_mixer;
 pub mod out_track;
+pub mod resample3;
 mod types;
 
 #[cfg(windows)]
@@ -28,11 +32,21 @@ pub mod com;
 #[cfg(windows)]
 pub mod loopback;
 #[cfg(windows)]
+mod mic_dsp;
+#[cfg(windows)]
+mod mic_dsp_keys;
+#[cfg(windows)]
+mod mic_wasapi;
+#[cfg(windows)]
 pub mod out;
 
 pub use error::AudioError;
-pub use opus::{OpusDec, OpusEnc};
+pub use level::PeakHold;
+pub use mic::{MicBlock, MicCapture, MicOptions};
+pub use mic_devices::{default_output_form_factor, list_microphones, MicDevice, OutputFormFactor};
+pub use opus::{OpusDec, OpusEnc, OpusVoiceEnc};
 pub use out_track::TrackInput;
+pub use resample3::Upsampler3;
 pub use types::{AppSound, AudioApp, AudioSelection, CapturedAudio};
 
 #[cfg(windows)]

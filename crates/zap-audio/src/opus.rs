@@ -45,6 +45,37 @@ impl OpusEnc {
     }
 }
 
+/// Codificador de voz: mono, `Voip`, FEC em banda, perda esperada 10%, sem DTX.
+pub struct OpusVoiceEnc {
+    inner: ::opus::Encoder,
+}
+
+impl OpusVoiceEnc {
+    pub fn new(kbps: u32) -> Result<Self, AudioError> {
+        if !(6..=510).contains(&kbps) {
+            return Err(AudioError::Invalid(format!(
+                "bitrate Opus de {kbps} kbps fora de 6..=510"
+            )));
+        }
+        let mut inner = ::opus::Encoder::new(crate::RATE, Channels::Mono, Application::Voip).map_err(erro_opus)?;
+        inner
+            .set_bitrate(Bitrate::Bits((kbps * 1000) as i32))
+            .map_err(erro_opus)?;
+        inner.set_complexity(8).map_err(erro_opus)?;
+        // FEC em banda: o pacote seguinte carrega o quadro anterior em baixa qualidade.
+        inner.set_inband_fec(true).map_err(erro_opus)?;
+        inner.set_packet_loss_perc(10).map_err(erro_opus)?;
+        // DTX fica desligado de propósito: a sequência de pacotes precisa ser contínua.
+        Ok(Self { inner })
+    }
+
+    pub fn encode(&mut self, pcm: &[f32; FRAME]) -> Result<Bytes, AudioError> {
+        let mut buf = [0u8; MAX_PACOTE];
+        let n = self.inner.encode_float(pcm, &mut buf).map_err(erro_opus)?;
+        Ok(Bytes::copy_from_slice(&buf[..n]))
+    }
+}
+
 pub struct OpusDec {
     inner: ::opus::Decoder,
 }
@@ -179,5 +210,106 @@ mod tests {
     fn kbps_invalido() {
         assert!(matches!(OpusEnc::new(1), Err(AudioError::Invalid(_))));
         assert!(matches!(OpusEnc::new(511), Err(AudioError::Invalid(_))));
+    }
+
+    /// Seno mono de 440 Hz, amplitude 0.1 (-20 dBFS), `quadros` quadros de 20 ms.
+    fn seno_mono(quadros: usize) -> Vec<f32> {
+        (0..quadros * FRAME)
+            .map(|n| {
+                let fase = 2.0 * std::f64::consts::PI * 440.0 * n as f64 / crate::RATE as f64;
+                (0.1 * fase.sin()) as f32
+            })
+            .collect()
+    }
+
+    fn quadro_mono(v: &[f32], q: usize) -> [f32; FRAME] {
+        let mut out = [0f32; FRAME];
+        out.copy_from_slice(&v[q * FRAME..(q + 1) * FRAME]);
+        out
+    }
+
+    #[test]
+    fn voz_roundtrip_estereo_igual() {
+        let entrada = seno_mono(50);
+        let mut enc = OpusVoiceEnc::new(48).expect("encoder");
+        let mut dec = OpusDec::new().expect("decoder");
+        let mut out = [0f32; FRAME_SAMPLES];
+        for q in 0..50 {
+            let pacote = enc.encode(&quadro_mono(&entrada, q)).expect("encode");
+            dec.decode(Some(&pacote[..]), None, &mut out).expect("decode");
+            assert_eq!(out.len(), FRAME_SAMPLES);
+            for par in out.chunks_exact(2) {
+                assert!((par[0] - par[1]).abs() < 1e-6, "canais diferentes no quadro {q}");
+            }
+        }
+    }
+
+    #[test]
+    fn voz_snr_maior_que_20db() {
+        const QUADROS: usize = 50;
+        const DESCARTE: usize = 5;
+        let entrada = seno_mono(QUADROS);
+        let mut enc = OpusVoiceEnc::new(48).expect("encoder");
+        let mut dec = OpusDec::new().expect("decoder");
+        let mut saida: Vec<f32> = Vec::with_capacity(QUADROS * FRAME);
+        let mut out = [0f32; FRAME_SAMPLES];
+        for q in 0..QUADROS {
+            let pacote = enc.encode(&quadro_mono(&entrada, q)).expect("encode");
+            dec.decode(Some(&pacote[..]), None, &mut out).expect("decode");
+            saida.extend(out.iter().step_by(crate::CHANNELS).copied());
+        }
+
+        // Atraso inteiro (+-480) que maximiza a correlação; depois ganho por mínimos quadrados.
+        let inicio = DESCARTE * FRAME;
+        let fim = QUADROS * FRAME - 480;
+        let corr = |d: i64| -> f64 {
+            (inicio..fim)
+                .map(|i| entrada[i] as f64 * saida[(i as i64 + d) as usize] as f64)
+                .sum()
+        };
+        let melhor = (-480i64..=480)
+            .max_by(|a, b| corr(*a).total_cmp(&corr(*b)))
+            .expect("faixa não vazia");
+        let (mut sxy, mut sxx) = (0f64, 0f64);
+        for i in inicio..fim {
+            let x = entrada[i] as f64;
+            let y = saida[(i as i64 + melhor) as usize] as f64;
+            sxy += x * y;
+            sxx += x * x;
+        }
+        let ganho = sxy / sxx;
+        let mut erro = 0f64;
+        for i in inicio..fim {
+            let e = saida[(i as i64 + melhor) as usize] as f64 - ganho * entrada[i] as f64;
+            erro += e * e;
+        }
+        let snr = 10.0 * (ganho * ganho * sxx / erro.max(f64::MIN_POSITIVE)).log10();
+        assert!(snr > 20.0, "SNR {snr:.1} dB (atraso {melhor}, ganho {ganho:.3})");
+    }
+
+    #[test]
+    fn voz_pacote_medio_ate_140_bytes() {
+        let entrada = seno_mono(50);
+        let mut enc = OpusVoiceEnc::new(48).expect("encoder");
+        let total: usize = (0..50)
+            .map(|q| enc.encode(&quadro_mono(&entrada, q)).expect("encode").len())
+            .sum();
+        let media = total as f64 / 50.0;
+        assert!(media <= 140.0, "pacote médio de {media:.1} bytes");
+    }
+
+    #[test]
+    fn voz_kbps_invalido() {
+        assert!(matches!(OpusVoiceEnc::new(1), Err(AudioError::Invalid(_))));
+        assert!(matches!(OpusVoiceEnc::new(511), Err(AudioError::Invalid(_))));
+    }
+
+    #[test]
+    fn voz_silencio_nao_da_erro() {
+        let mut enc = OpusVoiceEnc::new(48).expect("encoder");
+        let mut dec = OpusDec::new().expect("decoder");
+        let pacote = enc.encode(&[0f32; FRAME]).expect("encode");
+        let mut out = [0f32; FRAME_SAMPLES];
+        dec.decode(Some(&pacote[..]), None, &mut out).expect("decode");
     }
 }

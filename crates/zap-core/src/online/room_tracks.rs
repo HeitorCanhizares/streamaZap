@@ -39,6 +39,7 @@ impl OnlineRoom {
             audio: spec.audio,
             address: None,
             camera_layout: spec.camera_layout,
+            source: None,
         };
         if let Err(e) = ws.send_ref(msg, local_id.clone()).await {
             self.pending.lock().remove(&local_id);
@@ -87,6 +88,7 @@ impl OnlineRoom {
             title,
             layers,
             camera_layout,
+            muted: None,
         })
         .await?;
         Ok(())
@@ -171,6 +173,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
         };
         let owner = Participant {
+            features: Vec::new(),
             id: "p_1".into(),
             name: "Ana".into(),
             color: "#ff0000".into(),

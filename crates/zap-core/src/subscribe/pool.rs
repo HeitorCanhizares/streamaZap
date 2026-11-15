@@ -623,6 +623,7 @@ mod tests {
             .expect("room join b");
         wtx_b
             .send(ControlMsg::TrackPublish {
+                source: None,
                 local_id: "l1".into(),
                 kind: TrackKind::Screen,
                 title: "tela".into(),

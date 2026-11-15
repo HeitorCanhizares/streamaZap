@@ -25,6 +25,7 @@ fn trilha_publicar_minima() {
             audio,
             address,
             camera_layout,
+            ..
         } => {
             assert_eq!(local_id, "l1");
             assert_eq!(*kind, TrackKind::Screen);
@@ -112,6 +113,7 @@ fn trilha_atualizar_titulo() {
             title,
             layers,
             camera_layout,
+            ..
         } => {
             assert_eq!(track_id, "t1");
             assert_eq!(title.as_deref(), Some("Tela 2"));

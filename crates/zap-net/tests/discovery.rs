@@ -34,6 +34,7 @@ fn sala_de_exemplo(dono_id: &str) -> RoomAnnouncement {
             id: "s_1".into(),
             name: "Corrida em Interlagos".into(),
             access: Access::Open,
+            stage: false,
         },
         owner: OwnerSummary {
             id: dono_id.into(),

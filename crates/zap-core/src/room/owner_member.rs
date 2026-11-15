@@ -42,6 +42,7 @@ pub(crate) async fn serve_member(
         name: hello.name,
         color: hello.color,
         role: Role::Member,
+        features: Vec::new(),
         joined_at: iso8601_now(),
         app_version: hello.app_version,
         protocol: PROTOCOL_VERSION,

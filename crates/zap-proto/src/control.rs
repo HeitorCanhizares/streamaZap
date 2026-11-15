@@ -152,6 +152,9 @@ pub enum ControlMsg {
         /// Conexão reversa (modo Local).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         token: Option<String>,
+        /// Recursos do app além do protocolo 4 base (`version::FEATURES`).
+        #[serde(rename = "recursos", default, skip_serializing_if = "Vec::is_empty")]
+        features: Vec<String>,
     },
     #[serde(rename = "desafio")]
     Challenge {
@@ -281,6 +284,14 @@ pub enum ControlMsg {
             skip_serializing_if = "Option::is_none"
         )]
         camera_layout: Option<CameraLayout>,
+        /// Só `audio`: `microfone` (modo palco). Ausente ou desconhecido = som de apps.
+        #[serde(
+            rename = "fonte",
+            default,
+            deserialize_with = "crate::types::tolerant",
+            skip_serializing_if = "Option::is_none"
+        )]
+        source: Option<AudioSource>,
     },
     #[serde(rename = "trilha.publicada")]
     TrackPublished {
@@ -305,6 +316,9 @@ pub enum ControlMsg {
             skip_serializing_if = "Option::is_none"
         )]
         camera_layout: Option<CameraLayout>,
+        /// Só microfone: muda (ou desmuda). Ausente = não muda.
+        #[serde(rename = "mudo", default, skip_serializing_if = "Option::is_none")]
+        muted: Option<bool>,
     },
     #[serde(rename = "trilha.atualizada")]
     TrackUpdated {
@@ -474,6 +488,47 @@ pub enum ControlMsg {
         #[serde(rename = "posicao_ms")]
         position_ms: u64,
     },
+    // modo palco (`docs/api/mensagens.md#modo-palco`)
+    /// Liga ou desliga o palco (só o dono).
+    #[serde(rename = "palco.ligar")]
+    StageSet {
+        #[serde(rename = "ligado")]
+        on: bool,
+    },
+    /// Promove ou tira um anfitrião (só o dono).
+    #[serde(rename = "palco.anfitriao")]
+    StageHost {
+        #[serde(rename = "participante_id")]
+        participant_id: String,
+        #[serde(rename = "anfitriao")]
+        host: bool,
+    },
+    /// Levanta ou baixa a mão (a própria); o dono recusa com o `participante_id` de outra pessoa.
+    #[serde(rename = "palco.mao")]
+    StageHand {
+        #[serde(rename = "levantada")]
+        raised: bool,
+        #[serde(rename = "participante_id", default, skip_serializing_if = "Option::is_none")]
+        participant_id: Option<String>,
+    },
+    /// Qualquer anfitrião: a plateia pode (ou não) mexer na música.
+    #[serde(rename = "palco.musica")]
+    StageMusic {
+        #[serde(rename = "plateia")]
+        audience: bool,
+    },
+    /// Estado do palco, para todos a cada mudança e para quem entra.
+    #[serde(rename = "palco.estado")]
+    StageState {
+        #[serde(rename = "ligado")]
+        on: bool,
+        #[serde(rename = "anfitrioes")]
+        hosts: Vec<String>,
+        #[serde(rename = "maos", default)]
+        hands: Vec<String>,
+        #[serde(rename = "plateia_musica", default)]
+        audience_music: bool,
+    },
     /// Estado completo da música, para todos a cada mudança e para quem entra.
     #[serde(rename = "musica.estado")]
     MusicState {
@@ -556,4 +611,6 @@ mod tests_rooms; // tarefa proto-06
 #[cfg(test)]
 mod tests_session; // tarefa proto-05
 #[cfg(test)]
-mod tests_tracks; // tarefa proto-07
+mod tests_stage;
+#[cfg(test)]
+mod tests_tracks; // tarefa proto-07 // tarefa contrato-02

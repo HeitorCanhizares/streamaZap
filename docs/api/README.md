@@ -52,6 +52,8 @@ implementado em qualquer linguagem.
 - Tempos: instantes absolutos em ISO 8601 UTC (`2026-11-04T21:30:00Z`); durações em ms
   (campo termina com `_ms`), bitrates em kbps (`_kbps`).
 
+O modo palco (v3.6.0) é aditivo: o protocolo continua 4; veja `recursos`.
+
 ## Segurança
 
 - Tudo sobre TLS 1.3 (HTTPS, WSS, QUIC). Certificado válido no servidor (Let's Encrypt).
@@ -107,6 +109,7 @@ WebSocket/QUIC: mensagem `erro` com os mesmos códigos.
 | Código | HTTP | Quando |
 |---|---|---|
 | `protocolo_incompativel` | 426 | `protocolo` fora da faixa do servidor (a resposta traz `protocolo_min/max`) |
+| `atualizar_app` | 426 | a sala está no modo palco e o app não tem o recurso `palco` (`POST …/entrar`; no Local, `recusado`). A `mensagem` pede para atualizar |
 | `senha_servidor` | 401 | senha do servidor ausente ou errada |
 | `conta_necessaria` | 401 | só no `POST /sessoes`: o servidor exige conta (`requer_conta`) e o pedido não trouxe `acesso_conta` válido (ausente, vencido, anônimo, de outro emissor ou com assinatura errada). App velho recebe a `mensagem` "Atualize o streamaZap para entrar com sua conta" |
 | `plano_insuficiente` | 403 | ação acima do plano da conta. Traz `plano` (só o id, ex.: `"espectador"`). Ao transmitir (`trilha.publicar`/`trilha.atualizar`) traz também `campo`: `"tipo"` quando o plano não transmite nada (nem só o som) e `"camadas"` quando uma camada passa do teto. Em `POST /salas` e `POST /salas/{codigo}/entrar` (plano `nenhum`), sem `campo` |
@@ -114,8 +117,8 @@ WebSocket/QUIC: mensagem `erro` com os mesmos códigos.
 | `sala_nao_encontrada` | 404 | código ou id inexistente |
 | `senha_sala` | 403 | senha da sala errada |
 | `sala_cheia` | 409 | sala atingiu o limite de participantes |
-| `proibido` | 403 | ação só do dono (ex.: encerrar sala) |
-| `limite` | 429 | limite de requisições/mensagens (traz `tentar_em_ms`) |
+| `proibido` | 403 | ação só do dono (ex.: encerrar sala, ligar o palco) ou dos anfitriões; no modo palco, a plateia transmitindo ou mexendo na música trancada (traz `campo: "palco"`) |
+| `limite` | 429 | limite de requisições/mensagens, ou levantar a mão cedo demais no palco (traz `tentar_em_ms`) |
 | `invalido` | 400 | corpo fora do formato (traz `campo`) |
 | `nao_encontrado` | 404 | caminho REST inexistente |
 | `interno` | 500 | erro no servidor |
